@@ -1,5 +1,4 @@
 // [01] App entry point — mounts React and wires the global providers
-// Reference: zara-returns-web/src/main.jsx
 
 
 // ═══════════════════════════════════════════════════════════════════

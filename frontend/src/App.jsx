@@ -1,5 +1,4 @@
 // [02] Route table — every page of the app and who is allowed to see it
-// Reference: zara-returns-web/src/App.jsx
 //
 // Route tree (D-01 acceptance: /login, /cases, /cases/:caseId; anonymous → /login)
 //   /login                     public

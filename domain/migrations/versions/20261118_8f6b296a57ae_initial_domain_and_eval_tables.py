@@ -49,7 +49,7 @@ def upgrade() -> None:
     op.create_table('cases',
     sa.Column('case_id', sa.String(length=20), nullable=False),
     sa.Column('store_id', sa.String(length=20), nullable=False),
-    sa.Column('status', sa.Enum('running', 'awaiting_approval', 'awaiting_merchant', 'completed', 'unsure', 'failed', name='case_status', native_enum=False, create_constraint=True, length=32), nullable=False),
+    sa.Column('status', sa.Enum('open', 'investigating', 'awaiting_decision', 'awaiting_merchant', 'action_dispatched', 'closed', 'paused', 'reopened', 'analyst_review', name='case_status', native_enum=False, create_constraint=True, length=32), nullable=False),
     sa.Column('trigger_rule', sa.String(length=64), nullable=False),
     sa.Column('window_start', sa.DateTime(timezone=True), nullable=False),
     sa.Column('window_end', sa.DateTime(timezone=True), nullable=False),

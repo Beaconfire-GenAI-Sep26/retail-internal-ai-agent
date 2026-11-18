@@ -83,12 +83,21 @@ class EventType(str, enum.Enum):
 
 
 class CaseStatus(str, enum.Enum):
-    RUNNING = "running"
-    AWAITING_APPROVAL = "awaiting_approval"
+    """Business state of a case, set by the Domain Service (B-01 contracts).
+
+    Not the same as the agent's investigation_status: a case exists before any
+    investigation starts and can outlive several investigations.
+    """
+
+    OPEN = "open"
+    INVESTIGATING = "investigating"
+    AWAITING_DECISION = "awaiting_decision"
     AWAITING_MERCHANT = "awaiting_merchant"
-    COMPLETED = "completed"
-    UNSURE = "unsure"
-    FAILED = "failed"
+    ACTION_DISPATCHED = "action_dispatched"
+    CLOSED = "closed"
+    PAUSED = "paused"
+    REOPENED = "reopened"
+    ANALYST_REVIEW = "analyst_review"
 
 
 def str_enum(enum_cls: type[enum.Enum], name: str) -> Enum:

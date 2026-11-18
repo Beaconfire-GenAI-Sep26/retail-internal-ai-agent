@@ -8,27 +8,64 @@
 //     /cases/:caseId                 CaseDetail   (placeholder now, D-02/D-03 fill it)
 //   *                          404
 // No /register — internal tool, accounts are seeded by the Auth Service (A-02).
+// No role guard — both roles may view cases; role only decides which ACTIONS show.
 
 
 // ═══════════════════════════════════════════════════════════════════
 // 1. Imports
 // ═══════════════════════════════════════════════════════════════════
-// TODO: Routes/Route/Navigate/Link, useDispatch, bootstrap thunk, Layout,
-//       AuthGuard, Login, Cases, CaseDetail
+import { useEffect } from 'react';
+import { Routes, Route, Navigate, Link } from 'react-router';
+import { useDispatch } from 'react-redux';
+
+import { bootstrap } from './store/auth/authThunks';
+import Layout from './components/Layout';
+import AuthGuard from './guards/AuthGuard';
+import Login from './pages/Login';
+import Cases from './pages/Cases';
+import CaseDetail from './pages/CaseDetail';
 
 
 // ═══════════════════════════════════════════════════════════════════
 // 2. App component
 // ═══════════════════════════════════════════════════════════════════
-
-// ── 2a. Session restore on first load ───────────────────────────
-// TODO: useEffect → dispatch(bootstrap()) once
-
-// ── 2b. Routes — see the route tree at the top of this file ─────
-// TODO: <Route path='/' element={<Layout />}> wrapping the tree above
-// For now (commit 1): a placeholder so the app builds and renders
 function App() {
-  return <h1>M&amp;I Diagnosis Workspace</h1>;
+  const dispatch = useDispatch();
+
+  // ── 2a. Session restore on first load ───────────────────────────
+  // Try to restore the session (refresh cookie, or the mock session). Until this
+  // settles, AuthGuard shows "Loading…" so a returning analyst isn't flashed to /login.
+  useEffect(() => {
+    dispatch(bootstrap());
+  }, [dispatch]);
+
+  // ── 2b. Routes — see the route tree at the top of this file ─────
+  return (
+    <Routes>
+      <Route path='/' element={<Layout />}>
+        {/* Public */}
+        <Route path='login' element={<Login />} />
+
+        {/* Any logged-in user */}
+        <Route element={<AuthGuard />}>
+          <Route index element={<Navigate to='/cases' replace />} />
+          <Route path='cases' element={<Cases />} />
+          <Route path='cases/:caseId' element={<CaseDetail />} />
+        </Route>
+
+        {/* Unknown URL → a way back instead of a dead end */}
+        <Route
+          path='*'
+          element={
+            <section>
+              <h1>Page Not Found</h1>
+              <Link to='/'>← Back to cases</Link>
+            </section>
+          }
+        />
+      </Route>
+    </Routes>
+  );
 }
 
 

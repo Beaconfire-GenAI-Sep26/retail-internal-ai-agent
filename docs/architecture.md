@@ -89,10 +89,12 @@ Loaded with pydantic-settings. Compose reads them from the git-ignored `.env`. O
 | `ROOT_PATH` | `/agent` | auth, agent, domain | The service's gateway prefix, so its API docs use the public path |
 | `GATEWAY_PORT` | `8080` | gateway | Host port |
 | `POSTGRES_DB` | `mi_agent` | postgres | Database name |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD` | `postgres`, `change-me` | postgres | Superuser, init only |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD` | `postgres`, `change-me` | postgres and db-setup | Administrator for initialization and role provisioning |
 | `AUTH_DB_PASSWORD` | `change-me` | auth | `auth_svc` role password |
 | `DOMAIN_DB_PASSWORD` | `change-me` | domain | `domain_svc` role password |
 | `AGENT_DB_PASSWORD` | `change-me` | agent | `agent_svc` role password |
+| `EVAL_DB_PASSWORD` | `change-me` | db-setup and separate B-05 runner | Read-only `eval_runner` role password |
+| `MIGRATION_DB_PASSWORD` | `change-me` | db-setup and migration or seed commands | `db_migrator` role password |
 | `JWT_SECRET` | `change-me-32-bytes-min` | auth, agent, domain | Token signing key |
 | `JWT_ISSUER` | `mi-auth` | auth, agent, domain | Expected `iss` claim |
 | `JWT_TTL_MINUTES` | `60` | auth | Token lifetime |
@@ -123,6 +125,16 @@ The monitor defaults follow the C-01 report, which tunes the seed so STORE-A and
 rate above 5% with at least 100 eligible orders, while STORE-I and STORE-J don't. C-02 owns the final
 values. A 2.25% goal could let ordinary week-to-week noise in the normal stores, which sit near 1.5%, open cases.
 
-Each service receives its own `DATABASE_URL` in the form `postgresql+psycopg://<role>:<password>@postgres:5432/<db>`,
-which Compose builds from the variables above. C-01 already reads this name. The agent's checkpointer uses
-psycopg directly, so the agent drops the `+psycopg` driver suffix before connecting.
+Each service receives its own `DATABASE_URL` in the form
+`postgresql+psycopg://<role>@postgres:5432/<db>`. Compose supplies its corresponding
+password separately as `PGPASSWORD`, which the PostgreSQL driver reads. This
+supports raw passwords containing URL punctuation. C-01 already reads
+`DATABASE_URL`.
+
+The A-01 `db-setup` job provisions the roles before services start. Each runtime
+role is restricted to its schema. `db_migrator` owns `domain` and `eval` and runs
+migrations and seed commands. `eval_runner` reads the Golden Dataset answer key
+for B-05. Their credentials belong to those separate processes. The setup job
+configures grants on existing tables and default privileges for later migrations.
+After a C-01 reset drops and recreates the schemas, rerun `db-setup` to restore
+schema access and table grants. See the [A-01 setup guide](../a-01-scaffold/README.md#database-identities).

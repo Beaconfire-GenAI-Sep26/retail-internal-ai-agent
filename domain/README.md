@@ -37,7 +37,7 @@ cases, store data, read-only diagnostic tools and the fixed-rule store monitor.
    export DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/retail"
    ```
 
-3. Create or upgrade the tables only (what the service runs on startup):
+3. Create or upgrade the tables with the migration identity:
 
    ```bash
    alembic upgrade head
@@ -130,6 +130,13 @@ On seed 24 with `as_of` 2026-11-15 the monitor opens cases for STORE-A and STORE
 - `evidence_ids` follow the order in agent-graph.md and stop at 200.
 
 ## Changing a table
+
+When using the shared A-01 database, run migrations and seed commands as
+`db_migrator`, with `DATABASE_URL` set to that role's connection URL and
+`PGPASSWORD` set from `MIGRATION_DB_PASSWORD`. After the intentional reset command
+recreates `domain` and `eval`, run `docker compose run --rm db-setup` from
+`a-01-scaffold` to restore runtime grants. The Domain API uses `domain_svc`.
+The B-05 evaluation runner uses the separate read-only `eval_runner` identity.
 
 1. Edit the model in `app/models.py`.
 2. `alembic revision --autogenerate -m "describe the change"` and review the new file in `migrations/versions/`.

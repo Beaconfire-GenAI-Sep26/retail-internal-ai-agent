@@ -1,0 +1,73 @@
+[
+ {
+  "item_id": "ITEM-C-001",
+  "store_id": "STORE-C",
+  "name": "Margherita Pizza",
+  "category": "entree",
+  "price": 15.99,
+  "available_modifiers": [
+   "Extra cheese",
+   "Gluten-free crust"
+  ]
+ },
+ {
+  "item_id": "ITEM-C-002",
+  "store_id": "STORE-C",
+  "name": "Pepperoni Pizza",
+  "category": "entree",
+  "price": 17.49,
+  "available_modifiers": [
+   "Extra cheese"
+  ]
+ },
+ {
+  "item_id": "ITEM-C-003",
+  "store_id": "STORE-C",
+  "name": "Chicken Alfredo",
+  "category": "entree",
+  "price": 16.99,
+  "available_modifiers": []
+ },
+ {
+  "item_id": "ITEM-C-004",
+  "store_id": "STORE-C",
+  "name": "Spaghetti Bolognese",
+  "category": "entree",
+  "price": 15.49,
+  "available_modifiers": []
+ },
+ {
+  "item_id": "ITEM-C-005",
+  "store_id": "STORE-C",
+  "name": "Garlic Knots",
+  "category": "side",
+  "price": 5.99,
+  "available_modifiers": []
+ },
+ {
+  "item_id": "ITEM-C-006",
+  "store_id": "STORE-C",
+  "name": "Caesar Salad",
+  "category": "side",
+  "price": 8.99,
+  "available_modifiers": [
+   "No croutons"
+  ]
+ },
+ {
+  "item_id": "ITEM-C-007",
+  "store_id": "STORE-C",
+  "name": "Soda Can",
+  "category": "drink",
+  "price": 1.99,
+  "available_modifiers": []
+ },
+ {
+  "item_id": "ITEM-C-008",
+  "store_id": "STORE-C",
+  "name": "Tiramisu",
+  "category": "dessert",
+  "price": 6.99,
+  "available_modifiers": []
+ }
+]

@@ -12,8 +12,9 @@ import { login, bootstrap, logout } from './authThunks';
 // 2. Initial state
 // ═══════════════════════════════════════════════════════════════════
 const initialState = {
-  user: null, // { id, username, display_name, role, store_ids } — from GET /auth/me
+  user: null, // contract User: { user_id, display_name, role, store_ids }
   token: null, // access token, kept in memory only (never localStorage)
+  expiresAt: null, // ISO time the token expires (LoginResponse.expires_at), for D-06 expiry notice
   status: 'idle', // 'idle' | 'loading' | 'succeeded' | 'failed' — last login attempt
   loginError: null, // message shown on the login form
   bootstrapped: false, // has the on-load session restore finished yet?
@@ -55,6 +56,7 @@ const authSlice = createSlice({
         state.status = 'succeeded';
         state.token = action.payload.token;
         state.user = action.payload.user;
+        state.expiresAt = action.payload.expiresAt ?? null;
         state.bootstrapped = true;
       })
       .addCase(login.rejected, (state, action) => {
@@ -65,6 +67,7 @@ const authSlice = createSlice({
       .addCase(bootstrap.fulfilled, (state, action) => {
         state.token = action.payload.token;
         state.user = action.payload.user;
+        state.expiresAt = action.payload.expiresAt ?? null;
         state.bootstrapped = true;
       })
       .addCase(bootstrap.rejected, (state) => {

@@ -210,7 +210,7 @@ can't show, because that is what the model chooses from.
 | `compare_periods`        | Rate before and after a date, for a target and a control                                                                                                                                         | Whether the event caused the change, without a control | `POST /stores/{id}/diagnostics/compare-periods`        | orders, order_items, mi_claims |
 | `sample_evidence`        | Up to 10 claim or cancellation records for a filter, with `customer_comments`                                                                                                                    | Frequency. Samples illustrate and don't measure.       | `POST /stores/{id}/diagnostics/evidence-sample`        | mi_claims, cancellations       |
 | `cancellation_breakdown` | Cancellations grouped by `cancellation_category`, `item_id`, `daypart`, weekday or day. Categories are `item_out_of_stock`, `too_busy`, `menu_data_mismatch`, `pos_technical_error` and `other`. | M&I claims. Canceled orders never have claims.         | `POST /stores/{id}/diagnostics/cancellation-breakdown` | cancellations, orders          |
-| `fraud_signals`          | Pending claims concentrated on a few `customer_ref` values                                                                                                                                       | Whether a claim is fraudulent. It flags, never judges. | `GET /stores/{id}/diagnostics/fraud-signals`           | mi_claims, orders              |
+| `fraud_signals`          | `customer_ref` values with at least `FRAUD_MIN_PENDING_CLAIMS` (default 4) pending claims in the window                                                                                          | Whether a claim is fraudulent. It flags, never judges. | `GET /stores/{id}/diagnostics/fraud-signals`           | mi_claims, orders              |
 | `merchant_replies`       | Replies to this case's approved questions                                                                                                                                                        | Whether a reply is true                                | `GET /cases/{case_id}/merchant-replies`                | C-04                           |
 | `action_catalog`         | Allowed interventions and handoffs                                                                                                                                                               | —                                                      | `GET /catalog/actions`                                 | C-03                           |
 
@@ -218,6 +218,9 @@ can't show, because that is what the model chooses from.
 `review_label` or `day`. Its `ClaimFilter` accepts `item_id`, `modifiers`, `daypart`, `weekday`, an
 `item_count` range, `error_category` and `review_label`. Request shapes are `ClaimBreakdownRequest`,
 `ComparePeriodsRequest`, `EvidenceSampleRequest` and `CancellationBreakdownRequest` in the contracts.
+Grouped by `modifier`, claims with no `modifier_detail` form no group but still count in the totals. `day` and
+`weekday` use the store-local date of the order. See [Rate rules](contracts.md#rate-rules) and
+[Conventions](contracts.md#conventions).
 
 ### Metric names
 
@@ -236,7 +239,7 @@ Every `Metric` in a `ToolResult` uses one of these names, so the prompt can rely
 | `compare_periods` | `rate_before`, `rate_after` | `target` or `control` | rate | The rate in the period before and after `split_date` |
 | `cancellation_breakdown` | `cancellation_rate` | `<group_by>=<value>` | rate | The group's cancellations divided by its placed orders |
 | `cancellation_breakdown` | `cancellation_count` | same | count | The group's cancellations |
-| `fraud_signals` | `claim_count` | `customer_ref=<ref>`, flagged refs only | count | Pending claims from one customer reference that the Domain Service flags as concentrated |
+| `fraud_signals` | `claim_count` | `customer_ref=<ref>`, flagged refs only | count | Pending claims from one `customer_ref`. A ref is flagged only when it has at least `FRAUD_MIN_PENDING_CLAIMS` (default 4) pending claims in the window |
 
 `event_log` and `sample_evidence` return no metrics. Their records come in `ToolResult.evidence`.
 

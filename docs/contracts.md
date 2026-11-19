@@ -12,6 +12,7 @@ Domain. Service boundaries are in [architecture.md](architecture.md). The invest
 - **JSON with `snake_case` fields.** Timestamps are stored in UTC (`timestamptz`) and sent as ISO 8601, for example `2026-11-03T23:10:00Z`. Dates are `YYYY-MM-DD`.
 - **Paths are service-relative.** Through the gateway, prefix them with `/auth`, `/agent` or `/domain`. Routes under `/internal/` exist only on the Docker network.
 - **`daypart`** is computed from the order's local time in the store's `timezone`, with the same boundaries for every store: `breakfast` 05:00–10:59, `lunch` 11:00–15:59, `dinner` 16:00–20:59, and `late_night` 21:00–04:59. It is a meal period, not a staff shift. Linking a daypart pattern to a crew needs the merchant's reply.
+- **Days are store-local dates.** Every date that groups or filters orders is the date of the order's `placed_at` in the store's `timezone`. That covers `group_by: "day"`, `daily_claim_rate`, `CaseDetail.daily_rates`, `weekday`, and the `start`, `end` and `split_date` filters. A claim or cancellation counts on its order's date, not on `reported_at` or `canceled_at`. Events use the local date of `started_at`.
 - **Order size** is `orders.item_count`, the proxy for multi-bag orders. Grouped results bucket it as `item_count_bucket`: `1-2`, `3-4` or `5+`.
 - **Rates are decimals from 0 to 1**, always sent with their numerator and denominator. A rate that can't be supported is `null`, with `data_sufficient: false`. It is never `0`.
 - **Missing values are `null`**, not omitted.
@@ -35,6 +36,10 @@ These match C-01 and apply to every Domain number:
 | Insufficient data                                | A group with fewer than `MIN_GROUP_ORDERS` eligible orders returns `value: null`                                                                           |
 
 When claims are grouped by `item_id`, rows with a null `item_id` fall into the group `item_id=unknown`.
+When claims are grouped by `modifier`, claims with a null `modifier_detail` form no group and are left out of
+`evidence_ids`. They still count in the filter's totals, so `claim_share` is taken over all attributable claims and
+lift (see [Evidence ID ordering](#evidence-id-ordering)) stays the group's rate divided by the filter's rate. A note
+gives their count, for example `"435 of 557 claims have no modifier_detail"`.
 Pending claims are counted, and every `ToolResult` reports how many of its claims are still pending.
 
 ## Headers
@@ -500,7 +505,7 @@ its group has fewer than `MIN_GROUP_ORDERS` eligible orders.
 | `compare_periods` | `rate_before`, `rate_after` | `target` or `control` | `rate` | The rate in the period before and after `split_date` |
 | `cancellation_breakdown` | `cancellation_rate` | `<group_by>=<value>` | `rate` | The group's cancellations divided by its placed orders |
 | `cancellation_breakdown` | `cancellation_count` | same | `count` | The group's cancellations |
-| `fraud_signals` | `claim_count` | `customer_ref=<ref>`, flagged refs only | `count` | Pending claims from one customer reference that the Domain Service flags as concentrated |
+| `fraud_signals` | `claim_count` | `customer_ref=<ref>`, flagged refs only | `count` | Pending claims from one `customer_ref`. A ref is flagged only when it has at least `FRAUD_MIN_PENDING_CLAIMS` (default 4) pending claims in the window |
 
 `event_log` and `sample_evidence` return no metrics. Their records come in `ToolResult.evidence`.
 

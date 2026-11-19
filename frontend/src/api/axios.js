@@ -37,7 +37,7 @@ export const refreshSession = () => {
       withCredentials: true,
     }).then(({ data }) => {
       if (started !== generation) throw new Error('Session changed during refresh');
-      store?.dispatch(sessionRefreshed({ token: data.access_token, user: data.user }));
+      store?.dispatch(sessionRefreshed({ token: data.access_token, user: data.user, expiresAt: data.expires_at }));
       return data;
     }).finally(() => {
       if (refreshPromise === pending) refreshPromise = null;

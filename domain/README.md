@@ -3,6 +3,14 @@
 FastAPI service with JWT/store access control, SQLAlchemy models, migrations and
 repeatable synthetic data for 10 stores (Oct 5 - Nov 15, 2026). The entry point is
 `domain.app.main:app`; Compose builds this directory together with `shared/`.
+
+The app now mounts C-02's case, evidence, monitor and diagnostic routers behind
+the shared JWT/default-deny boundary. ORM sessions use the app's configured
+engine, and query principals inherit its narrowed store grants. Cross-service
+tests and the graph run from the repository root with qualified package imports.
+
+Database-backed tests require `DOMAIN_TEST_DATABASE_URL` naming a separate seeded
+`retail_merge_test_*` database; they clear test cases and must not use app data.
 Run all commands below in Bash on macOS from the repository root.
 
 ## Files

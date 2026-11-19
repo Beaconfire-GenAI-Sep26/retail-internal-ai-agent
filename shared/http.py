@@ -34,7 +34,7 @@ async def json_object(request):
 def error_response(request: Request, error: APIError) -> JSONResponse:
     headers = {"WWW-Authenticate": "Bearer"} if error.status == 401 else {}
     return JSONResponse(status_code=error.status, headers=headers, content={"error": {
-        "code": error.code, "message": error.message, "details": None,
+        "code": error.code, "message": error.message, "details": error.details,
         "request_id": getattr(request.state, "request_id", None),
     }})
 
@@ -43,7 +43,7 @@ def install_http(app, authorize):
     """Authenticate before routing; new business routes are protected by default."""
     @app.middleware("http")
     async def security_boundary(request, call_next):
-        request_id = request.headers.get("X-Request-ID", "")
+        request_id = getattr(request.state, "request_id", None) or request.headers.get("X-Request-ID", "")
         request.state.request_id = request_id if 0 < len(request_id) <= 128 else uuid4().hex
         try:
             if service_path(request) not in PUBLIC_PATHS:

@@ -1,0 +1,119 @@
+[
+ {
+  "item_id": "ITEM-A-001",
+  "store_id": "STORE-A",
+  "name": "Orange Chicken",
+  "category": "entree",
+  "price": 13.99,
+  "available_modifiers": [
+   "Extra spicy",
+   "No onion",
+   "Extra sauce"
+  ]
+ },
+ {
+  "item_id": "ITEM-A-002",
+  "store_id": "STORE-A",
+  "name": "Kung Pao Chicken",
+  "category": "entree",
+  "price": 14.49,
+  "available_modifiers": [
+   "Extra spicy",
+   "No peanuts",
+   "Extra sauce"
+  ]
+ },
+ {
+  "item_id": "ITEM-A-003",
+  "store_id": "STORE-A",
+  "name": "Beef and Broccoli",
+  "category": "entree",
+  "price": 15.99,
+  "available_modifiers": [
+   "No onion",
+   "Extra sauce"
+  ]
+ },
+ {
+  "item_id": "ITEM-A-004",
+  "store_id": "STORE-A",
+  "name": "Sweet and Sour Pork",
+  "category": "entree",
+  "price": 14.99,
+  "available_modifiers": [
+   "Extra sauce"
+  ]
+ },
+ {
+  "item_id": "ITEM-A-005",
+  "store_id": "STORE-A",
+  "name": "Mapo Tofu",
+  "category": "entree",
+  "price": 12.99,
+  "available_modifiers": [
+   "Extra spicy",
+   "Extra sauce"
+  ]
+ },
+ {
+  "item_id": "ITEM-A-006",
+  "store_id": "STORE-A",
+  "name": "Fried Rice",
+  "category": "side",
+  "price": 7.99,
+  "available_modifiers": [
+   "No egg"
+  ]
+ },
+ {
+  "item_id": "ITEM-A-007",
+  "store_id": "STORE-A",
+  "name": "Chow Mein",
+  "category": "side",
+  "price": 8.49,
+  "available_modifiers": []
+ },
+ {
+  "item_id": "ITEM-A-008",
+  "store_id": "STORE-A",
+  "name": "Egg Rolls (2)",
+  "category": "side",
+  "price": 4.99,
+  "available_modifiers": []
+ },
+ {
+  "item_id": "ITEM-A-009",
+  "store_id": "STORE-A",
+  "name": "Hot and Sour Soup",
+  "category": "side",
+  "price": 5.49,
+  "available_modifiers": []
+ },
+ {
+  "item_id": "ITEM-A-010",
+  "store_id": "STORE-A",
+  "name": "Jasmine Tea",
+  "category": "drink",
+  "price": 2.99,
+  "available_modifiers": []
+ },
+ {
+  "item_id": "ITEM-A-011",
+  "store_id": "STORE-A",
+  "name": "Bubble Milk Tea",
+  "category": "drink",
+  "price": 5.49,
+  "available_modifiers": [
+   "Less sugar",
+   "No ice"
+  ]
+ },
+ {
+  "item_id": "ITEM-A-012",
+  "store_id": "STORE-A",
+  "name": "Mango Pudding",
+  "category": "dessert",
+  "price": 4.99,
+  "available_modifiers": []
+ }
+]

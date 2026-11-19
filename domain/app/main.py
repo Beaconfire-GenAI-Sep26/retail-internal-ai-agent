@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text, bindparam
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import sessionmaker
 
 from shared.database import database_engine
 from shared.http import error_response, install_http
@@ -23,6 +24,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.engine = app.state.engine_override if app.state.engine_override is not None else database_engine()
     app.state.service_token = app.state.service_token_override or os.environ["INTERNAL_SERVICE_TOKEN"]
     app.state.access = DomainAccess(app.state.engine)
+    session_engine = app.state.engine.execution_options(schema_translate_map={"domain": None, "eval": None}) \
+        if app.state.engine.dialect.name == "sqlite" else app.state.engine
+    app.state.session_factory = sessionmaker(bind=session_engine, autoflush=False, expire_on_commit=False)
     try:
         yield
     finally:
@@ -30,7 +34,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.engine.dispose()
 
 
-def create_app(engine=None, settings=None, service_token=None):
+def create_app(engine=None, settings=None, service_token=None, *, business_routes=True):
     app = FastAPI(title="Retail Domain Service", version="0.2.0", lifespan=lifespan)
     app.state.engine_override = engine
     app.state.jwt_override = settings
@@ -49,6 +53,20 @@ def create_app(engine=None, settings=None, service_token=None):
     app.add_api_route("/ready", ready, methods=["GET"], tags=["health"])
     app.add_api_route("/stores/{store_id}", store, methods=["GET"])
     app.add_api_route("/stores/{store_id}/menu", menu, methods=["GET"])
+    if business_routes:
+        from .routers import cases, evidence, monitor, stores
+        from .errors import ApiError
+        app.include_router(cases.router)
+        app.include_router(evidence.router)
+        app.include_router(monitor.router)
+        # Preserve the existing lightweight store/menu reads; include all C-02 diagnostics.
+        for route in stores.router.routes:
+            if route.path not in {"/stores/{store_id}", "/stores/{store_id}/menu"}:
+                app.router.routes.append(route)
+
+        @app.exception_handler(ApiError)
+        async def domain_error(request, exc):
+            return error_response(request, exc)
     return app
 
 

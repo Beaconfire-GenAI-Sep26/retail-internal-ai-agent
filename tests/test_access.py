@@ -17,7 +17,7 @@ SERVICE_TOKEN = "test-internal-service-token"
 
 @pytest.fixture
 def domain(domain_engine, settings):
-    app = domain_app(domain_engine, settings, SERVICE_TOKEN)
+    app = domain_app(domain_engine, settings, SERVICE_TOKEN, business_routes=False)
     app.state.calls = []
 
     # Probe handlers exercise A-02 policy without implementing C-03 decisions,

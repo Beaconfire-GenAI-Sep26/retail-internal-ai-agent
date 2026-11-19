@@ -1,8 +1,16 @@
 import { expect, it } from 'vitest';
-import reducer from './authSlice';
+import reducer, { sessionRefreshed } from './authSlice';
 import { bootstrap, login, logout } from './authThunks';
 
 const session = { token: 'restored-token', user: { user_id: 'USR-001', role: 'loe_analyst' } };
+
+it('keeps expiry metadata after refresh and clears it on logout', () => {
+  const expiresAt = '2026-11-19T23:00:00Z';
+  let state = reducer(undefined, sessionRefreshed({ ...session, expiresAt }));
+  expect(state.expiresAt).toBe(expiresAt);
+  state = reducer(state, logout.pending('logout'));
+  expect(state.expiresAt).toBeNull();
+});
 
 it('ignores a bootstrap fulfillment queued before logout', () => {
   let state = reducer(undefined, bootstrap.pending('restore'));

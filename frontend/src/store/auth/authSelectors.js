@@ -9,6 +9,7 @@
 // so there is nothing to memoize.
 export const selectUser = (state) => state.auth.user;
 export const selectToken = (state) => state.auth.token;
+export const selectExpiresAt = (state) => state.auth.expiresAt;
 export const selectIsAuthenticated = (state) => Boolean(state.auth.token);
 export const selectAuthStatus = (state) => state.auth.status;
 export const selectLoginError = (state) => state.auth.loginError;

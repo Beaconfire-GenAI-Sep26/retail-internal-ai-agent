@@ -17,11 +17,12 @@ B-02 acceptance criteria:
 3. Insufficient evidence or exhausted checks return `unsure`. An operational failure yields a structured `failed` status and a log.
 
 **Platform integration status:**
-- Root `agent/` contains the service entry point, shared JWT boundary and scoped HTTP Domain client. The graph modules below remain B-02 work.
+- Root `agent/` now runs B-02's API, graph and memory runner behind the shared JWT boundary and scoped HTTP Domain client.
 - The Agent Service uses **uv**: `agent/pyproject.toml` plus a committed `agent/uv.lock`, built from the repository root so it can include `shared/`.
 - Root `compose.yaml` launches `auth/`, `agent/`, `domain/` and `frontend/`, with gateway/database setup in `platform/`.
-- The C-02 diagnostics APIs don't exist yet.
-- The v0.3 contracts (menu endpoint, metric names, evidence ordering) are on the B-01 branch, not yet on `main`.
+- C-02 case, store, evidence, monitor and diagnostic routers are integrated into the Domain factory.
+- Service and test imports use `agent.app` / `domain.app` from the repository root; package names cannot collide.
+- Memory checkpoints, scripted/fixture tests and direct Claude calls are integrated. Postgres checkpoints, merchant resumes and A-03 tracing remain separate milestones.
 
 **Seed facts that shape the design** ([`domain/scripts/reset_and_seed.py`](../domain/scripts/reset_and_seed.py)):
 - Orders get `Extra sauce` only from Oct 30. A `compare_periods` with target `modifiers=["Extra sauce"]` split on Oct 30 therefore has no "before" orders.

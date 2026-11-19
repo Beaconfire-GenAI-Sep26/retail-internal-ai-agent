@@ -14,6 +14,7 @@ import { login, bootstrap, logout } from './authThunks';
 const initialState = {
   user: null, // { user_id, display_name, role, store_ids } — shared User DTO
   token: null, // access token, kept in memory only (never localStorage)
+  expiresAt: null,
   status: 'idle', // 'idle' | 'loading' | 'succeeded' | 'failed' — last login attempt
   loginError: null, // message shown on the login form
   bootstrapped: false, // has the on-load session restore finished yet?
@@ -38,6 +39,7 @@ const authSlice = createSlice({
     sessionRefreshed(state, action) {
       state.token = action.payload.token;
       state.user = action.payload.user;
+      state.expiresAt = action.payload.expiresAt ?? null;
     },
     // Wipe the session when a silent refresh fails
     credentialsCleared() {
@@ -58,6 +60,7 @@ const authSlice = createSlice({
         state.status = 'succeeded';
         state.token = action.payload.token;
         state.user = action.payload.user;
+        state.expiresAt = action.payload.expiresAt ?? null;
         state.bootstrapped = true;
       })
       .addCase(login.rejected, (state, action) => {
@@ -72,6 +75,7 @@ const authSlice = createSlice({
         if (state.bootstrapRequestId !== action.meta.requestId) return;
         state.token = action.payload.token;
         state.user = action.payload.user;
+        state.expiresAt = action.payload.expiresAt ?? null;
         state.bootstrapped = true;
         state.bootstrapRequestId = null;
       })

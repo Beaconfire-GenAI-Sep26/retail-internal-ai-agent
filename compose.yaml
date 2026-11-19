@@ -26,9 +26,12 @@ services:
       AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?Set AUTH_DB_PASSWORD}
       DOMAIN_DB_PASSWORD: ${DOMAIN_DB_PASSWORD:?Set DOMAIN_DB_PASSWORD}
       AGENT_DB_PASSWORD: ${AGENT_DB_PASSWORD:?Set AGENT_DB_PASSWORD}
+      EVAL_DB_PASSWORD: ${EVAL_DB_PASSWORD:-}
+      MIGRATION_DB_PASSWORD: ${MIGRATION_DB_PASSWORD:-}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./platform/postgres/001-service-roles.sh:/docker-entrypoint-initdb.d/001-service-roles.sh:ro
+      - ./platform/postgres:/setup:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
@@ -75,6 +78,9 @@ services:
       AGENT_EFFORT: ${AGENT_EFFORT:-high}
       AGENT_MAX_STEPS: ${AGENT_MAX_STEPS:-12}
       AGENT_MAX_RETRIES: ${AGENT_MAX_RETRIES:-2}
+      AGENT_DOMAIN_MODE: ${AGENT_DOMAIN_MODE:-http}
+      AGENT_CHECKPOINTER: ${AGENT_CHECKPOINTER:-memory}
+      AGENT_RUN_TIMEOUT_SECONDS: ${AGENT_RUN_TIMEOUT_SECONDS:-1200}
     depends_on:
       postgres:
         condition: service_healthy

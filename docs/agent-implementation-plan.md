@@ -25,7 +25,7 @@ B-02 acceptance criteria:
 
 **Seed facts that shape the design** ([`domain/scripts/reset_and_seed.py`](../domain/scripts/reset_and_seed.py)):
 - Orders get `Extra sauce` only from Oct 30. A `compare_periods` with target `modifiers=["Extra sauce"]` split on Oct 30 therefore has no "before" orders.
-- `pick_review_label` never returns `pending`. On seed data, `fraud_signals` is empty and the pending caps never fire.
+- The C-01 seed has no `pending` claims, so `fraud_signals` is empty and the pending caps never fire. C-02 adds pending claims, and C-05 includes a store where one `customer_ref` has 4+ pending claims.
 - STORE-B adds 1–3 claims per affected order. The dinner 5+ `claim_rate` is about 0.5–0.7 claims per order.
 
 ## Key decisions
@@ -436,8 +436,8 @@ from `fraud_signals`.
 |---|---|
 | G1 | Cited IDs are in `retrieved_evidence_ids` |
 | G2 | Update IDs exist. New hypotheses come only from `new_hypotheses`, each with a `ref` the same output can use. `other` needs a specific statement. To narrow a hypothesis, update its statement rather than open a new one. |
-| G3 | `supported` needs a sufficient test or challenge check with `matched[h] == if_true` |
-| G4 | `ruled_out` needs a sufficient check listing h in `discriminates`, with `matched[h] == if_false`, plus a rationale |
+| G3 | `supported` needs a sufficient test or challenge check with `matched[h] == if_true`, from a tool that returns rates. `event_log` and `sample_evidence` always report enough data, so they never count. |
+| G4 | `ruled_out` needs a sufficient check listing h in `discriminates`, with `matched[h] == if_false`, plus a rationale. As in G3, the check must come from a tool that returns rates. |
 | G4b | `inconclusive` needs a discriminating check that was insufficient or matched "neither", or a data-limit cause such as `dasher_handoff` |
 | G5 | `dasher_handoff` is never `supported` or `ruled_out` |
 | G8 | At least two hypotheses exist after the first turn |
@@ -454,7 +454,7 @@ from `fraud_signals`.
 
 **Conclude gate:**
 - **K1.** The leader is `supported`.
-- **K2.** A challenge has `challenges == leader`, is sufficient, and has `matched[leader] == if_true`. Its signature (tool, group_by and filter keys) must differ from every check that supported the leader.
+- **K2.** A challenge has `challenges == leader`, is sufficient, comes from a tool that returns rates, and has `matched[leader] == if_true`. Its signature (tool, group_by and filter keys) must differ from every check that supported the leader.
 - **K3.** Every rival is `ruled_out`, or `inconclusive` under G4b with its gap written down.
 - **K4.** An all-types `event_log` covered `rise_started_at` ± 7 days. Each event overlapping that span must be cited by a rival that has a status, or by the leader if both hold:
   - The event's type fits the cause: `menu_change` or `pos_change` for `pos_modifier_mapping` and `menu_change`.
@@ -630,7 +630,7 @@ sequenceDiagram
   - Per store: `case.json`, `menu.json`, `overview.json`, `fraud_signals.json` and `checks.json`, a list of `{match, result}`.
   - Shared: `common/catalog.json`.
 - **Numbers** follow the seed facts above and the contracts' rules: no group for claims without a `modifier_detail`, with a note giving their count, and store-local dates. STORE-C is a flat store, used for a live `unsure` run.
-- **Fraud path:** a separate `fraud_signals` fixture with one flagged `customer_ref` drives the `load_case` test for `suspect_cluster`. The seed has no `pending` claims, so real data can't exercise this path yet.
+- **Fraud path:** a separate `fraud_signals` fixture with one flagged `customer_ref` drives the `load_case` test for `suspect_cluster`. Real data covers this path once C-02 adds pending claims to the seed.
 - **Matching** keys on the tool, `group_by` and the filter dimensions, not exact dates.
 - **Misses:** an unmatched query returns `data_sufficient: false` with a "no fixture" note. The smoke report counts the misses.
 - **Frontend use:** `AGENT_DOMAIN_MODE=fixtures` lets the frontend drive real investigations through the gateway before C-02 is ready.
@@ -648,9 +648,7 @@ flowchart TB
   end
 ```
 
-- **`data_sufficient`** follows per-tool rules agreed with the Domain owner. Proposed:
-  - `compare_periods` is sufficient when target-after and both control periods meet `MIN_GROUP_ORDERS`. An empty target-before period returns `null` with a note.
-  - Breakdowns are sufficient when the filter's population is. Per-group `null` marks the small groups.
+- **`data_sufficient`** follows the per-tool rules in [contracts.md](contracts.md#when-a-result-has-enough-data).
 
 ## Tracing and logs (hooks for A-03)
 
@@ -679,20 +677,18 @@ The current SDK reads `LANGFUSE_BASE_URL`, so architecture.md's `LANGFUSE_HOST` 
 - **contracts.md:**
   - The window is anchored on `case.window_end`. `opened_at` is wall-clock time and can fall after the seeded data.
   - The investigation error codes.
-  - The per-tool `data_sufficient` rules, once agreed.
 - **architecture.md:**
   - The new env vars and `LANGFUSE_BASE_URL`.
   - `DATABASE_URL` without `+psycopg` for psycopg.
   - The `AGENT_EFFORT` note.
 
 **Domain (C-02, C-03):**
-1. The per-tool `data_sufficient` rules. STORE-A's challenge depends on them.
+1. Confirm the breakdown rows of "When a result has enough data" in contracts.md.
 2. Clip dates to the store's data range rather than returning 422, and report the clipped window.
 3. Ship the status `PUT` with C-02, and accept a service-token-only `PUT` for terminal statuses.
 4. A 409 `PROPOSAL_PENDING` should return the existing `proposal_id`.
 5. Catalog contents: include an analyst handoff that applies to every cause. The seed's golden labels (`pos`, `diagnosed`, `merchant`, `ask_merchant_fix_pos_modifier_mapping`) don't match the contracts' enums or the catalog IDs. B-05 needs them aligned.
 6. `/evidence/resolve` must accept the analyst's forwarded JWT.
-7. C-05 seeds a store where one `customer_ref` has 4+ pending claims, so `fraud_signals` and `fraud_cluster` can be tested.
 
 **Platform (A-01, A-02, A-03):**
 1. `agent/` at the repo root, versus A-01's `a-01-scaffold/services/agent`. The agent image builds with uv (`pyproject.toml` and `uv.lock`), not pip and `requirements.txt`. Compose needs no change beyond the build path.

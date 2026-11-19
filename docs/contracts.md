@@ -14,7 +14,7 @@ Domain. Service boundaries are in [architecture.md](architecture.md). The invest
 - **`daypart`** is computed from the order's local time in the store's `timezone`, with the same boundaries for every store: `breakfast` 05:00–10:59, `lunch` 11:00–15:59, `dinner` 16:00–20:59, and `late_night` 21:00–04:59. It is a meal period, not a staff shift. Linking a daypart pattern to a crew needs the merchant's reply.
 - **Days are store-local dates.** Every date that groups or filters orders is the date of the order's `placed_at` in the store's `timezone`. That covers `group_by: "day"`, `daily_claim_rate`, `CaseDetail.daily_rates`, `weekday`, and the `start`, `end` and `split_date` filters. A claim or cancellation counts on its order's date, not on `reported_at` or `canceled_at`. Events use the local date of `started_at`.
 - **Order size** is `orders.item_count`, the proxy for multi-bag orders. Grouped results bucket it as `item_count_bucket`: `1-2`, `3-4` or `5+`.
-- **Rates are decimals from 0 to 1**, always sent with their numerator and denominator. A rate that can't be supported is `null`, with `data_sufficient: false`. It is never `0`.
+- **Rates are decimals from 0 to 1**, always sent with their numerator and denominator. A rate that can't be supported is `null`, never `0`. Whether a whole result has enough data is defined in [When a result has enough data](#when-a-result-has-enough-data).
 - **Missing values are `null`**, not omitted.
 - **The investigation window** runs for the 42 days ending on the case's `opened_at` date, clipped to the start of the store's data. A request may give its own dates.
 - **Money** is in USD, stored as `numeric(10,2)` and sent as a number.
@@ -41,6 +41,18 @@ When claims are grouped by `modifier`, claims with a null `modifier_detail` form
 lift (see [Evidence ID ordering](#evidence-id-ordering)) stays the group's rate divided by the filter's rate. A note
 gives their count, for example `"435 of 557 claims have no modifier_detail"`.
 Pending claims are counted, and every `ToolResult` reports how many of its claims are still pending.
+
+### When a result has enough data
+
+`ToolResult.data_sufficient` describes the whole result. A single group below `MIN_GROUP_ORDERS` gets
+`value: null` but doesn't by itself make the result insufficient.
+
+| Tool | `data_sufficient` is true when |
+|---|---|
+| `compare_periods` | The target's after period and both control periods each have at least `MIN_GROUP_ORDERS` eligible orders. An empty target before period returns `rate_before: null` with a note. |
+| `claim_breakdown`, `cancellation_breakdown` | The filter has at least `MIN_GROUP_ORDERS` eligible orders, or placed orders for cancellations |
+| `store_overview`, `fraud_signals` | The window has at least `MIN_GROUP_ORDERS` eligible orders |
+| `event_log`, `sample_evidence` | Always true. They return records, not rates. |
 
 ## Headers
 
@@ -424,7 +436,7 @@ interface ToolResult {
   window: { start: string; end: string };
   eligible_orders: number;
   pending_claims: number; // pending claims inside the counted claims
-  data_sufficient: boolean;
+  data_sufficient: boolean; // see "When a result has enough data"
   headline: string; // deterministic one-line finding, written by Domain
   metrics: Metric[];
   evidence_ids: string[]; // every record behind the metrics; ordered as in "Evidence ID ordering" below

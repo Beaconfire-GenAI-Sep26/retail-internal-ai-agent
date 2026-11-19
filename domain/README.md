@@ -30,7 +30,7 @@ PostgreSQL and loads synthetic data for 10 stores (Oct 5 - Nov 15, 2026).
    export DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/retail"
    ```
 
-3. Create or upgrade the tables only (what the service runs on startup):
+3. Create or upgrade the tables with the migration identity:
 
    ```bash
    alembic upgrade head
@@ -46,6 +46,13 @@ PostgreSQL and loads synthetic data for 10 stores (Oct 5 - Nov 15, 2026).
    Running the reset again deletes everything in `domain` and `eval` and produces identical data.
 
 ## Changing a table
+
+When using the shared A-01 database, run migrations and seed commands as
+`db_migrator`, with `DATABASE_URL` set to that role's connection URL and
+`PGPASSWORD` set from `MIGRATION_DB_PASSWORD`. After the intentional reset command
+recreates `domain` and `eval`, run `docker compose run --rm db-setup` from
+`a-01-scaffold` to restore runtime grants. The Domain API uses `domain_svc`.
+The B-05 evaluation runner uses the separate read-only `eval_runner` identity.
 
 1. Edit the model in `app/models.py`.
 2. `alembic revision --autogenerate -m "describe the change"` and review the new file in `migrations/versions/`.

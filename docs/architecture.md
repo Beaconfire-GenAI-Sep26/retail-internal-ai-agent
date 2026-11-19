@@ -1,6 +1,6 @@
 # Architecture
 
-v0.2 draft, Wed Nov 18, 2026. Service boundaries, call directions, the auth flow, and environment
+v0.3 draft, Thu Nov 19, 2026. Service boundaries, call directions, the auth flow, and environment
 variables.
 
 ## Services and boundaries
@@ -86,6 +86,7 @@ Loaded with pydantic-settings. Compose reads them from the git-ignored `.env`. O
 |---|---|---|---|
 | `APP_ENV` | `local` | all | `local`, `ci` or `demo` |
 | `LOG_LEVEL` | `info` | all | Log verbosity |
+| `ROOT_PATH` | `/agent` | auth, agent, domain | The service's gateway prefix, so its API docs use the public path |
 | `GATEWAY_PORT` | `8080` | gateway | Host port |
 | `POSTGRES_DB` | `mi_agent` | postgres | Database name |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD` | `postgres`, `change-me` | postgres | Superuser, init only |
@@ -99,11 +100,18 @@ Loaded with pydantic-settings. Compose reads them from the git-ignored `.env`. O
 | `DOMAIN_SERVICE_URL` | `http://domain:8000` | agent | Internal Domain address |
 | `ANTHROPIC_API_KEY` | empty | agent | Claude API key |
 | `ANTHROPIC_MODEL` | `claude-opus-5-5` | agent | Model ID, recorded in every eval run |
-| `AGENT_EFFORT` | `high` | agent | Effort for the investigation node |
+| `AGENT_EFFORT` | `medium` | agent | Effort for the `reason` node: `low`, `medium`, `high`, `xhigh` or `max`. `medium` is Claude Opus 5.5's default; the M0 spike measures the options. |
+| `AGENT_SPEED` | `standard` | agent | `standard` or `fast`. Fast mode costs about twice as much per token. |
 | `AGENT_MAX_STEPS` | `12` | agent | Maximum tool checks per investigation |
 | `AGENT_MAX_RETRIES` | `2` | agent | Retries per failed model or tool call |
-| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | empty | agent | Langfuse Cloud keys |
-| `LANGFUSE_HOST` | `https://cloud.langfuse.com` | agent | Langfuse endpoint |
+| `AGENT_RUN_TIMEOUT_SECONDS` | `1200` | agent | Wall-clock limit per investigation. A run past it fails with `RUN_TIMEOUT`. A token that expires sooner is refused at start. |
+| `AGENT_MAX_QUESTIONS` | `0` | agent | Merchant questions per run. `0` until merchant questions are on, then `2`. |
+| `AGENT_MAX_REASON_CALLS` | empty | agent | Optional cap on reasoning turns. Empty means `2 * AGENT_MAX_STEPS + 4`. |
+| `AGENT_DOMAIN_MODE` | `http` | agent | `http` calls the Domain Service. `fixtures` answers from the agent's fixtures, for work before C-02. |
+| `AGENT_FIXTURES_DIR` | `tests/fixtures/domain` | agent | The fixture folder for fixtures mode |
+| `AGENT_CHECKPOINTER` | `memory` | agent | `memory`, or `postgres` once the `agent` schema and role exist |
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | empty | agent | Langfuse Cloud keys. Empty keys turn tracing off. |
+| `LANGFUSE_BASE_URL` | `https://cloud.langfuse.com` | agent | Langfuse endpoint |
 | `MONITOR_GOAL_RATE` | `0.05` | domain | 7-day M&I rate goal for the demo. The proposal cites 2.25% as a real-world reference. |
 | `MONITOR_SPIKE_RATIO` | `1.5` | domain | Opens a case when the 7-day rate is at least this multiple of the 28-day baseline |
 | `MONITOR_MIN_ORDERS` | `100` | domain | Minimum 7-day eligible orders before a store can open a case |
@@ -116,4 +124,5 @@ rate above 5% with at least 100 eligible orders, while STORE-I and STORE-J don't
 values. A 2.25% goal could let ordinary week-to-week noise in the normal stores, which sit near 1.5%, open cases.
 
 Each service receives its own `DATABASE_URL` in the form `postgresql+psycopg://<role>:<password>@postgres:5432/<db>`,
-which Compose builds from the variables above. C-01 already reads this name.
+which Compose builds from the variables above. C-01 already reads this name. The agent's checkpointer uses
+psycopg directly, so the agent drops the `+psycopg` driver suffix before connecting.

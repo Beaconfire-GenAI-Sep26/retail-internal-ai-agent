@@ -1,6 +1,6 @@
 # Contracts
 
-v0.2 draft, Wed Nov 18, 2026. IDs, enums, shared DTOs, endpoint payloads and errors for Auth, Agent and
+v0.3 draft, Wed Nov 18, 2026. IDs, enums, shared DTOs, endpoint payloads and errors for Auth, Agent and
 Domain. Service boundaries are in [architecture.md](architecture.md). The investigation design is in
 [agent-graph.md](agent-graph.md). Domain data names and rules follow C-01.
 
@@ -12,8 +12,9 @@ Domain. Service boundaries are in [architecture.md](architecture.md). The invest
 - **JSON with `snake_case` fields.** Timestamps are stored in UTC (`timestamptz`) and sent as ISO 8601, for example `2026-11-03T23:10:00Z`. Dates are `YYYY-MM-DD`.
 - **Paths are service-relative.** Through the gateway, prefix them with `/auth`, `/agent` or `/domain`. Routes under `/internal/` exist only on the Docker network.
 - **`daypart`** is computed from the order's local time in the store's `timezone`, with the same boundaries for every store: `breakfast` 05:00–10:59, `lunch` 11:00–15:59, `dinner` 16:00–20:59, and `late_night` 21:00–04:59. It is a meal period, not a staff shift. Linking a daypart pattern to a crew needs the merchant's reply.
+- **Days are store-local dates.** Every date that groups or filters orders is the date of the order's `placed_at` in the store's `timezone`. That covers `group_by: "day"`, `daily_claim_rate`, `CaseDetail.daily_rates`, `weekday`, and the `start`, `end` and `split_date` filters. A claim or cancellation counts on its order's date, not on `reported_at` or `canceled_at`. Events use the local date of `started_at`.
 - **Order size** is `orders.item_count`, the proxy for multi-bag orders. Grouped results bucket it as `item_count_bucket`: `1-2`, `3-4` or `5+`.
-- **Rates are decimals from 0 to 1**, always sent with their numerator and denominator. A rate that can't be supported is `null`, with `data_sufficient: false`. It is never `0`.
+- **Rates are decimals from 0 to 1**, always sent with their numerator and denominator. A rate that can't be supported is `null`, never `0`. Whether a whole result has enough data is defined in [When a result has enough data](#when-a-result-has-enough-data).
 - **Missing values are `null`**, not omitted.
 - **The investigation window** runs for the 42 days ending on the case's `opened_at` date, clipped to the start of the store's data. A request may give its own dates.
 - **Money** is in USD, stored as `numeric(10,2)` and sent as a number.
@@ -35,7 +36,23 @@ These match C-01 and apply to every Domain number:
 | Insufficient data                                | A group with fewer than `MIN_GROUP_ORDERS` eligible orders returns `value: null`                                                                           |
 
 When claims are grouped by `item_id`, rows with a null `item_id` fall into the group `item_id=unknown`.
+When claims are grouped by `modifier`, claims with a null `modifier_detail` form no group and are left out of
+`evidence_ids`. They still count in the filter's totals, so `claim_share` is taken over all attributable claims and
+lift (see [Evidence ID ordering](#evidence-id-ordering)) stays the group's rate divided by the filter's rate. A note
+gives their count, for example `"435 of 557 claims have no modifier_detail"`.
 Pending claims are counted, and every `ToolResult` reports how many of its claims are still pending.
+
+### When a result has enough data
+
+`ToolResult.data_sufficient` describes the whole result. A single group below `MIN_GROUP_ORDERS` gets
+`value: null` but doesn't by itself make the result insufficient.
+
+| Tool | `data_sufficient` is true when |
+|---|---|
+| `compare_periods` | The target's after period and both control periods each have at least `MIN_GROUP_ORDERS` eligible orders. An empty target before period returns `rate_before: null` with a note. |
+| `claim_breakdown`, `cancellation_breakdown` | The filter has at least `MIN_GROUP_ORDERS` eligible orders, or placed orders for cancellations |
+| `store_overview`, `fraud_signals` | The window has at least `MIN_GROUP_ORDERS` eligible orders |
+| `event_log`, `sample_evidence` | Always true. They return records, not rates. |
 
 ## Headers
 
@@ -95,7 +112,7 @@ type event_type = "menu_change" | "pos_change" | "store_downtime" | "promotion";
 // C-01 orders.status takes "delivered" or "canceled".
 
 // Named after C-01's case_status. C-01 currently gives it the six investigation_status
-// values. Request 1 below proposes these business values instead.
+// values. These business values are proposed instead; see "Status model".
 type case_status =
   | "open"
   | "investigating"
@@ -173,7 +190,9 @@ statuses.
 
 **Needs a C-01 change.** C-01 defines `case_status` with the six `investigation_status` values. Those
 values describe one investigation. A case exists before any investigation starts, and a reopened case
-has two investigations, so `case_status` needs the business values above. See request 1.
+has two investigations, so `case_status` needs the business values above. The enum name and the
+`cases.status` column stay as C-01 defines them, and only the values change. The `cases` table is still
+empty, so the change is cheapest before C-02 starts filling it.
 
 | `investigation_status` | Meaning                                                                       |
 | ---------------------- | ----------------------------------------------------------------------------- |
@@ -238,6 +257,16 @@ interface StoreSummary {
   city: string;
   timezone: string; // IANA name, e.g. "America/New_York"
   cuisine: string;
+}
+
+interface MenuItem {
+  // columns of C-01 menu_items
+  item_id: string; // ITEM-A-007
+  store_id: string;
+  name: string;
+  category: string;
+  price: number; // USD, numeric(10,2)
+  available_modifiers: string[]; // modifier names, e.g. ["Extra sauce"]
 }
 
 interface CaseSummary {
@@ -407,16 +436,16 @@ interface ToolResult {
   window: { start: string; end: string };
   eligible_orders: number;
   pending_claims: number; // pending claims inside the counted claims
-  data_sufficient: boolean;
+  data_sufficient: boolean; // see "When a result has enough data"
   headline: string; // deterministic one-line finding, written by Domain
   metrics: Metric[];
-  evidence_ids: string[]; // every record behind the metrics
+  evidence_ids: string[]; // every record behind the metrics; ordered as in "Evidence ID ordering" below
   evidence: Evidence[]; // filled only by sample_evidence and event_log
   notes: string[]; // e.g. "3 claims excluded: review_label fraud"
 }
 
 interface Metric {
-  name: string; // e.g. "claim_rate", "claim_share", "order_share", "rate_before", "rate_after"
+  name: string; // one of the names in "Metric names" below
   group: string | null; // "modifier=Extra sauce", "daypart=dinner", "item_count=5+", "item_id=ITEM-A-007", "target", "control"
   value: number | null;
   numerator: number | null;
@@ -436,6 +465,61 @@ interface ActionCatalogEntry {
 
 Grouping by `modifier` uses `mi_claims.modifier_detail` for claims and `order_items.modifiers` for the
 order denominator. Grouping by `item_count` returns `item_count_bucket` groups.
+
+### Evidence ID ordering
+
+A check can return hundreds of evidence IDs, and the agent shows the model only the first 20. So the
+Domain Service returns `ToolResult.evidence_ids` sorted with the most useful records first. The sort
+uses only the numbers of the query itself, and the Domain Service never knows the agent's hypotheses.
+The same query always returns the same order.
+
+Every list is sorted by these keys, in order:
+
+1. **Groups with enough data first.** Records from groups with at least `MIN_GROUP_ORDERS` eligible orders come before records from smaller groups. A tiny group can show a huge lift by chance, and this keeps it from filling the top of the list.
+2. **Group statistic, highest first.** Groups are ranked by the tool's own statistic in the table below.
+3. **Time.** Within a group, records are sorted by their timestamp, newest first. `event_log` is the exception and lists oldest first.
+4. **`evidence_id`, ascending,** to break any remaining tie.
+
+Results without groups skip steps 1 and 2.
+
+| Tool | Group statistic, step 2 | Timestamp, step 3 |
+|---|---|---|
+| `store_overview` | No groups | `reported_at`, newest first |
+| `claim_breakdown` | Lift: `claim_share` divided by `order_share` | `reported_at`, newest first |
+| `compare_periods` | Fixed order: the `target` after `split_date`, then the `target` before it, then the `control` | `reported_at`, newest first |
+| `cancellation_breakdown` | `cancellation_rate` | `canceled_at`, newest first |
+| `fraud_signals` | `claim_count` per flagged `customer_ref` | `reported_at`, newest first |
+| `event_log` | No groups | `started_at`, oldest first |
+| `sample_evidence` | No groups | `reported_at` or `canceled_at`, newest first, at most `limit` records |
+
+**Lift** is a group's share of claims divided by its share of orders. A lift above 1 means the group has
+more than its fair share of claims.
+
+**Example**, with illustrative numbers. STORE-A runs `claim_breakdown` grouped by `modifier`.
+`Extra sauce` appears on 6% of eligible orders but carries 41% of attributable claims, a lift of about 6.8.
+That is the highest of any group with enough orders, so its claims come first, newest first. The first
+20 IDs the model sees are `Extra sauce` claims, which are the ones it needs to cite.
+
+### Metric names
+
+Every `Metric` uses one of these names, so the agent's prompt can rely on them. A rate is `null` when
+its group has fewer than `MIN_GROUP_ORDERS` eligible orders.
+
+| Tool | Metric `name` | `group` | `unit` | Meaning |
+|---|---|---|---|---|
+| `store_overview` | `claim_rate` | `null` | `rate` | Attributable claims divided by eligible orders in the window |
+| `store_overview` | `claim_count` | `review_label=<value>`, all four labels | `count` | Claims per label, including the excluded `fraud` and `not_store_fault` claims |
+| `store_overview` | `claim_count` | `error_category=<value>` | `count` | Attributable claims per error category |
+| `store_overview` | `daily_claim_rate` | `day=<YYYY-MM-DD>` | `rate` | The rate for each day in the window |
+| `claim_breakdown` | `claim_rate` | `<group_by>=<value>`, such as `modifier=Extra sauce` | `rate` | The group's attributable claims divided by its eligible orders |
+| `claim_breakdown` | `claim_share` | same | `share` | The group's share of all attributable claims in the filter |
+| `claim_breakdown` | `order_share` | same | `share` | The group's share of all eligible orders in the filter |
+| `compare_periods` | `rate_before`, `rate_after` | `target` or `control` | `rate` | The rate in the period before and after `split_date` |
+| `cancellation_breakdown` | `cancellation_rate` | `<group_by>=<value>` | `rate` | The group's cancellations divided by its placed orders |
+| `cancellation_breakdown` | `cancellation_count` | same | `count` | The group's cancellations |
+| `fraud_signals` | `claim_count` | `customer_ref=<ref>`, flagged refs only | `count` | Pending claims from one `customer_ref`. A ref is flagged only when it has at least `FRAUD_MIN_PENDING_CLAIMS` (default 4) pending claims in the window |
+
+`event_log` and `sample_evidence` return no metrics. Their records come in `ToolResult.evidence`.
 
 ### Investigations, UI-facing
 
@@ -713,6 +797,7 @@ read-only and never change data.
 | `GET /cases/{case_id}/rechecks`                                     | viewer, analyst        | —                                                       | 200 `Recheck[]`                                                                         | 403, 404                                                               |
 | `POST /monitor/run`                                                 | analyst                | `{ "as_of": "2026-11-15" }` or empty, `Idempotency-Key` | 200 `{ run_id, evaluated_store_ids, opened_case_ids, skipped: [{ store_id, reason }] }` | 403                                                                    |
 | `GET /stores/{store_id}`                                            | viewer, analyst, agent | —                                                       | 200 `StoreSummary`                                                                      | 403, 404                                                               |
+| `GET /stores/{store_id}/menu` | viewer, analyst, agent | — | 200 `MenuItem[]`, the store's menu with each item's `available_modifiers` | 403, 404 |
 | `GET /stores/{store_id}/overview?start=&end=`                       | viewer, analyst, agent | —                                                       | 200 `ToolResult`                                                                        | 403, 422                                                               |
 | `GET /stores/{store_id}/diagnostics/events?start=&end=&event_type=` | viewer, analyst, agent | —                                                       | 200 `ToolResult` with `evidence` filled                                                 | 403, 422                                                               |
 | `POST /stores/{store_id}/diagnostics/claim-breakdown`               | viewer, analyst, agent | `ClaimBreakdownRequest`                                 | 200 `ToolResult`                                                                        | 403, 422                                                               |

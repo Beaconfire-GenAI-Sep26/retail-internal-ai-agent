@@ -108,6 +108,7 @@ Loaded with pydantic-settings. Compose reads them from the git-ignored `.env`. O
 | `MONITOR_SPIKE_RATIO` | `1.5` | domain | Opens a case when the 7-day rate is at least this multiple of the 28-day baseline |
 | `MONITOR_MIN_ORDERS` | `100` | domain | Minimum 7-day eligible orders before a store can open a case |
 | `MIN_GROUP_ORDERS` | `30` | domain | Below this, a group's rate is withheld as insufficient |
+| `FRAUD_MIN_PENDING_CLAIMS` | `4` | domain | Pending claims one `customer_ref` needs in the window before `fraud_signals` flags it |
 | `RECHECK_DAYS_DEFAULT` | `14` | domain | Days from dispatch to recheck when the proposal gives none |
 
 The monitor defaults follow the C-01 report, which tunes the seed so STORE-A and STORE-B cross a 7-day

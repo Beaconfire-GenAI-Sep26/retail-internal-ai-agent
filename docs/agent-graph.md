@@ -1,6 +1,6 @@
 # Agent graph
 
-v0.2 draft, Wed Nov 18, 2026. The LangGraph investigation: how the agent chooses what to check, its
+v0.3 draft, Wed Nov 18, 2026. The LangGraph investigation: how the agent chooses what to check, its
 state, nodes, guards, conclude gate, pause and resume, limits, and diagnostic tools. DTOs referenced here
 are defined in [contracts.md](contracts.md). Facts about the data come from C-01.
 
@@ -56,7 +56,7 @@ reply or rejection reason, and `reason` decides again from the full state.
 
 | Node                     | Model call | Does                                                                                                                                                                                                                                                                                                                    | Next                                                 |
 | ------------------------ | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `load_case`              | No         | Reads the case, the store, and the store overview for the window. Records claims excluded with `review_label` of `fraud` or `not_store_fault`, and any suspect cluster. For a reopened case, loads the prior run's hypotheses and rulings, and adds the failed recheck as evidence against the cause that was acted on. | `reason`                                             |
+| `load_case`              | No         | Reads the case, the store, and the store overview for the window. Reads the store's menu from `GET /stores/{store_id}/menu` and fills `known_items` and `known_modifiers`. Adds the overview's evidence IDs to `retrieved_evidence_ids` and passes the overview to `reason` as the first finding. Records claims excluded with `review_label` of `fraud` or `not_store_fault`. Also calls `fraud_signals` for the window, sets `suspect_cluster` when it flags any `customer_ref`, and adds its evidence IDs. Neither call counts toward the step limit. For a reopened case, loads the prior run's hypotheses and rulings, and adds the failed recheck as evidence against the cause that was acted on. | `reason`                                             |
 | `reason`                 | Yes        | Assesses the latest finding, updates every hypothesis it bears on, and picks one next action with a full plan. Returns a `ReasonOutput`.                                                                                                                                                                                | by action type                                       |
 | `guard`                  | No         | Applies the rules in [Guards](#guards). A rejected update or plan goes back to `reason` with the reason attached, at most twice in a row.                                                                                                                                                                               | `run_check` or `reason`                              |
 | `run_check`              | No         | Calls one allowlisted read-only tool with validated arguments. Stores the plan, the result, and the evidence IDs in `retrieved_evidence_ids`.                                                                                                                                                                           | `reason`                                             |
@@ -74,10 +74,10 @@ and `submit_recommendation` nodes, after validation.
 
 Each turn, the model receives:
 
-- **The case and store.** The trigger, window, timezone, and exclusions.
+- **The case and store.** The trigger, window, timezone, and exclusions. Also the store's menu: item IDs, item names and modifier names, so filters use values that exist.
 - **The data limits.** The table above, so the model knows what no check can prove.
-- **The hypotheses.** Every hypothesis with its status, evidence and rationale, plus causes ruled out in a prior run.
-- **The latest result in full.** Earlier checks appear as their plan and headline only.
+- **The hypotheses.** Every hypothesis with its status, evidence and rationale, plus causes ruled out in a prior run. On a new case the list starts empty, and the first turn opens at least two.
+- **The latest result.** Its headline, metrics and notes in full, plus at most 20 of its evidence IDs and the total count. These are the first 20 in the order the Domain Service returns them, which puts the most concentrated group's newest records first. See "Evidence ID ordering" in [contracts.md](contracts.md#evidence-id-ordering). Every returned ID still goes into `retrieved_evidence_ids`. To cite records from another group, the agent runs `sample_evidence` filtered to that group. On the first turn, this is the store overview from `load_case`. Earlier checks appear as their plan and headline only.
 - **Pending feedback.** Any rejection from `guard` or `conclude_gate`.
 - **Budget.** Steps left, questions left, and whether a question is open.
 - **Untrusted text.** `customer_comments` and merchant reply `text` are quoted and marked as data.
@@ -152,7 +152,7 @@ Check kinds:
 | A cause ruled out in a prior run stays ruled out unless new contradicting evidence is cited                           | Reopening doesn't erase earlier findings                                                                                              |
 | A merchant reply alone can't make a hypothesis `supported`                                                            | Replies are weighed against platform evidence, as the sprint plan requires                                                            |
 | A `test` or `challenge` check must name hypotheses and expectations                                                   | Every focused check has a stated reason                                                                                               |
-| The same tool with the same arguments can't run twice                                                                 | No loops on repeated checks                                                                                                           |
+| The same tool with the same arguments can't run twice. This includes the `store_overview` and `fraud_signals` calls made by `load_case`. | No loops on repeated checks                                                                                                           |
 | Filter values must exist: known item IDs, menu modifier names, dates within the store's data                          | Domain would reject them with `VALIDATION_ERROR`, which would waste a step                                                            |
 | `explore` checks are capped at 3                                                                                      | Exploration must turn into testing                                                                                                    |
 
@@ -210,7 +210,7 @@ can't show, because that is what the model chooses from.
 | `compare_periods`        | Rate before and after a date, for a target and a control                                                                                                                                         | Whether the event caused the change, without a control | `POST /stores/{id}/diagnostics/compare-periods`        | orders, order_items, mi_claims |
 | `sample_evidence`        | Up to 10 claim or cancellation records for a filter, with `customer_comments`                                                                                                                    | Frequency. Samples illustrate and don't measure.       | `POST /stores/{id}/diagnostics/evidence-sample`        | mi_claims, cancellations       |
 | `cancellation_breakdown` | Cancellations grouped by `cancellation_category`, `item_id`, `daypart`, weekday or day. Categories are `item_out_of_stock`, `too_busy`, `menu_data_mismatch`, `pos_technical_error` and `other`. | M&I claims. Canceled orders never have claims.         | `POST /stores/{id}/diagnostics/cancellation-breakdown` | cancellations, orders          |
-| `fraud_signals`          | Pending claims concentrated on a few `customer_ref` values                                                                                                                                       | Whether a claim is fraudulent. It flags, never judges. | `GET /stores/{id}/diagnostics/fraud-signals`           | mi_claims, orders              |
+| `fraud_signals`          | `customer_ref` values with at least `FRAUD_MIN_PENDING_CLAIMS` (default 4) pending claims in the window                                                                                          | Whether a claim is fraudulent. It flags, never judges. | `GET /stores/{id}/diagnostics/fraud-signals`           | mi_claims, orders              |
 | `merchant_replies`       | Replies to this case's approved questions                                                                                                                                                        | Whether a reply is true                                | `GET /cases/{case_id}/merchant-replies`                | C-04                           |
 | `action_catalog`         | Allowed interventions and handoffs                                                                                                                                                               | —                                                      | `GET /catalog/actions`                                 | C-03                           |
 
@@ -218,8 +218,36 @@ can't show, because that is what the model chooses from.
 `review_label` or `day`. Its `ClaimFilter` accepts `item_id`, `modifiers`, `daypart`, `weekday`, an
 `item_count` range, `error_category` and `review_label`. Request shapes are `ClaimBreakdownRequest`,
 `ComparePeriodsRequest`, `EvidenceSampleRequest` and `CancellationBreakdownRequest` in the contracts.
+Grouped by `modifier`, claims with no `modifier_detail` form no group but still count in the totals. `day` and
+`weekday` use the store-local date of the order. See [Rate rules](contracts.md#rate-rules) and
+[Conventions](contracts.md#conventions).
+
+### Metric names
+
+Every `Metric` in a `ToolResult` uses one of these names, so the prompt can rely on them. A rate is
+`null` when its group has fewer than `MIN_GROUP_ORDERS` eligible orders.
+
+| Tool | Metric `name` | `group` | `unit` | Meaning |
+|---|---|---|---|---|
+| `store_overview` | `claim_rate` | none | rate | Attributable claims divided by eligible orders in the window |
+| `store_overview` | `claim_count` | `review_label=<value>`, all four labels | count | Claims per label, including the excluded `fraud` and `not_store_fault` claims |
+| `store_overview` | `claim_count` | `error_category=<value>` | count | Attributable claims per error category |
+| `store_overview` | `daily_claim_rate` | `day=<YYYY-MM-DD>` | rate | The rate for each day in the window |
+| `claim_breakdown` | `claim_rate` | `<group_by>=<value>`, such as `modifier=Extra sauce` | rate | The group's attributable claims divided by its eligible orders |
+| `claim_breakdown` | `claim_share` | same | share | The group's share of all attributable claims in the filter |
+| `claim_breakdown` | `order_share` | same | share | The group's share of all eligible orders in the filter |
+| `compare_periods` | `rate_before`, `rate_after` | `target` or `control` | rate | The rate in the period before and after `split_date` |
+| `cancellation_breakdown` | `cancellation_rate` | `<group_by>=<value>` | rate | The group's cancellations divided by its placed orders |
+| `cancellation_breakdown` | `cancellation_count` | same | count | The group's cancellations |
+| `fraud_signals` | `claim_count` | `customer_ref=<ref>`, flagged refs only | count | Pending claims from one `customer_ref`. A ref is flagged only when it has at least `FRAUD_MIN_PENDING_CLAIMS` (default 4) pending claims in the window |
+
+`event_log` and `sample_evidence` return no metrics. Their records come in `ToolResult.evidence`.
+
+`evidence_ids` in every result arrive in the fixed order defined under "Evidence ID ordering" in [contracts.md](contracts.md#evidence-id-ordering). The `reason` prompt shows the first 20.
 
 `POST /evidence/resolve` validates citations in `finalize`. It is not offered to the model as a tool.
+
+`GET /stores/{store_id}/menu` is read once by `load_case`. It is not offered to the model as a tool, because the menu is already in every `reason` prompt.
 
 A `handoff_signals` tool for Dasher events is reserved. It will be added only if a Dasher table exists.
 
@@ -233,7 +261,7 @@ the real data.
 
 | Turn | Check, with kind                                                                                                    | Result                                                                                                                              | Hypothesis updates                                                                                                                                                |
 | ---- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | `store_overview`, explore                                                                                           | Rate rises in early November, mostly `missing_item`. Four `fraud` claims already excluded.                                          | Opens `packing`, `menu_change`, and promotion overload as `other`. Adds `dasher_handoff`, since whole bags might be missing.                                      |
+| 1    | No check. `reason` reads the overview that `load_case` fetched.                                                     | Rate rises in early November, mostly `missing_item`. Four `fraud` claims already excluded.                                          | Opens `packing`, `menu_change`, and promotion overload as `other`. Adds `dasher_handoff`, since whole bags might be missing.                                      |
 | 2    | `event_log`, explore                                                                                                | Nov 1 `menu_change` to a dessert price. `promotion` Nov 3–9.                                                                        | Both events start near the rise, so both stay candidates.                                                                                                         |
 | 3    | `claim_breakdown` grouped by `item_count`, filtered to Nov 3 onward, test                                           | The `5+` bucket holds a far larger share of claims than of orders                                                                   | `packing` supported. A price change can't explain missing items on large orders, so `menu_change` is contradicted.                                                |
 | 4    | `claim_breakdown` grouped by `daypart`, filtered to `item_count_min` 5 from Nov 3, test                             | Concentrated in `dinner`. `lunch` stays normal.                                                                                     | `packing` narrows to `dinner` on large orders                                                                                                                     |
@@ -268,12 +296,12 @@ class InvestigationState(TypedDict):
     step_count: int                      # completed run_check calls
     explore_count: int
     excluded: ExclusionSummary           # claims with review_label fraud or not_store_fault
-    suspect_cluster: bool                # concentrated pending claims flagged for fraud review
-    known_items: list[str]               # item IDs on the store's menu, for the guard
-    known_modifiers: list[str]           # modifier names on the store's menu
+    suspect_cluster: bool                # set by load_case from fraud_signals; pending claims flagged for fraud review
+    known_items: list[str]               # item IDs from GET /stores/{store_id}/menu, for the guard
+    known_modifiers: list[str]           # available_modifiers from the same menu call
     hypotheses: list[Hypothesis]
     checks: list[CheckRecord]
-    retrieved_evidence_ids: list[str]    # citations must come from this list
+    retrieved_evidence_ids: list[str]    # from the load_case overview and every check; citations must come from this list
     challenge_check_ids: list[str]
     questions_asked: int                 # cap 2
     question_open: bool

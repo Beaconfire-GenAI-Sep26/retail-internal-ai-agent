@@ -1,6 +1,6 @@
 """Alembic environment for the Domain service.
 
-- Connection string comes from DATABASE_URL (see app/db.py).
+- Connection settings come from app/db.py (DATABASE_URL or POSTGRES_* variables).
 - Only the `domain` and `eval` schemas belong to this service; other schemas
   in the shared database (auth, agent checkpoints) are ignored.
 - Alembic's own version table lives in `domain`, so it never clashes with

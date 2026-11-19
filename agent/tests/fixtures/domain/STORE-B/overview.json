@@ -1,0 +1,511 @@
+{
+ "tool": "store_overview",
+ "store_id": "STORE-B",
+ "window": {
+  "start": "2026-10-05",
+  "end": "2026-11-15"
+ },
+ "eligible_orders": 3178,
+ "pending_claims": 0,
+ "data_sufficient": true,
+ "headline": "Claim rate 2.6% (82 claims on 3178 eligible orders) from 2026-10-05 to 2026-11-15; the last 7 days ran at 6.0%.",
+ "metrics": [
+  {
+   "name": "claim_rate",
+   "group": null,
+   "value": 0.0258,
+   "numerator": 82,
+   "denominator": 3178,
+   "unit": "rate"
+  },
+  {
+   "name": "claim_count",
+   "group": "review_label=store_fault",
+   "value": 82,
+   "numerator": null,
+   "denominator": null,
+   "unit": "count"
+  },
+  {
+   "name": "claim_count",
+   "group": "review_label=not_store_fault",
+   "value": 19,
+   "numerator": null,
+   "denominator": null,
+   "unit": "count"
+  },
+  {
+   "name": "claim_count",
+   "group": "review_label=fraud",
+   "value": 6,
+   "numerator": null,
+   "denominator": null,
+   "unit": "count"
+  },
+  {
+   "name": "claim_count",
+   "group": "review_label=pending",
+   "value": 0,
+   "numerator": null,
+   "denominator": null,
+   "unit": "count"
+  },
+  {
+   "name": "claim_count",
+   "group": "error_category=missing_item",
+   "value": 61,
+   "numerator": null,
+   "denominator": null,
+   "unit": "count"
+  },
+  {
+   "name": "claim_count",
+   "group": "error_category=incorrect_item",
+   "value": 10,
+   "numerator": null,
+   "denominator": null,
+   "unit": "count"
+  },
+  {
+   "name": "claim_count",
+   "group": "error_category=ingredient_error",
+   "value": 10,
+   "numerator": null,
+   "denominator": null,
+   "unit": "count"
+  },
+  {
+   "name": "claim_count",
+   "group": "error_category=wrong_order",
+   "value": 1,
+   "numerator": null,
+   "denominator": null,
+   "unit": "count"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-05",
+   "value": 0.0,
+   "numerator": 0,
+   "denominator": 87,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-06",
+   "value": 0.0,
+   "numerator": 0,
+   "denominator": 72,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-07",
+   "value": 0.0,
+   "numerator": 0,
+   "denominator": 62,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-08",
+   "value": 0.0,
+   "numerator": 0,
+   "denominator": 61,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-09",
+   "value": 0.0,
+   "numerator": 0,
+   "denominator": 95,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-10",
+   "value": 0.0268,
+   "numerator": 3,
+   "denominator": 112,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-11",
+   "value": 0.0147,
+   "numerator": 1,
+   "denominator": 68,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-12",
+   "value": 0.0189,
+   "numerator": 1,
+   "denominator": 53,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-13",
+   "value": 0.0137,
+   "numerator": 1,
+   "denominator": 73,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-14",
+   "value": 0.0417,
+   "numerator": 3,
+   "denominator": 72,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-15",
+   "value": 0.0,
+   "numerator": 0,
+   "denominator": 65,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-16",
+   "value": 0.012,
+   "numerator": 1,
+   "denominator": 83,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-17",
+   "value": 0.0263,
+   "numerator": 2,
+   "denominator": 76,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-18",
+   "value": 0.0135,
+   "numerator": 1,
+   "denominator": 74,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-19",
+   "value": 0.0147,
+   "numerator": 1,
+   "denominator": 68,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-20",
+   "value": 0.0429,
+   "numerator": 3,
+   "denominator": 70,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-21",
+   "value": 0.0,
+   "numerator": 0,
+   "denominator": 75,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-22",
+   "value": 0.0541,
+   "numerator": 4,
+   "denominator": 74,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-23",
+   "value": 0.0267,
+   "numerator": 2,
+   "denominator": 75,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-24",
+   "value": 0.0,
+   "numerator": 0,
+   "denominator": 79,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-25",
+   "value": 0.0,
+   "numerator": 0,
+   "denominator": 64,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-26",
+   "value": 0.0161,
+   "numerator": 1,
+   "denominator": 62,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-27",
+   "value": 0.0,
+   "numerator": 0,
+   "denominator": 69,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-28",
+   "value": 0.0,
+   "numerator": 0,
+   "denominator": 69,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-29",
+   "value": 0.0159,
+   "numerator": 1,
+   "denominator": 63,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-30",
+   "value": 0.0133,
+   "numerator": 1,
+   "denominator": 75,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-10-31",
+   "value": 0.0,
+   "numerator": 0,
+   "denominator": 85,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-11-01",
+   "value": 0.0152,
+   "numerator": 1,
+   "denominator": 66,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-11-02",
+   "value": 0.0241,
+   "numerator": 2,
+   "denominator": 83,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-11-03",
+   "value": 0.0127,
+   "numerator": 1,
+   "denominator": 79,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-11-04",
+   "value": 0.0941,
+   "numerator": 8,
+   "denominator": 85,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-11-05",
+   "value": 0.0465,
+   "numerator": 4,
+   "denominator": 86,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-11-06",
+   "value": 0.027,
+   "numerator": 2,
+   "denominator": 74,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-11-07",
+   "value": 0.0408,
+   "numerator": 4,
+   "denominator": 98,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-11-08",
+   "value": 0.0225,
+   "numerator": 2,
+   "denominator": 89,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-11-09",
+   "value": 0.1084,
+   "numerator": 9,
+   "denominator": 83,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-11-10",
+   "value": 0.0263,
+   "numerator": 2,
+   "denominator": 76,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-11-11",
+   "value": 0.0167,
+   "numerator": 1,
+   "denominator": 60,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-11-12",
+   "value": 0.1447,
+   "numerator": 11,
+   "denominator": 76,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-11-13",
+   "value": 0.0247,
+   "numerator": 2,
+   "denominator": 81,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-11-14",
+   "value": 0.0581,
+   "numerator": 5,
+   "denominator": 86,
+   "unit": "rate"
+  },
+  {
+   "name": "daily_claim_rate",
+   "group": "day=2026-11-15",
+   "value": 0.0267,
+   "numerator": 2,
+   "denominator": 75,
+   "unit": "rate"
+  }
+ ],
+ "evidence_ids": [
+  "EV-CLM-000310",
+  "EV-CLM-000304",
+  "EV-CLM-000298",
+  "EV-CLM-000294",
+  "EV-CLM-000293",
+  "EV-CLM-000292",
+  "EV-CLM-000290",
+  "EV-CLM-000283",
+  "EV-CLM-000281",
+  "EV-CLM-000265",
+  "EV-CLM-000264",
+  "EV-CLM-000263",
+  "EV-CLM-000262",
+  "EV-CLM-000258",
+  "EV-CLM-000257",
+  "EV-CLM-000256",
+  "EV-CLM-000255",
+  "EV-CLM-000254",
+  "EV-CLM-000253",
+  "EV-CLM-000251",
+  "EV-CLM-000246",
+  "EV-CLM-000237",
+  "EV-CLM-000229",
+  "EV-CLM-000223",
+  "EV-CLM-000222",
+  "EV-CLM-000220",
+  "EV-CLM-000213",
+  "EV-CLM-000212",
+  "EV-CLM-000211",
+  "EV-CLM-000210",
+  "EV-CLM-000209",
+  "EV-CLM-000206",
+  "EV-CLM-000196",
+  "EV-CLM-000195",
+  "EV-CLM-000187",
+  "EV-CLM-000186",
+  "EV-CLM-000183",
+  "EV-CLM-000182",
+  "EV-CLM-000178",
+  "EV-CLM-000174",
+  "EV-CLM-000168",
+  "EV-CLM-000167",
+  "EV-CLM-000166",
+  "EV-CLM-000162",
+  "EV-CLM-000155",
+  "EV-CLM-000154",
+  "EV-CLM-000153",
+  "EV-CLM-000151",
+  "EV-CLM-000149",
+  "EV-CLM-000146",
+  "EV-CLM-000145",
+  "EV-CLM-000142",
+  "EV-CLM-000139",
+  "EV-CLM-000128",
+  "EV-CLM-000124",
+  "EV-CLM-000117",
+  "EV-CLM-000097",
+  "EV-CLM-000095",
+  "EV-CLM-000087",
+  "EV-CLM-000081",
+  "EV-CLM-000079",
+  "EV-CLM-000078",
+  "EV-CLM-000077",
+  "EV-CLM-000076",
+  "EV-CLM-000075",
+  "EV-CLM-000068",
+  "EV-CLM-000065",
+  "EV-CLM-000062",
+  "EV-CLM-000061",
+  "EV-CLM-000059",
+  "EV-CLM-000049",
+  "EV-CLM-000047",
+  "EV-CLM-000045",
+  "EV-CLM-000033",
+  "EV-CLM-000032",
+  "EV-CLM-000031",
+  "EV-CLM-000027",
+  "EV-CLM-000026",
+  "EV-CLM-000021",
+  "EV-CLM-000018",
+  "EV-CLM-000015",
+  "EV-CLM-000014"
+ ],
+ "evidence": [],
+ "notes": [
+  "6 claims excluded: review_label fraud",
+  "19 claims excluded: review_label not_store_fault"
+ ]
+}

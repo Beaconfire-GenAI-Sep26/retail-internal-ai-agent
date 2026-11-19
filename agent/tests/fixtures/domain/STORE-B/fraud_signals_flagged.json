@@ -1,0 +1,33 @@
+{
+ "tool": "fraud_signals",
+ "store_id": "STORE-B",
+ "window": {
+  "start": "2026-10-05",
+  "end": "2026-11-15"
+ },
+ "eligible_orders": 3178,
+ "pending_claims": 5,
+ "data_sufficient": true,
+ "headline": "1 customer_ref values have 4 or more pending claims.",
+ "metrics": [
+  {
+   "name": "claim_count",
+   "group": "customer_ref=CUST-009999",
+   "value": 5,
+   "numerator": null,
+   "denominator": null,
+   "unit": "count"
+  }
+ ],
+ "evidence_ids": [
+  "EV-CLM-000310",
+  "EV-CLM-000304",
+  "EV-CLM-000298",
+  "EV-CLM-000294",
+  "EV-CLM-000293"
+ ],
+ "evidence": [],
+ "notes": [
+  "Test fixture: one flagged customer_ref."
+ ]
+}

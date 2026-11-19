@@ -1,0 +1,127 @@
+[
+ {
+  "item_id": "ITEM-B-001",
+  "store_id": "STORE-B",
+  "name": "Classic Cheeseburger",
+  "category": "entree",
+  "price": 12.99,
+  "available_modifiers": [
+   "No pickles",
+   "Add bacon"
+  ]
+ },
+ {
+  "item_id": "ITEM-B-002",
+  "store_id": "STORE-B",
+  "name": "BBQ Brisket Plate",
+  "category": "entree",
+  "price": 18.99,
+  "available_modifiers": [
+   "Extra BBQ sauce"
+  ]
+ },
+ {
+  "item_id": "ITEM-B-003",
+  "store_id": "STORE-B",
+  "name": "Fried Chicken (3 pc)",
+  "category": "entree",
+  "price": 14.99,
+  "available_modifiers": [
+   "Spicy"
+  ]
+ },
+ {
+  "item_id": "ITEM-B-004",
+  "store_id": "STORE-B",
+  "name": "Grilled Chicken Sandwich",
+  "category": "entree",
+  "price": 12.49,
+  "available_modifiers": [
+   "No mayo"
+  ]
+ },
+ {
+  "item_id": "ITEM-B-005",
+  "store_id": "STORE-B",
+  "name": "Family Meal for 4",
+  "category": "entree",
+  "price": 42.99,
+  "available_modifiers": []
+ },
+ {
+  "item_id": "ITEM-B-006",
+  "store_id": "STORE-B",
+  "name": "French Fries",
+  "category": "side",
+  "price": 4.49,
+  "available_modifiers": [
+   "Cajun seasoning"
+  ]
+ },
+ {
+  "item_id": "ITEM-B-007",
+  "store_id": "STORE-B",
+  "name": "Mac and Cheese",
+  "category": "side",
+  "price": 5.49,
+  "available_modifiers": []
+ },
+ {
+  "item_id": "ITEM-B-008",
+  "store_id": "STORE-B",
+  "name": "Coleslaw",
+  "category": "side",
+  "price": 3.49,
+  "available_modifiers": []
+ },
+ {
+  "item_id": "ITEM-B-009",
+  "store_id": "STORE-B",
+  "name": "Onion Rings",
+  "category": "side",
+  "price": 4.99,
+  "available_modifiers": []
+ },
+ {
+  "item_id": "ITEM-B-010",
+  "store_id": "STORE-B",
+  "name": "Lemonade",
+  "category": "drink",
+  "price": 3.49,
+  "available_modifiers": [
+   "No ice"
+  ]
+ },
+ {
+  "item_id": "ITEM-B-011",
+  "store_id": "STORE-B",
+  "name": "Iced Sweet Tea",
+  "category": "drink",
+  "price": 2.99,
+  "available_modifiers": []
+ },
+ {
+  "item_id": "ITEM-B-012",
+  "store_id": "STORE-B",
+  "name": "Chocolate Shake",
+  "category": "drink",
+  "price": 5.99,
+  "available_modifiers": []
+ },
+ {
+  "item_id": "ITEM-B-013",
+  "store_id": "STORE-B",
+  "name": "Pecan Pie Slice",
+  "category": "dessert",
+  "price": 4.99,
+  "available_modifiers": []
+ },
+ {
+  "item_id": "ITEM-B-014",
+  "store_id": "STORE-B",
+  "name": "Brownie",
+  "category": "dessert",
+  "price": 3.99,
+  "available_modifiers": []
+ }
+]

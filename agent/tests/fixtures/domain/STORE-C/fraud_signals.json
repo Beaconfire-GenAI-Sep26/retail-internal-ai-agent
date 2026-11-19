@@ -1,0 +1,16 @@
+{
+ "tool": "fraud_signals",
+ "store_id": "STORE-C",
+ "window": {
+  "start": "2026-10-05",
+  "end": "2026-11-15"
+ },
+ "eligible_orders": 3471,
+ "pending_claims": 0,
+ "data_sufficient": true,
+ "headline": "No customer_ref has 4 or more pending claims in the window.",
+ "metrics": [],
+ "evidence_ids": [],
+ "evidence": [],
+ "notes": []
+}

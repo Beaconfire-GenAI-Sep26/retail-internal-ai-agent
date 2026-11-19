@@ -12,15 +12,16 @@ import { USE_MOCKS, mockLogin, mockBootstrap, mockLogout } from '../../api/mockA
 
 // createAsyncThunk wraps an async function and auto-dispatches three actions —
 // pending / fulfilled / rejected — that authSlice responds to in extraReducers.
-// Every thunk resolves to the same shape: { token, user }
+// Every thunk resolves to the same shape: { token, user, expiresAt }
+//   expiresAt may be null when the source doesn't say (bootstrap)
 
 
 // ═══════════════════════════════════════════════════════════════════
-// 2. login — POST /auth/login → GET /auth/me
+// 2. login — POST /auth/login
 // ═══════════════════════════════════════════════════════════════════
-// Log in, then fetch the profile so the store gets BOTH the access token and who
-// the analyst is (role + store_ids). The fresh token is attached to /auth/me by
-// hand because it is not in the store yet at this moment.
+// LoginResponse (contracts.md) already carries the user, so one call gives the
+// store BOTH the access token and who the analyst is (role + store_ids):
+//   { access_token, token_type: "bearer", expires_at, user }
 export const login = createAsyncThunk(
   'auth/login',
   async ({ username, password }, { rejectWithValue }) => {
@@ -34,10 +35,7 @@ export const login = createAsyncThunk(
 
     try {
       const { data } = await api.post('/auth/login', { username, password });
-      const me = await api.get('/auth/me', {
-        headers: { Authorization: `Bearer ${data.access_token}` },
-      });
-      return { token: data.access_token, user: me.data };
+      return { token: data.access_token, user: data.user, expiresAt: data.expires_at };
     } catch (err) {
       // rejectWithValue puts this string on action.payload so the slice can show it
       return rejectWithValue(getErrorMessage(err, 'Login failed'));

@@ -8,7 +8,6 @@ import time
 
 from sqlalchemy import (JSON, Boolean, Column, ForeignKey, Integer, MetaData, String,
                         Table, insert, select, update)
-from sqlalchemy.schema import CreateSchema
 
 from shared.security import APIError, User, unauthenticated
 
@@ -58,8 +57,8 @@ class AuthRepository:
 
     def initialize(self):
         with self.engine.begin() as conn:
-            if conn.dialect.name == "postgresql":
-                conn.execute(CreateSchema("auth", if_not_exists=True))
+            # Platform init provisions the schema. The runtime role can create
+            # its tables in auth, but deliberately cannot create database schemas.
             metadata.create_all(conn)
 
     def seed(self, analyst_password: str, viewer_password: str):

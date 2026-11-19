@@ -1,6 +1,6 @@
 # Contracts
 
-v0.3 draft, Wed Nov 18, 2026. IDs, enums, shared DTOs, endpoint payloads and errors for Auth, Agent and
+v0.4 draft, Thu Nov 19, 2026. IDs, enums, shared DTOs, endpoint payloads and errors for Auth, Agent and
 Domain. Service boundaries are in [architecture.md](architecture.md). The investigation design is in
 [agent-graph.md](agent-graph.md). Domain data names and rules follow C-01.
 
@@ -16,7 +16,7 @@ Domain. Service boundaries are in [architecture.md](architecture.md). The invest
 - **Order size** is `orders.item_count`, the proxy for multi-bag orders. Grouped results bucket it as `item_count_bucket`: `1-2`, `3-4` or `5+`.
 - **Rates are decimals from 0 to 1**, always sent with their numerator and denominator. A rate that can't be supported is `null`, never `0`. Whether a whole result has enough data is defined in [When a result has enough data](#when-a-result-has-enough-data).
 - **Missing values are `null`**, not omitted.
-- **The investigation window** runs for the 42 days ending on the case's `opened_at` date, clipped to the start of the store's data. A request may give its own dates.
+- **The investigation window** runs for the 42 days ending on the store-local date of the case's `window_end`, clipped to the start of the store's data. `window_end` may be sent as a UTC timestamp or a date; a timestamp at exactly local midnight ends the window on the day before. `opened_at` is when the monitor ran, which can fall after the store's data ends, so it doesn't anchor the window. A request may give its own dates.
 - **Money** is in USD, stored as `numeric(10,2)` and sent as a number.
 - **Small lists are not paginated.** Lists return at most 200 items.
 
@@ -948,6 +948,25 @@ Every error uses one envelope, including FastAPI's validation errors:
 
 Hiding other stores' cases returns 404 rather than 403 on single-resource reads, so IDs from other stores
 can't be probed. List endpoints simply leave them out.
+
+### Investigation error codes
+
+`InvestigationView.error.code`, and `InvestigationStatusUpdate.error_code` when the status is `failed`,
+take one of these values:
+
+| Code | When |
+|---|---|
+| `UPSTREAM_UNAVAILABLE` | Domain or the model was unreachable after retries |
+| `UNAUTHENTICATED` | Domain rejected the forwarded token during the run |
+| `DOMAIN_REJECTED` | Domain refused a call the run depends on, other than a 422 on a check |
+| `MODEL_REFUSED` | The model declined the turn, after the fallback model |
+| `MODEL_TRUNCATED` | A turn hit `max_tokens` twice |
+| `RUN_TIMEOUT` | The run passed `AGENT_RUN_TIMEOUT_SECONDS` |
+| `AGENT_RESTARTED` | The Agent Service restarted while the run was active |
+| `INTERNAL` | Anything else. Details are logged, not returned. |
+
+A Domain 422 on a diagnostic check doesn't fail the run. The check is recorded as an insufficient result
+with Domain's message, and the step counts.
 
 ## Idempotency
 

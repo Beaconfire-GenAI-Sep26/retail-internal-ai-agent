@@ -1,12 +1,11 @@
 // [03c] Mock Auth — used only when VITE_USE_MOCKS=true, until A-02 is ready
 //
-// Planned real contract (confirm with B-01 / A-02):
-//   POST /auth/login   { username, password } → { access_token, token_type }
-//   GET  /auth/me      → { id, username, display_name, role, store_ids }
-//   POST /auth/refresh → { access_token }          (HttpOnly refresh cookie)
-//   POST /auth/logout  → 204
+// Real contract (docs/contracts.md, B-01 v0.3):
+//   POST /auth/login   { username, password } → { access_token, token_type, expires_at, user }
+//   GET  /auth/me      → User
+//   User = { user_id, display_name, role, store_ids }   role: 'loe_analyst' | 'viewer'
 // The mock functions return the SAME shape authThunks builds from the real API:
-//   { token, user: { id, username, display_name, role, store_ids } }
+//   { token, user: User, expiresAt }
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -17,28 +16,36 @@ export const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === 'true';
 
 const DEMO_PASSWORD = 'Password123!';
 
-// Roles (sprint plan): 'analyst' = LOE Analyst (investigate, decide drafts)
-//                      'viewer'  = read only
+// Roles (contract `role` enum): 'loe_analyst' = LOE Analyst (investigate, decide drafts)
+//                               'viewer'      = read only
 // store_ids use the C-01 seed IDs:
 //   STORE-A → POS modifier case · STORE-B → dinner packing case
 // The Viewer is granted only STORE-A so the demo can show a denied STORE-B
 // read and a denied approval.
-export const DEMO_USERS = [
+// `username` is only the login name the mock matches on. The contract's User has
+// no username, so only `user` is returned to the app.
+const DEMO_ACCOUNTS = [
   {
-    id: 1,
     username: 'analyst',
-    display_name: 'Demo LOE Analyst',
-    role: 'analyst',
-    store_ids: ['STORE-A', 'STORE-B'],
+    user: {
+      user_id: 'USR-001',
+      display_name: 'Demo LOE Analyst',
+      role: 'loe_analyst',
+      store_ids: ['STORE-A', 'STORE-B'],
+    },
   },
   {
-    id: 2,
     username: 'viewer',
-    display_name: 'Demo Viewer',
-    role: 'viewer',
-    store_ids: ['STORE-A'],
+    user: {
+      user_id: 'USR-002',
+      display_name: 'Demo Viewer',
+      role: 'viewer',
+      store_ids: ['STORE-A'],
+    },
   },
 ];
+
+const findAccount = (username) => DEMO_ACCOUNTS.find((a) => a.username === username);
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -75,7 +82,9 @@ const clearSession = () => {
 
 // Small delay so loading states ("Signing in…") are visible like a real call
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const fakeToken = (user) => `mock.${user.username}.${Date.now()}`;
+const fakeToken = (user) => `mock.${user.user_id}.${Date.now()}`;
+// Same lifetime as the real token (JWT_TTL_MINUTES = 60 in architecture.md)
+const fakeExpiresAt = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -85,19 +94,19 @@ const fakeToken = (user) => `mock.${user.username}.${Date.now()}`;
 // rejectWithValue in mock mode.
 export const mockLogin = async ({ username, password }) => {
   await delay(300);
-  const user = DEMO_USERS.find((u) => u.username === username);
-  if (!user || password !== DEMO_PASSWORD) {
+  const account = findAccount(username);
+  if (!account || password !== DEMO_PASSWORD) {
     throw new Error('Invalid username or password');
   }
-  saveSession(user.username);
-  return { token: fakeToken(user), user };
+  saveSession(account.username);
+  return { token: fakeToken(account.user), user: account.user, expiresAt: fakeExpiresAt() };
 };
 
 export const mockBootstrap = async () => {
   await delay(100);
-  const user = DEMO_USERS.find((u) => u.username === readSession());
-  if (!user) throw new Error('No session');
-  return { token: fakeToken(user), user };
+  const account = findAccount(readSession());
+  if (!account) throw new Error('No session');
+  return { token: fakeToken(account.user), user: account.user, expiresAt: fakeExpiresAt() };
 };
 
 export const mockLogout = async () => {

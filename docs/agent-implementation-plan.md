@@ -1,6 +1,6 @@
 # Agent implementation plan
 
-v0.1 draft, Wed Nov 18, 2026. How the Agent Service and its LangGraph investigation will be built. It covers
+v0.2 draft, Thu Nov 19, 2026. How the Agent Service and its LangGraph investigation are built. It covers
 module layout, state, graph wiring, each node's inputs and outputs, tools, guardrails, context engineering,
 milestones and verification. The design it implements is in [agent-graph.md](agent-graph.md), the DTOs and
 endpoints in [contracts.md](contracts.md), and the service rules in [architecture.md](architecture.md).
@@ -16,12 +16,14 @@ B-02 acceptance criteria:
 2. State records attempted checks, findings and ruled-out hypotheses. A configurable step limit prevents unbounded loops.
 3. Insufficient evidence or exhausted checks return `unsure`. An operational failure yields a structured `failed` status and a log.
 
-**Starting point, Nov 18:**
-- There is no agent code yet.
-- The A-01 scaffold isn't merged. It lives on `origin/SCRUM-13…` under `a-01-scaffold/services/agent`, with `python:3.12-slim` and pip installing from `requirements.txt`. The Agent Service uses **uv** instead: `pyproject.toml` plus a committed `uv.lock`.
-- `main` has `domain/` (C-01) and `frontend/` at the repo root.
-- The C-02 diagnostics APIs don't exist yet.
-- The v0.3 contracts (menu endpoint, metric names, evidence ordering) are on the B-01 branch, not yet on `main`.
+**Repo facts:**
+- The Agent Service is in `agent/` at the repo root, next to `domain/` (C-01) and `frontend/`. It uses **uv**: `pyproject.toml` plus a committed `uv.lock`.
+- A-01's scaffold is in `a-01-scaffold/`: a draft with its own compose file, gateway and stub services. Its compose still builds a stub agent from `a-01-scaffold/services/agent` (pip and `requirements.txt`), and stubs for Domain and the frontend.
+- The C-02 diagnostics APIs don't exist yet, so M1 runs on fixtures that follow the contracts.
+- The contracts' menu endpoint, metric names and evidence ordering reach `main` with the B-01 docs.
+
+**Status:** M1 is built and tested offline (`uv run pytest`). The M0 offline checks are done; its live calls
+and the live smoke run need `ANTHROPIC_API_KEY` in `agent/.env`.
 
 **Seed facts that shape the design** ([`domain/scripts/reset_and_seed.py`](../domain/scripts/reset_and_seed.py)):
 - Orders get `Extra sauce` only from Oct 30. A `compare_periods` with target `modifiers=["Extra sauce"]` split on Oct 30 therefore has no "before" orders.
@@ -43,9 +45,10 @@ B-02 acceptance criteria:
 
 ## Milestones (build order)
 
-**M0, the first hour: schema and latency spike.**
+**M0, the first hour: schema and latency spike** (`scripts/m0_spike.py`; `--yes` makes the real calls).
 - Write `llm/schemas.py` and render one STORE-A prompt from fixtures.
 - Send real calls at `low`, `medium` and `high` effort, plus one with `speed="fast"`.
+- Offline results: `anthropic` 1.17's `beta.messages.stream` and `parse` accept `output_format`, `output_config`, `fallbacks` and `speed` directly, so nothing goes in `extra_body`. The schema is about 13 KB with 2 unions and no optional fields.
 - Record:
   - Whether the schema compiles. The API has an internal "Schema is too complex for compilation" limit and a 180 s compile timeout.
   - Per-turn latency and output tokens.
@@ -80,23 +83,24 @@ A new `agent/` folder at the repo root, next to `domain/` and `frontend/`:
 
 ```
 agent/
-  pyproject.toml  uv.lock  .python-version  Dockerfile  .dockerignore  README.md
+  pyproject.toml  uv.lock  .python-version  Dockerfile  .dockerignore  .env.example  README.md
   app/
     main.py              # FastAPI app; lifespan: settings, clients, checkpointer, graph compile, reconcile
-    config.py            # pydantic-settings; strips "+psycopg" from DATABASE_URL for psycopg/libpq
+    config.py            # pydantic-settings, read from the environment and agent/.env
     auth.py              # minimal JWT verifier per architecture.md (A-02 may replace with shared code)
-    errors.py  logging.py  cli.py  runner.py  store.py   # envelope; JSON logs + request id; CLI; background runs; index
+    errors.py  logs.py  ids.py  cli.py  runner.py  store.py   # envelope; JSON logs + request id; IDs; CLI; background runs; index
     api/investigations.py
     contracts/           # Pydantic mirrors of contracts.md
     domain/client.py     # DomainPort protocol + HttpDomainClient (httpx.AsyncClient)
     domain/fixtures.py   # FixtureDomainClient
-    tools/registry.py    # 7 model tools: wire request model, contract builder, Domain call, prompt text, canonical key
-    llm/schemas.py  llm/anthropic_model.py  llm/scripted_model.py
+    tools/registry.py    # 7 model tools: prompt text, wire-to-contract conversion, canonical key, Domain call
+    llm/schemas.py  llm/base.py  llm/anthropic_model.py  llm/scripted_model.py
     prompts/system.md  prompts/render.py
     graph/state.py  graph/context.py  graph/build.py
     graph/rules.py  graph/gate.py  graph/finalize.py  graph/policy.py   # pure functions
     graph/nodes/         # load_case, reason, guard, run_check, conclude_gate, finalize, submit, report_status, fail, questions (M3)
-    tracing.py           # Langfuse; no-op when keys are unset
+    tracing.py           # Langfuse (M2); no-op when keys are unset
+  scripts/make_fixtures.py  scripts/m0_spike.py
   tests/fixtures/domain/{STORE-A,STORE-B,STORE-C,common}/  tests/unit  tests/graph  tests/api
 ```
 
@@ -140,13 +144,14 @@ Commands:
 
 **Dockerfile.** Same base image, port and non-root user as A-01:
 - `FROM python:3.12-slim`.
-- `COPY --from=ghcr.io/astral-sh/uv:<pinned version> /uv /uvx /bin/`.
+- `COPY --from=ghcr.io/astral-sh/uv:0.12.23 /uv /uvx /bin/`.
 - `ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never`.
 - Copy `pyproject.toml` and `uv.lock`, then `RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-install-project`. Dependencies get their own cached layer.
-- Copy `app/`, then `uv sync --frozen --no-dev`.
-- `CMD ["/app/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]`.
+- Copy `app/` and `tests/fixtures/domain/` (for fixtures mode), then `uv sync --frozen --no-dev`.
+- `CMD` runs `/app/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --root-path "$ROOT_PATH"`. FastAPI 0.164 deprecates its own `root_path` argument, so the gateway prefix goes to uvicorn.
 - Keep A-01's optional BuildKit `build_ca` secret. uv reads `SSL_CERT_FILE`, so export it in the `uv sync` step when the secret is present.
-- `.dockerignore` excludes `.venv/`.
+- `.dockerignore` excludes `.env`, `.venv/` and the test code.
+- The scaffold's healthcheck runs `python` with only the standard library, so it passes unchanged.
 
 **Async clients only**, so the single worker never blocks.
 
@@ -448,7 +453,7 @@ from `fraud_signals`.
 | G13 | Fewer than 3 explore checks |
 | G14 | The canonical key hasn't run before, including `load_case`'s calls |
 | G15 | A check needs `step_count < AGENT_MAX_STEPS`. Otherwise the run goes to finalize with `budget_spent`. |
-| G18 | Conclude: the leader exists, `rise_started_at` is inside the window, the action is in the catalog and applies to the cause, and the target's values exist |
+| G18 | Conclude: the leader exists, `rise_started_at` is inside the window, the action is in the catalog and applies to the cause, and the target's values exist and were tested by a check that supported the leader, as a filter value or a breakdown group |
 | P1 | Output policy on the free text: the summary, rationale and question. No requests for refunds, credits, store charges, deactivation, menu edits or customer contact. No URLs, emails, phone numbers or `customer_ref` values. A hit is rejected and traced as `blocked_action`. |
 | G6, G7, G16, G17 | Prior-run rulings, reply-only support, question availability and question content. All M3. |
 
@@ -511,8 +516,9 @@ flowchart LR
 ```
 
 **Request:**
-- `claude-opus-5-5` with `output_config={format: ReasonOutputWire, effort: AGENT_EFFORT}`, `max_tokens` 32000, adaptive thinking (default), no tools and no sampling parameters.
-- It goes through `client.beta.messages.stream(..., output_format=…)` plus the final message. The beta client is needed for `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`); if the SDK's helper doesn't take `fallbacks`, pass it in `extra_body`. M0 confirms both.
+- `claude-opus-5-5` with `output_config={"format": {"type": "json_schema", "schema": <ReasonOutputWire>}, "effort": AGENT_EFFORT}`, `max_tokens` 32000, adaptive thinking (Opus 5.5's only mode, so `thinking` is omitted), no tools and no sampling parameters.
+- It goes through `client.beta.messages.stream(...)` plus the final message, with `betas=["server-side-fallback-2026-07-01"]` and `fallbacks="default"`. The agent sends the schema itself and parses the text, so enum casing and the one-value tags stay under its control.
+- The control message C is the last entry in `messages`, as a mid-conversation `role: "system"` message.
 - Check `stop_reason` first:
   - `refusal`, after the fallback chain: `MODEL_REFUSED`.
   - `max_tokens`: one retry at 64000, then `MODEL_TRUNCATED`.
@@ -533,8 +539,9 @@ flowchart LR
 - At most 24 optional parameters and 16 union-typed parameters. A nullable field counts as a union.
 - So every field is required and non-nullable, the schema has exactly 2 unions, and "none" is written as `""`, `[]` or `0`.
 - No numeric or length constraints, because the SDK would move them client-side and raise on parse. Guard checks bounds.
+- Single-value tags (`type`, `tool`, `evidence_type`) are one-value `enum`s. `anthropic.transform_schema()` drops `const` into the description, which would leave the union tags unconstrained.
 - Enum values are lowercased before validation, since the API doesn't guarantee casing.
-- A test snapshots the schema from `transform_schema()` in the `anthropic` package (check the import path) and asserts the union and optional counts. Its hash is `schema_hash`.
+- Tests check the schema from `anthropic.transform_schema()`: 2 unions, no optional fields, no `const`, every object closed. Its hash is `schema_hash`.
 
 **Caching:**
 - Breakpoints on S1 and U1. From turn 2, `cache_read_input_tokens` should cover both.
@@ -622,15 +629,16 @@ sequenceDiagram
 - `setup()` runs at startup and needs `CREATE` on schema `agent`.
 - The index table is created with idempotent DDL.
 
-**Environment variables** added to [architecture.md](architecture.md#environment-variables): `DATABASE_URL` for the agent, `AGENT_DOMAIN_MODE` (`http` or `fixtures`), `AGENT_CHECKPOINTER` (`postgres` or `memory`), `AGENT_RUN_TIMEOUT_SECONDS` and `AGENT_MAX_QUESTIONS` (0 until M3).
+**Environment variables** added to [architecture.md](architecture.md#environment-variables): `DATABASE_URL` for the agent, `AGENT_DOMAIN_MODE` (`http` or `fixtures`), `AGENT_FIXTURES_DIR`, `AGENT_CHECKPOINTER` (`postgres` or `memory`), `AGENT_RUN_TIMEOUT_SECONDS`, `AGENT_MAX_QUESTIONS` (0 until M3), `AGENT_SPEED` and the optional `AGENT_MAX_REASON_CALLS`. Local values live in `agent/.env`, copied from `agent/.env.example`.
 
 ## Fixtures (`tests/fixtures/domain/`)
 
 - **Files:**
   - Per store: `case.json`, `menu.json`, `overview.json`, `fraud_signals.json` and `checks.json`, a list of `{match, result}`.
   - Shared: `common/catalog.json`.
+- **Source:** `scripts/make_fixtures.py` simulates the C-01 scenarios for STORE-A, STORE-B and STORE-C and answers a fixed list of queries with the contracts' rate rules. The numbers and claim IDs are synthetic, close to the seeded database; event IDs follow the seed.
 - **Numbers** follow the seed facts above and the contracts' rules: no group for claims without a `modifier_detail`, with a note giving their count, and store-local dates. STORE-C is a flat store, used for a live `unsure` run.
-- **Fraud path:** a separate `fraud_signals` fixture with one flagged `customer_ref` drives the `load_case` test for `suspect_cluster`. Real data covers this path once C-02 adds pending claims to the seed.
+- **Fraud path:** `STORE-B/fraud_signals_flagged.json` has one flagged `customer_ref` and drives the `load_case` test for `suspect_cluster`. Real data covers this path once C-02 adds pending claims to the seed.
 - **Matching** keys on the tool, `group_by` and the filter dimensions, not exact dates.
 - **Misses:** an unmatched query returns `data_sufficient: false` with a "no fixture" note. The smoke report counts the misses.
 - **Frontend use:** `AGENT_DOMAIN_MODE=fixtures` lets the frontend drive real investigations through the gateway before C-02 is ready.
@@ -652,7 +660,7 @@ flowchart TB
 
 ## Tracing and logs (hooks for A-03)
 
-The Langfuse v4 API:
+The lockfile pins `langfuse` 5.2. These are the v4 calls; confirm each against 5.2 when M2 wires tracing:
 - **Trace attributes:** each run segment is wrapped in `propagate_attributes(trace_name, session_id=investigation_id, user_id=started_by, tags=[store_id], metadata={…str ≤200})`.
 - **Graph steps:** `CallbackHandler()` from `langfuse.langchain` goes in `config["callbacks"]`.
 - **Model calls:** `start_as_current_observation(as_type="generation", model=…, input=…)`, then `.update(output=…, usage_details=…)`.
@@ -691,7 +699,7 @@ The current SDK reads `LANGFUSE_BASE_URL`, so architecture.md's `LANGFUSE_HOST` 
 6. `/evidence/resolve` must accept the analyst's forwarded JWT.
 
 **Platform (A-01, A-02, A-03):**
-1. `agent/` at the repo root, versus A-01's `a-01-scaffold/services/agent`. The agent image builds with uv (`pyproject.toml` and `uv.lock`), not pip and `requirements.txt`. Compose needs no change beyond the build path.
+1. Point the scaffold's agent build at `agent/` (`build: ../agent` from `a-01-scaffold/compose.yaml`) and remove the stub in `a-01-scaffold/services/agent`. The agent image builds with uv (`pyproject.toml` and `uv.lock`), not pip and `requirements.txt`, and keeps the scaffold's port, `/health` and non-root user.
 2. The agent's compose env (DB, JWT, service token, Domain URL, Anthropic, `AGENT_*`, Langfuse) and `depends_on: postgres`.
 3. DB init: the `agent` schema and the `agent_svc` role with `CREATE`.
 4. B-02's minimal JWT verifier versus A-02's.

@@ -61,9 +61,16 @@ Pending claims are counted, and every `ToolResult` reports how many of its claim
 | `Authorization: Bearer <jwt>` | frontend, agent | Every business route and `/me`; login, refresh, logout and health use their own rules | User identity. The agent forwards the user's token unchanged. |
 | `X-Request-ID`                | gateway, agent  | Set by the gateway if absent                            | Correlates logs and traces. Every response echoes it.                          |
 | `X-Investigation-ID`          | agent           | On agent-to-Domain calls                                | Links Domain logs and audit to the investigation                               |
+| `X-Case-ID` | frontend, agent | When the case is known | Correlation only; validated for logging, never used to grant access or decide ownership. |
+| `X-Trace-ID` | agent | On traced agent-to-Domain calls | Active Langfuse/OTel trace ID (32 lowercase hex characters), for log correlation only. Stripped by the public gateway. |
 | `X-Service-Token`             | agent           | On `/internal/` routes and `/evidence/resolve` | Must equal `INTERNAL_SERVICE_TOKEN` |
 | `X-Store-ID` | agent | On agent-to-Domain calls | Narrows the signed grants to one investigation store. Domain resolves resource ownership and rejects a mismatch. Never grants access. |
 | `Idempotency-Key`             | frontend        | On decision, reply, resume, monitor run and recheck run | A UUID per user action. A repeat returns the first result and changes nothing. |
+
+`X-Request-ID` is an opaque `[A-Za-z0-9._-]{1,128}` value. The frontend creates
+one per logical HTTP request and preserves it on authentication retry; gateway
+and service entry points replace invalid/missing values. See
+[observability](observability.md) for privacy, logs and trace correlation.
 
 ## IDs
 

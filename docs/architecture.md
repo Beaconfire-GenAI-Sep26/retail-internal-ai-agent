@@ -137,7 +137,8 @@ is committed.
 | `AGENT_MAX_STEPS` | `12` | agent | Maximum tool checks per investigation |
 | `AGENT_MAX_RETRIES` | `2` | agent | Retries per failed model or tool call |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | empty | agent | Langfuse Cloud keys |
-| `LANGFUSE_HOST` | `https://cloud.langfuse.com` | agent | Langfuse endpoint |
+| `LANGFUSE_BASE_URL` | `https://cloud.langfuse.com` | agent | Langfuse v4 endpoint; legacy `LANGFUSE_HOST` is a fallback |
+| `LANGFUSE_TRACING_ENABLED` | `true` | agent | Export only when enabled and both keys exist; logs remain active |
 | `MONITOR_GOAL_RATE` | `0.05` | domain | 7-day M&I rate goal for the demo. The proposal cites 2.25% as a real-world reference. |
 | `MONITOR_SPIKE_RATIO` | `1.5` | domain | Opens a case when the 7-day rate is at least this multiple of the 28-day baseline |
 | `MONITOR_MIN_ORDERS` | `100` | domain | Minimum 7-day eligible orders before a store can open a case |
@@ -148,6 +149,13 @@ is committed.
 The monitor defaults follow the C-01 report, which tunes the seed so STORE-A and STORE-B cross a 7-day
 rate above 5% with at least 100 eligible orders, while STORE-I and STORE-J don't. C-02 owns the final
 values. A 2.25% goal could let ordinary week-to-week noise in the normal stores, which sit near 1.5%, open cases.
+
+A-03 adds shared JSON logging and optional Langfuse v4 hooks without changing
+business DTOs, authorization or storage boundaries. Browser, gateway and backend
+events share `request_id`; traced Domain calls also carry case/investigation/trace
+IDs. The SDK exports only redacted telemetry projections. See
+[observability](observability.md) for B-02 runner/model integration, configuration,
+the read-only POC and live acceptance checks.
 
 Compose passes each backend its own `POSTGRES_USER`, `POSTGRES_PASSWORD` and
 shared host/port/database fields. The common engine factory safely constructs

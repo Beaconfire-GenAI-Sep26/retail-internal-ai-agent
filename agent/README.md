@@ -29,3 +29,16 @@ The Agent calls Domain over HTTP with the original user JWT plus a narrowed
 case/store context. Its client cannot approve or dispatch proposals. See
 [authentication integration](../docs/authentication.md#integration-points-for-the-business-tickets)
 and the [workflow plan](../docs/agent-implementation-plan.md).
+
+A-03 initializes optional Langfuse v4 tracing as `app.state.tracing`, instruments
+the scoped Domain client and emits correlated JSON logs. The B-02 runner and
+Claude adapter use the hooks in [observability](../docs/observability.md). Run the
+read-only graph probe from the repository root without credentials:
+
+```powershell
+uv run --project agent python -m agent.app.trace_poc --offline
+```
+
+For a real Claude/Langfuse run, set the keys in root `.env` and replace `--offline`
+with `--env-file .env` **before** `python`. The guide covers live trace readback,
+synthetic versus real Domain tools, redaction and the remaining B-02 dependency.

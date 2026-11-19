@@ -8,10 +8,12 @@ from starlette.concurrency import run_in_threadpool
 
 from shared.http import install_http, service_path, json_object
 from shared.security import APIError, JWTSettings, authenticate, require_analyst, require_store
+from shared.observability import bind_context
 from .domain_client import DomainClient, domain_request
+from .tracing import Tracing
 
 
-def create_app(settings=None, domain_http=None, investigation_lookup=None, service_token=None):
+def create_app(settings=None, domain_http=None, investigation_lookup=None, service_token=None, tracing=None):
     """B-02 supplies investigation_lookup(id) from its checkpoint repository.
 
     It returns {case_id, store_id}; missing ownership fails closed with 404.
@@ -23,9 +25,11 @@ def create_app(settings=None, domain_http=None, investigation_lookup=None, servi
         app.state.service_token = service_token or os.environ["INTERNAL_SERVICE_TOKEN"]
         app.state.domain_http = domain_http or httpx.AsyncClient(
             base_url=os.getenv("DOMAIN_SERVICE_URL", "http://domain:8000").rstrip("/") + "/", timeout=15)
+        app.state.tracing = tracing if tracing is not None else Tracing.from_env()
         try:
             yield
         finally:
+            await run_in_threadpool(app.state.tracing.shutdown)
             if domain_http is None:
                 await app.state.domain_http.aclose()
 
@@ -62,8 +66,13 @@ def create_app(settings=None, domain_http=None, investigation_lookup=None, servi
             raise APIError(403, "FORBIDDEN", "Operation has no access policy.")
 
         # Domain resolves the authoritative case -> store mapping using the same JWT.
+        request.state.case_id = case_id
+        request.state.investigation_id = investigation_id
+        bind_context(case_id=case_id, investigation_id=investigation_id)
         case = await domain_request(app.state.domain_http, "GET", f"/cases/{case_id}", headers={
             "Authorization": f"Bearer {request.state.access_token}", "X-Request-ID": request.state.request_id,
+            "X-Case-ID": case_id,
+            **({"X-Investigation-ID": investigation_id} if investigation_id else {}),
         })
         store_id = case["store_id"]
         require_store(user, store_id, hide=method == "GET")
@@ -76,9 +85,10 @@ def create_app(settings=None, domain_http=None, investigation_lookup=None, servi
             request.state.domain_client = DomainClient(app.state.domain_http,
                 access_token=request.state.access_token, settings=app.state.jwt,
                 store_id=store_id, case_id=case_id, investigation_id=investigation_id,
-                request_id=request.state.request_id, service_token=app.state.service_token)
+                request_id=request.state.request_id, service_token=app.state.service_token,
+                tracing=app.state.tracing)
 
-    install_http(app, authorize)
+    install_http(app, authorize, service="agent")
 
     @app.get("/health", tags=["health"])
     def health():

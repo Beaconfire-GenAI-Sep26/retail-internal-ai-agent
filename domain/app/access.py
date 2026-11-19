@@ -12,6 +12,7 @@ from starlette.concurrency import run_in_threadpool
 
 from shared.security import APIError, authenticate, require_analyst, require_store
 from shared.http import service_path, json_object
+from shared.observability import bind_context, safe_id
 
 DIAGNOSTIC_POSTS = {"claim-breakdown", "compare-periods", "evidence-sample", "cancellation-breakdown"}
 
@@ -65,6 +66,8 @@ class DomainAccess:
             match = re.fullmatch(r"/internal/cases/([^/]+)/(proposals|investigation)", path)
             if not match or (method, match[2]) not in {("POST", "proposals"), ("PUT", "investigation")}:
                 raise APIError(403, "FORBIDDEN", "Internal operation is not permitted.")
+            request.state.case_id = safe_id(match[1], "case_id")
+            bind_context(case_id=request.state.case_id)
             store_id = await self.lookup("cases", match[1])
         elif path == "/cases" and method == "GET":
             # List queries always intersect the optional filter with grants.
@@ -88,6 +91,9 @@ class DomainAccess:
             hide = False
         elif match := re.fullmatch(r"/(cases|proposals|rechecks|evidence)/([^/]+)(.*)", path):
             kind, resource_id, suffix = match.groups()
+            if kind == "cases":
+                request.state.case_id = safe_id(resource_id, "case_id")
+                bind_context(case_id=request.state.case_id)
             readable = method == "GET" and (suffix == "" or kind == "cases" and suffix in {"/audit", "/merchant-replies", "/rechecks"})
             writable = method == "POST" and ((kind == "proposals" and suffix in {"/versions", "/decision", "/merchant-reply"}) or (kind == "rechecks" and suffix == "/run"))
             if not readable and not writable:

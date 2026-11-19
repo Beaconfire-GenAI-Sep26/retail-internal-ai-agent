@@ -62,7 +62,7 @@ def create_app(engine=None, settings=None, *, seed=None, cookie_secure=None):
         else:
             authenticate(request, app.state.jwt)
 
-    install_http(app, authorize)
+    install_http(app, authorize, service="auth")
 
     @app.middleware("http")
     async def no_cache(request, call_next):

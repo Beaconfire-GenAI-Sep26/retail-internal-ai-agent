@@ -1,6 +1,8 @@
 name: retail-internal-ai-agent
 
 x-jwt: &jwt
+  APP_ENV: ${APP_ENV:-local}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
   JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET to at least 32 bytes}
   JWT_ISSUER: ${JWT_ISSUER:-mi-auth}
 
@@ -75,6 +77,11 @@ services:
       AGENT_EFFORT: ${AGENT_EFFORT:-high}
       AGENT_MAX_STEPS: ${AGENT_MAX_STEPS:-12}
       AGENT_MAX_RETRIES: ${AGENT_MAX_RETRIES:-2}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      # BASE_URL is the v4 SDK name; retain HOST as a local migration fallback.
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-${LANGFUSE_HOST:-https://cloud.langfuse.com}}
+      LANGFUSE_TRACING_ENABLED: ${LANGFUSE_TRACING_ENABLED:-true}
     depends_on:
       postgres:
         condition: service_healthy

@@ -4,6 +4,8 @@ import re
 import httpx
 
 from shared.security import APIError, JWTSettings, require_analyst, require_store, verify_token
+from shared.observability import context_scope, log_context, safe_id
+from .tracing import Tracing
 
 
 async def domain_request(http, method, path, *, headers, json=None, params=None):
@@ -25,14 +27,16 @@ async def domain_request(http, method, path, *, headers, json=None, params=None)
 
 class DomainClient:
     def __init__(self, http, *, access_token: str, settings: JWTSettings, store_id: str,
-                 case_id: str, investigation_id: str, request_id: str, service_token: str):
+                 case_id: str, investigation_id: str, request_id: str, service_token: str, tracing=None):
         self.user = verify_token(access_token, settings)
         require_store(self.user, store_id)
         self.http, self.case_id, self.store_id = http, case_id, store_id
         self.investigation_id = investigation_id
         self._headers = {"Authorization": f"Bearer {access_token}", "X-Store-ID": store_id,
-                         "X-Investigation-ID": investigation_id, "X-Request-ID": request_id}
+                         "X-Investigation-ID": investigation_id, "X-Request-ID": request_id,
+                         "X-Case-ID": case_id}
         self._service_token = service_token
+        self.tracing = tracing if tracing is not None else Tracing()
 
     async def request(self, method, path, *, json=None, params=None):
         # No absolute URLs, query strings, encoded separators or dot segments.
@@ -72,4 +76,15 @@ class DomainClient:
         headers = dict(self._headers)
         if internal:
             headers["X-Service-Token"] = self._service_token
-        return await domain_request(self.http, method, path, headers=headers, json=json, params=params)
+        trace_id = safe_id(log_context().get("trace_id"), "trace_id")
+        if trace_id:
+            headers["X-Trace-ID"] = trace_id
+        # Permission checks above remain outside instrumentation. Headers and the
+        # request-scoped client are never included in span input or graph state.
+        with context_scope(service="agent", request_id=headers["X-Request-ID"],
+                           case_id=self.case_id, investigation_id=self.investigation_id):
+            with self.tracing.observation("domain." + path.rsplit("/", 1)[-1], as_type="tool",
+                                          input={"method": method, "arguments": json, "params": params}) as span:
+                result = await domain_request(self.http, method, path, headers=headers, json=json, params=params)
+                span.update(output=result)
+                return result

@@ -235,7 +235,10 @@ class OperationalEvent(Base):
 
 
 class Case(Base):
-    """Investigation case. Created by the C-02 monitor; empty after seeding."""
+    """Case opened by the C-02 monitor; empty after seeding.
+
+    Later tickets add active_investigation_id and last_error (C-03) and reopen_count (C-04).
+    """
 
     __tablename__ = "cases"
     __table_args__ = {"schema": DOMAIN_SCHEMA}
@@ -249,8 +252,26 @@ class Case(Base):
     mi_rate: Mapped[Decimal] = mapped_column(RATE)
     baseline_rate: Mapped[Decimal | None] = mapped_column(RATE, nullable=True)
     eligible_orders: Mapped[int] = mapped_column(Integer)
+    attributable_claims: Mapped[int] = mapped_column(Integer)  # numerator of mi_rate (C-02)
+    goal_rate: Mapped[Decimal] = mapped_column(RATE)  # MONITOR_GOAL_RATE at open time (C-02)
     opened_at: Mapped[datetime] = mapped_column(TZ)
     updated_at: Mapped[datetime] = mapped_column(TZ)
+
+
+class IdempotencyRecord(Base):
+    """Stored response for a request that carried an Idempotency-Key header.
+
+    A repeat with the same key and route returns the stored response and writes nothing.
+    """
+
+    __tablename__ = "idempotency_keys"
+    __table_args__ = {"schema": DOMAIN_SCHEMA}
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    route: Mapped[str] = mapped_column(String(120), primary_key=True)
+    status_code: Mapped[int] = mapped_column(Integer)
+    response: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(TZ)
 
 
 # ---------------------------------------------------------------------------

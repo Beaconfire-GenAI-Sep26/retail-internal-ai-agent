@@ -15,7 +15,8 @@ CHECKS = {
     "claims missing evidence id, timestamps or label": """
         SELECT count(*) FROM domain.mi_claims
         WHERE evidence_id IS NULL OR reported_at IS NULL OR review_label IS NULL
-           OR (review_label <> 'pending' AND reviewed_at IS NULL)""",
+           OR (review_label <> 'pending' AND reviewed_at IS NULL)
+           OR (review_label = 'pending' AND reviewed_at IS NOT NULL)""",
     "claims on canceled orders": """
         SELECT count(*) FROM domain.mi_claims c JOIN domain.orders o USING (order_id)
         WHERE o.status = 'canceled'""",

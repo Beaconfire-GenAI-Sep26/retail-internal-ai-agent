@@ -16,10 +16,10 @@ B-02 acceptance criteria:
 2. State records attempted checks, findings and ruled-out hypotheses. A configurable step limit prevents unbounded loops.
 3. Insufficient evidence or exhausted checks return `unsure`. An operational failure yields a structured `failed` status and a log.
 
-**Starting point, Nov 18:**
-- There is no agent code yet.
-- The A-01 scaffold isn't merged. It lives on `origin/SCRUM-13…` under `a-01-scaffold/services/agent`, with `python:3.12-slim` and pip installing from `requirements.txt`. The Agent Service uses **uv** instead: `pyproject.toml` plus a committed `uv.lock`.
-- `main` has `domain/` (C-01) and `frontend/` at the repo root.
+**Platform integration status:**
+- Root `agent/` contains the service entry point, shared JWT boundary and scoped HTTP Domain client. The graph modules below remain B-02 work.
+- The Agent Service uses **uv**: `agent/pyproject.toml` plus a committed `agent/uv.lock`, built from the repository root so it can include `shared/`.
+- Root `compose.yaml` launches `auth/`, `agent/`, `domain/` and `frontend/`, with gateway/database setup in `platform/`.
 - The C-02 diagnostics APIs don't exist yet.
 - The v0.3 contracts (menu endpoint, metric names, evidence ordering) are on the B-01 branch, not yet on `main`.
 
@@ -691,12 +691,12 @@ The current SDK reads `LANGFUSE_BASE_URL`, so architecture.md's `LANGFUSE_HOST` 
 6. `/evidence/resolve` must accept the analyst's forwarded JWT.
 
 **Platform (A-01, A-02, A-03):**
-1. `agent/` at the repo root, versus A-01's `a-01-scaffold/services/agent`. The agent image builds with uv (`pyproject.toml` and `uv.lock`), not pip and `requirements.txt`. Compose needs no change beyond the build path.
+1. Root `agent/` and the uv image (`pyproject.toml`, `uv.lock`) are integrated. Build with `docker build -f agent/Dockerfile .` from the repository root; shared code requires that root context.
 2. The agent's compose env (DB, JWT, service token, Domain URL, Anthropic, `AGENT_*`, Langfuse) and `depends_on: postgres`.
 3. DB init: the `agent` schema and the `agent_svc` role with `CREATE`.
-4. B-02's minimal JWT verifier versus A-02's.
-5. The gateway doesn't set `X-Request-ID`.
-6. The demo token TTL or refresh behavior.
+4. A-02's shared verifier is installed. B-02 must retain that boundary when adding routes.
+5. The gateway forwards `X-Request-ID`; the Agent forwards it to Domain.
+6. A-02 implements expiring JWTs and rotating HttpOnly refresh sessions; each resume uses a fresh request JWT.
 7. Approval of the contract changes and the finalize truth table's reading of acceptance criterion 3.
 
 **Frontend (D-02, D-03):**
@@ -719,7 +719,7 @@ The current SDK reads `LANGFUSE_BASE_URL`, so architecture.md's `LANGFUSE_HOST` 
 
 **M0 report:** whether the schema compiles, latency per effort, cache reads on turn 2, and SDK support for `fallbacks`.
 
-**Image:** `docker build agent/` succeeds from the lockfile alone, with `uv sync --frozen`.
+**Image:** `docker build -f agent/Dockerfile .` succeeds from the repository root, with `uv sync --frozen` installing the committed lockfile.
 
 **Live smoke run:** `uv run python -m app.cli --store STORE-A --domain fixtures`, then STORE-B and STORE-C.
 - A and B reach their causes with different check sequences, and C ends `unsure`.

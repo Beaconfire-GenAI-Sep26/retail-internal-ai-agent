@@ -37,10 +37,11 @@ export const getErrorMessage = (err, fallback = 'Something went wrong') => {
   }
 
   const { status, data } = err.response;
-  const { code, detail } = data ?? {};
+  const { code, detail } = data?.error ?? data ?? {};
 
   // Step 2: known code → our wording
   if (code && CODE_MESSAGES[code]) return CODE_MESSAGES[code];
+  if (typeof data?.error?.message === 'string') return data.error.message;
 
   // Step 3: FastAPI 422 → the first field error beats a generic message
   //   loc is e.g. ["body", "username"] → "username: Field required"

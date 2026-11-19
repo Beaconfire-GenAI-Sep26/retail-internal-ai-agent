@@ -12,11 +12,12 @@ import { login, bootstrap, logout } from './authThunks';
 // 2. Initial state
 // ═══════════════════════════════════════════════════════════════════
 const initialState = {
-  user: null, // { id, username, display_name, role, store_ids } — from GET /auth/me
+  user: null, // { user_id, display_name, role, store_ids } — shared User DTO
   token: null, // access token, kept in memory only (never localStorage)
   status: 'idle', // 'idle' | 'loading' | 'succeeded' | 'failed' — last login attempt
   loginError: null, // message shown on the login form
   bootstrapped: false, // has the on-load session restore finished yet?
+  bootstrapRequestId: null,
 };
 
 // Logged-out state that keeps bootstrapped = true (we already know there is no
@@ -34,8 +35,9 @@ const authSlice = createSlice({
   // ── 3a. reducers — dispatched by the axios interceptor ──────────
   reducers: {
     // Store a freshly refreshed access token (after a silent /auth/refresh)
-    setToken(state, action) {
-      state.token = action.payload;
+    sessionRefreshed(state, action) {
+      state.token = action.payload.token;
+      state.user = action.payload.user;
     },
     // Wipe the session when a silent refresh fails
     credentialsCleared() {
@@ -50,6 +52,7 @@ const authSlice = createSlice({
       .addCase(login.pending, (state) => {
         state.status = 'loading';
         state.loginError = null;
+        state.bootstrapRequestId = null;
       })
       .addCase(login.fulfilled, (state, action) => {
         state.status = 'succeeded';
@@ -62,15 +65,23 @@ const authSlice = createSlice({
         state.loginError = action.payload ?? 'Login failed';
       })
       // bootstrap — session restore is silent, so failure surfaces no error
+      .addCase(bootstrap.pending, (state, action) => {
+        state.bootstrapRequestId = action.meta.requestId;
+      })
       .addCase(bootstrap.fulfilled, (state, action) => {
+        if (state.bootstrapRequestId !== action.meta.requestId) return;
         state.token = action.payload.token;
         state.user = action.payload.user;
         state.bootstrapped = true;
+        state.bootstrapRequestId = null;
       })
-      .addCase(bootstrap.rejected, (state) => {
+      .addCase(bootstrap.rejected, (state, action) => {
+        if (state.bootstrapRequestId !== action.meta.requestId) return;
         state.bootstrapped = true;
+        state.bootstrapRequestId = null;
       })
       // logout — back to a clean, logged-out state
+      .addCase(logout.pending, () => loggedOut)
       .addCase(logout.fulfilled, () => loggedOut);
   },
 });
@@ -79,6 +90,6 @@ const authSlice = createSlice({
 // ═══════════════════════════════════════════════════════════════════
 // 4. Exports — actions for axios.js, reducer for store.js
 // ═══════════════════════════════════════════════════════════════════
-export const { setToken, credentialsCleared } = authSlice.actions;
+export const { sessionRefreshed, credentialsCleared } = authSlice.actions;
 
 export default authSlice.reducer;

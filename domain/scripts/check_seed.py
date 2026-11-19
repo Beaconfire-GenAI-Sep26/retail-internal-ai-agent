@@ -1,11 +1,11 @@
 """Sanity checks for the seeded Domain database (C-01 acceptance criteria).
 
-Usage (from the folder that contains `app/`):
-    python -m scripts.check_seed
+Usage (from the repository root):
+    python -m domain.scripts.check_seed
 """
 from sqlalchemy import text
 
-from app.db import engine
+from domain.app.db import engine
 
 CHECKS = {
     "claims without a valid order": """

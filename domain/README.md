@@ -1,19 +1,41 @@
-# Domain DB: models and seed data (C-01)
+# Domain Service
 
-SQLAlchemy models for the Domain service plus a repeatable script that resets
-PostgreSQL and loads synthetic data for 10 stores (Oct 5 - Nov 15, 2026).
+FastAPI service with JWT/store access control, SQLAlchemy models, migrations and
+repeatable synthetic data for 10 stores (Oct 5 - Nov 15, 2026). The entry point is
+`domain.app.main:app`; Compose builds this directory together with `shared/`.
+Run all commands below in Bash on macOS from the repository root.
 
 ## Files
 
 | Path | What it is |
 | --- | --- |
-| `app/db.py` | Engine and session, reads `DATABASE_URL` |
+| `app/main.py`, `app/access.py` | API entry point, health/readiness, store/menu reads and default-deny authorization |
+| `app/db.py` | Administrative engine/session using the same shared configuration as the API |
 | `app/models.py` | 9 tables: 8 in schema `domain`, answer key in schema `eval` |
 | `alembic.ini`, `migrations/` | Alembic migrations; the version table lives in schema `domain` |
 | `scripts/reset_and_seed.py` | Drops both schemas, runs `alembic upgrade head`, then loads seed data (fixed seed 24) |
 | `scripts/check_seed.py` | Row counts, integrity checks and M&I rate per store |
 
-## Run it
+## Run the API
+
+```bash
+docker compose up --build domain
+```
+
+Compose uses `domain_svc`, restricted to the `domain` schema. Auth/Agent share
+the JWT verification code in `shared/`; Domain independently verifies forwarded
+tokens and resolves case/proposal ownership before authorizing a request.
+The existing C-02/C-03 business handlers remain separate implementation work.
+
+Direct development uses `uvicorn domain.app.main:app --root-path /domain` from the repository root
+with `JWT_SECRET`, `INTERNAL_SERVICE_TOKEN` and the Domain database environment
+configured. The root `.env` is loaded by Compose, not automatically by Python.
+
+## Migrate and seed
+
+Migrations and evaluation data require an administrative database identity.
+Runtime Domain deliberately has no access to `eval`. Starting the API does not
+run administrative migrations or reset data.
 
 1. Start PostgreSQL (skip if the project's docker compose already runs it):
 
@@ -21,35 +43,55 @@ PostgreSQL and loads synthetic data for 10 stores (Oct 5 - Nov 15, 2026).
    docker run --name retail-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=retail -p 5432:5432 -d postgres:16
    ```
 
-2. Install dependencies and point to the database (Git Bash on Windows):
+2. Create a Python 3.12 virtual environment, install dependencies and configure the database:
 
    ```bash
-   python -m venv .venv
-   source .venv/Scripts/activate      # macOS/Linux: source .venv/bin/activate
-   pip install -r requirements.txt
+   python3.12 -m venv .venv
+   source .venv/bin/activate
+   python -m pip install -r domain/requirements.txt
    export DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/retail"
    ```
 
-3. Create or upgrade the tables only (what the service runs on startup):
+3. Create or upgrade the tables explicitly as an administrator:
 
    ```bash
-   alembic upgrade head
+   alembic -c domain/alembic.ini upgrade head
    ```
 
 4. Reset and seed demo data, then check:
 
    ```bash
-   python -m scripts.reset_and_seed
-   python -m scripts.check_seed
+   python -m domain.scripts.reset_and_seed
+   python -m domain.scripts.check_seed
    ```
 
-   Running the reset again deletes everything in `domain` and `eval` and produces identical data.
+   Running the reset again deletes everything in `domain` and `eval` and produces
+   identical data. After an admin reset against the Compose database, rerun the
+   platform role script to restore Domain runtime grants:
+
+   ```bash
+   docker compose exec postgres sh /docker-entrypoint-initdb.d/001-service-roles.sh
+   ```
+
+For administrative operations on the Compose database without exposing Postgres
+on a host port, run the service image on its Docker network. This example runs
+only the non-destructive migration command, overriding the service's credentials
+with administrator values exported in the shell:
+
+```bash
+export POSTGRES_USER='your-existing-admin-user'
+export POSTGRES_PASSWORD='your-existing-admin-password'
+docker compose run --rm --no-deps -e POSTGRES_USER -e POSTGRES_PASSWORD domain alembic -c domain/alembic.ini upgrade head
+```
+
+Replace the example administrator values with your existing local configuration.
+Never give the running Domain API the administrator's credentials.
 
 ## Changing a table
 
-1. Edit the model in `app/models.py`.
-2. `alembic revision --autogenerate -m "describe the change"` and review the new file in `migrations/versions/`.
-3. `alembic upgrade head`, then commit the model change and the migration together.
+1. Edit `domain/app/models.py`.
+2. Run `alembic -c domain/alembic.ini revision --autogenerate -m "describe the change"` and review `domain/migrations/versions/`.
+3. Run `alembic -c domain/alembic.ini upgrade head`, then commit the model change and migration together.
 
 ## Seeded scenarios
 

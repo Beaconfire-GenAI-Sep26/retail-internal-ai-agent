@@ -1,0 +1,4 @@
+-r auth/requirements.txt
+-r domain/requirements.txt
+httpx==0.28.1
+pytest>=8,<10

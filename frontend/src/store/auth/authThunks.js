@@ -6,7 +6,7 @@
 // 1. Imports
 // ═══════════════════════════════════════════════════════════════════
 import { createAsyncThunk } from '@reduxjs/toolkit';
-import api from '../../api/axios';
+import api, { refreshSession, invalidateSession } from '../../api/axios';
 import { getErrorMessage } from '../../api/errors';
 import { USE_MOCKS, mockLogin, mockBootstrap, mockLogout } from '../../api/mockAuth';
 
@@ -16,11 +16,9 @@ import { USE_MOCKS, mockLogin, mockBootstrap, mockLogout } from '../../api/mockA
 
 
 // ═══════════════════════════════════════════════════════════════════
-// 2. login — POST /auth/login → GET /auth/me
+// 2. login — POST /auth/login returns token + User
 // ═══════════════════════════════════════════════════════════════════
-// Log in, then fetch the profile so the store gets BOTH the access token and who
-// the analyst is (role + store_ids). The fresh token is attached to /auth/me by
-// hand because it is not in the store yet at this moment.
+// The contract returns both credentials and profile; no second HTTP call is needed.
 export const login = createAsyncThunk(
   'auth/login',
   async ({ username, password }, { rejectWithValue }) => {
@@ -33,11 +31,9 @@ export const login = createAsyncThunk(
     }
 
     try {
+      await invalidateSession()?.catch(() => {});
       const { data } = await api.post('/auth/login', { username, password });
-      const me = await api.get('/auth/me', {
-        headers: { Authorization: `Bearer ${data.access_token}` },
-      });
-      return { token: data.access_token, user: me.data };
+      return { token: data.access_token, user: data.user };
     } catch (err) {
       // rejectWithValue puts this string on action.payload so the slice can show it
       return rejectWithValue(getErrorMessage(err, 'Login failed'));
@@ -47,22 +43,19 @@ export const login = createAsyncThunk(
 
 
 // ═══════════════════════════════════════════════════════════════════
-// 3. bootstrap — POST /auth/refresh → GET /auth/me (on page load)
+// 3. bootstrap — POST /auth/refresh (on page load)
 // ═══════════════════════════════════════════════════════════════════
 // The access token lives only in memory, so a hard refresh would log the analyst
 // out; instead we exchange the HttpOnly refresh cookie for a new access token and
-// re-fetch the profile. No valid cookie → 401 → we simply stay logged out.
+// current profile. No valid cookie → 401 → we simply stay logged out.
 export const bootstrap = createAsyncThunk(
   'auth/bootstrap',
   async (_, { rejectWithValue }) => {
     try {
       if (USE_MOCKS) return await mockBootstrap();
 
-      const { data } = await api.post('/auth/refresh');
-      const me = await api.get('/auth/me', {
-        headers: { Authorization: `Bearer ${data.access_token}` },
-      });
-      return { token: data.access_token, user: me.data };
+      const data = await refreshSession();
+      return { token: data.access_token, user: data.user };
     } catch {
       // Silent: "not logged in" is a normal outcome on first visit
       return rejectWithValue(null);
@@ -77,6 +70,7 @@ export const bootstrap = createAsyncThunk(
 // Revoke the refresh token on the backend and clear the cookie. The local session
 // is cleared regardless of whether the network call succeeds (see authSlice).
 export const logout = createAsyncThunk('auth/logout', async () => {
+  await invalidateSession()?.catch(() => {});
   try {
     if (USE_MOCKS) {
       await mockLogout();

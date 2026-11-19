@@ -1,0 +1,129 @@
+name: retail-internal-ai-agent
+
+x-jwt: &jwt
+  JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET to at least 32 bytes}
+  JWT_ISSUER: ${JWT_ISSUER:-mi-auth}
+
+x-database: &database
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB:-retail_agent}
+
+x-api-healthcheck: &api-healthcheck
+  test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 10s
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-retail_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-retail_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your local .env file}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?Set AUTH_DB_PASSWORD}
+      DOMAIN_DB_PASSWORD: ${DOMAIN_DB_PASSWORD:?Set DOMAIN_DB_PASSWORD}
+      AGENT_DB_PASSWORD: ${AGENT_DB_PASSWORD:?Set AGENT_DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./platform/postgres/001-service-roles.sh:/docker-entrypoint-initdb.d/001-service-roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  auth:
+    build:
+      context: .
+      dockerfile: auth/Dockerfile
+    environment:
+      <<: [*jwt, *database]
+      UVICORN_ROOT_PATH: /auth
+      POSTGRES_USER: auth_svc
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD:?Set AUTH_DB_PASSWORD}
+      JWT_TTL_MINUTES: ${JWT_TTL_MINUTES:-60}
+      REFRESH_TTL_DAYS: ${REFRESH_TTL_DAYS:-7}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
+      SEED_AUTH_ACCOUNTS: ${SEED_AUTH_ACCOUNTS:-false}
+      SEED_ANALYST_PASSWORD: ${SEED_ANALYST_PASSWORD:-}
+      SEED_VIEWER_PASSWORD: ${SEED_VIEWER_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      <<: *api-healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"]
+
+  agent:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    environment:
+      <<: [*jwt, *database]
+      UVICORN_ROOT_PATH: /agent
+      POSTGRES_USER: agent_svc
+      POSTGRES_PASSWORD: ${AGENT_DB_PASSWORD:?Set AGENT_DB_PASSWORD}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?Set INTERNAL_SERVICE_TOKEN}
+      DOMAIN_SERVICE_URL: http://domain:8000
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5-5}
+      AGENT_EFFORT: ${AGENT_EFFORT:-high}
+      AGENT_MAX_STEPS: ${AGENT_MAX_STEPS:-12}
+      AGENT_MAX_RETRIES: ${AGENT_MAX_RETRIES:-2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck: *api-healthcheck
+
+  domain:
+    build:
+      context: .
+      dockerfile: domain/Dockerfile
+    environment:
+      <<: [*jwt, *database]
+      UVICORN_ROOT_PATH: /domain
+      POSTGRES_USER: domain_svc
+      POSTGRES_PASSWORD: ${DOMAIN_DB_PASSWORD:?Set DOMAIN_DB_PASSWORD}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?Set INTERNAL_SERVICE_TOKEN}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      <<: *api-healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"]
+
+  frontend:
+    build: ./frontend
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  gateway:
+    build: ./platform/gateway
+    ports:
+      - "127.0.0.1:${APP_PORT:-18080}:80"
+    depends_on:
+      auth:
+        condition: service_healthy
+      agent:
+        condition: service_healthy
+      domain:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

@@ -1,12 +1,12 @@
-// [03c] Mock Auth — used only when VITE_USE_MOCKS=true, until A-02 is ready
+// [03c] Mock Auth — opt-in standalone UI development with VITE_USE_MOCKS=true
 //
-// Planned real contract (confirm with B-01 / A-02):
-//   POST /auth/login   { username, password } → { access_token, token_type }
-//   GET  /auth/me      → { id, username, display_name, role, store_ids }
-//   POST /auth/refresh → { access_token }          (HttpOnly refresh cookie)
+// Real contract (B-01 / A-02):
+//   POST /auth/login   → { access_token, token_type, expires_at, user }
+//   GET  /auth/me      → { user_id, display_name, role, store_ids }
+//   POST /auth/refresh → same payload as login (HttpOnly refresh cookie)
 //   POST /auth/logout  → 204
 // The mock functions return the SAME shape authThunks builds from the real API:
-//   { token, user: { id, username, display_name, role, store_ids } }
+//   { token, user: { user_id, display_name, role, store_ids } }
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -17,22 +17,21 @@ export const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === 'true';
 
 const DEMO_PASSWORD = 'Password123!';
 
-// Roles (sprint plan): 'analyst' = LOE Analyst (investigate, decide drafts)
-//                      'viewer'  = read only
+// Roles (B-01): 'loe_analyst' = investigate, decide drafts; 'viewer' = read only
 // store_ids use the C-01 seed IDs:
 //   STORE-A → POS modifier case · STORE-B → dinner packing case
 // The Viewer is granted only STORE-A so the demo can show a denied STORE-B
 // read and a denied approval.
 export const DEMO_USERS = [
   {
-    id: 1,
+    user_id: 'USR-001',
     username: 'analyst',
     display_name: 'Demo LOE Analyst',
-    role: 'analyst',
+    role: 'loe_analyst',
     store_ids: ['STORE-A', 'STORE-B'],
   },
   {
-    id: 2,
+    user_id: 'USR-002',
     username: 'viewer',
     display_name: 'Demo Viewer',
     role: 'viewer',

@@ -20,7 +20,7 @@
 import Pill from '../common/Pill';
 import { EvidenceLinks } from '../common/EvidenceLink';
 import { CheckRefs } from './CheckTimeline';
-import { checkNumbers } from './caseSteps';
+import { checkNumbers, survivedChallenges } from './caseSteps';
 import { formatDay, labelOf, CAUSE_LABELS, CONFIDENCE_LABELS } from '../../api/format';
 
 
@@ -64,7 +64,8 @@ const RuledOut = ({ items, numbers }) => (
 // 3. ResultPanel component
 // ═══════════════════════════════════════════════════════════════════
 // result: InvestigationResult · checks: InvestigationView.checks, for "check 4" links
-const ResultPanel = ({ result, checks = [] }) => {
+// hypotheses: InvestigationView.hypotheses, to tell which cause a challenge tested
+const ResultPanel = ({ result, checks = [], hypotheses = [] }) => {
   const numbers = checkNumbers(checks);
 
   // ── 3a. Unsure: no cause confirmed, what was missing, sent to a person ──
@@ -87,6 +88,7 @@ const ResultPanel = ({ result, checks = [] }) => {
   }
 
   // ── 3b. Diagnosis: the cause, how sure, since when, and the proof ──
+  const survived = survivedChallenges(result, checks, hypotheses);
   return (
     <div className='result-panel'>
       <div className='result-head'>
@@ -98,9 +100,10 @@ const ResultPanel = ({ result, checks = [] }) => {
 
       <EvidenceLinks label='Supporting evidence' ids={result.supporting_evidence_ids} />
       <EvidenceLinks label='Contradicting evidence' ids={result.contradicting_evidence_ids} />
-      {result.challenge_check_ids?.length > 0 && (
+      {/* Only the challenges the cause held up against, not every one tried */}
+      {survived.length > 0 && (
         <p className='muted'>
-          Survived a challenge: <CheckRefs ids={result.challenge_check_ids} numbers={numbers} />
+          Survived a challenge: <CheckRefs ids={survived} numbers={numbers} />
         </p>
       )}
 

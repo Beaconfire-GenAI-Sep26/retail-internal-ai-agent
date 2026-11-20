@@ -6,6 +6,7 @@
 //   │ 1. Start button (4) and/or progress (5)                          │
 //   │ 2. The shared spot (one at a time):                              │
 //   │      question (6) · reply (7) · result (8) + action (9) · error (10) │
+//   │      or, with no run from the agent, the case's saved action (9)  │
 //   │ 3. Checks (11)  |  Possible causes (12)                          │
 //   └──────────────────────────────────────────────────────────────────┘
 //
@@ -55,13 +56,16 @@ const Slot = ({ view, caseId, investigation, timeZone }) => {
       if (!result) return null;
       return (
         <>
-          <ResultPanel result={result} checks={investigation.checks} />
+          <ResultPanel result={result} checks={investigation.checks} hypotheses={investigation.hypotheses} />
           {view.showRecommendation && result.proposal_id && (
             <RecommendationReview proposalId={result.proposal_id} timeZone={timeZone} />
           )}
         </>
       );
     }
+    // The agent has no run (it restarted), but Domain still has the case's action
+    case 'proposal':
+      return view.proposalId ? <RecommendationReview proposalId={view.proposalId} timeZone={timeZone} /> : null;
     case 'error':
       return <ErrorPanel caseId={caseId} investigation={investigation} startLabel={view.startLabel} />;
     default:
@@ -123,6 +127,12 @@ const InvestigationPanel = ({ caseId }) => {
       {/* ── Part 1: Start (box 4) and/or progress (box 5) ── */}
       {view.step === '1' && (
         <p className='muted'>The agent checks this store's data and looks for the cause of the spike.</p>
+      )}
+      {view.step === 'no_run' && (
+        <p className='muted'>
+          The agent no longer has this investigation's checks and result (it may have restarted).
+          {view.proposalId ? ' The recommended action is still saved below.' : ''}
+        </p>
       )}
       {/* On failure the Start again button sits inside the error box instead */}
       {view.showStart && view.slot !== 'error' && (

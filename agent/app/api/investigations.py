@@ -29,6 +29,9 @@ from agent.app.store import ActiveInvestigationError, InvestigationRow
 
 router = APIRouter(tags=["investigations"])
 
+# Case statuses that accept a fresh investigation (one without reopen_of).
+STARTABLE_STATUSES = frozenset({"open", "investigating"})
+
 
 def _services(request: Request) -> Any:
     return request.app.state
@@ -133,6 +136,13 @@ async def start_investigation(
             raise AppError(409, "PROPOSAL_PENDING",
                            f"Case {case.case_id} has a pending proposal, {pending.proposal_id}. Decide it first.",
                            {"proposal_id": pending.proposal_id})
+        # A fresh run only on a case nobody has decided yet: open, or investigating with no run here (a run lost when
+        # the agent restarted). A reopened case starts its second run with reopen_of, checked above.
+        if (body.reopen_of is None and case.status not in STARTABLE_STATUSES
+                and store.active_for_case(case.case_id) is None):
+            raise AppError(409, "CASE_NOT_STARTABLE",
+                           f"Case {case.case_id} is {case.status}, so it can't start a new investigation.",
+                           {"case_status": case.status})
         now = now_iso()
         row = InvestigationRow(
             investigation_id=services.ids.new("INV"),

@@ -593,7 +593,7 @@ sequenceDiagram
 **`POST /investigations`:**
 - **Role:** `loe_analyst`; anyone else gets 403 `FORBIDDEN`.
 - **Case lookup:** `GET /cases/{id}` with the user's JWT. A case hidden by store scope returns 404 `CASE_NOT_FOUND`. Also check the store against the token's grants.
-- **409s:** `REOPEN_NOT_ALLOWED` per the contract, and `PROPOSAL_PENDING` (with `details.proposal_id`) when the case already has a pending proposal and no active run, because Domain allows one pending proposal per case.
+- **409s:** `REOPEN_NOT_ALLOWED` per the contract. `PROPOSAL_PENDING` (with `details.proposal_id`) when the case already has a pending proposal and no active run, because Domain allows one pending proposal per case. `CASE_NOT_STARTABLE` (with `details.case_status`) when a run without `reopen_of` targets a case that isn't `open`, or `investigating` with no active run, so a stale page can't restart a decided case.
 - **Token lifetime:** a token expiring before the measured p95 run time gets 401 `UNAUTHENTICATED`.
 - **Concurrency:** a per-case `asyncio.Lock` plus the index insert prevents two runs on one case. Postgres mode adds a partial unique index on active statuses. A clash returns 409 `INVESTIGATION_ACTIVE`.
 - **Status:** a best-effort `PUT running`, one attempt. A failure sets `domain_sync_pending`, unless Domain has no status route. Older rows of the same case stop retrying their reports.
@@ -626,7 +626,7 @@ sequenceDiagram
 **Startup reconcile (Postgres mode):**
 - For each `running` row, read `aget_state`.
 - A terminal state syncs the row. Anything else becomes `failed AGENT_RESTARTED`.
-- In memory mode, nothing survives a restart.
+- In memory mode, nothing survives a restart. A graceful stop still reports each cancelled run to Domain as `failed AGENT_RESTARTED`.
 
 **Persistence (M2):**
 - `AsyncPostgresSaver` (`langgraph.checkpoint.postgres.aio`) on a psycopg `AsyncConnectionPool` with `kwargs={"autocommit": True, "row_factory": dict_row}`.

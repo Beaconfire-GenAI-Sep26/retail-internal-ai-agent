@@ -91,7 +91,9 @@ diagnosis without saving a proposal and skips the status report. Once Domain has
 every run over HTTP, `--dry-run` included, saves a real pending proposal and reports its status. While a case
 has a pending proposal, `POST /investigations` refuses a new run with 409 `PROPOSAL_PENDING`
 (`details.proposal_id`) and the CLI stops before it starts, so decide or reject the proposal first, or reseed
-Domain. The live suite rejects the proposals it saves.
+Domain. The API also starts a fresh run only on an `open` case, or an `investigating` one with no active run
+(409 `CASE_NOT_STARTABLE`), so a decided case needs a reseed. The CLI skips that rule, so you can rerun a case.
+The live suite rejects the proposals it saves and returns STORE-A's case to `open` before its API test.
 
 The live suite runs the tools, the evidence check, the scripted STORE-A and STORE-B investigations and the API
 against that Domain. It skips unless both variables are set. From `agent/`:

@@ -2,7 +2,8 @@
 
 While Domain has no catalog or proposals route, the runs use the bundled catalog and finish without saving a
 proposal. Once those routes exist, each run saves a real pending proposal, and the tests reject it afterwards
-(as the frontend would) so the next run on the same case can save its own.
+(as the frontend would) so the next run on the same case can save its own. The API only starts a run on a case
+nobody has decided, so the API test first returns STORE-A's case to `open`.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from agent.tests.live.conftest import (
     mint,
     pending_proposals,
     release_proposals,
+    reopen_case,
 )
 from agent.tests.scripts import FULL, store_a_turns, store_b_turns
 
@@ -220,6 +222,7 @@ def wait_for(client: TestClient, investigation_id: str, token: str, timeout: flo
 
 
 def test_the_api_runs_a_case_with_the_users_permissions(live):
+    reopen_case(live, "STORE-A")  # the graph test above leaves the case decided
     app = create_app(live_settings(live), domain_client=HttpDomainClient(live.url, SERVICE_TOKEN,
                                                                          jwt_settings=jwt_settings()),
                      model=ScriptedReasonModel(store_a_turns()), ids=CounterIdFactory(), configure_logs=False)

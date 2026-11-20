@@ -791,7 +791,7 @@ until its short expiry. See [authentication.md](authentication.md) for integrati
 
 | Method and path                                  | Who             | Request                       | Response                                      | Errors                                                                          |
 | ------------------------------------------------ | --------------- | ----------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------- |
-| `POST /investigations`                           | analyst         | `StartInvestigationRequest`   | 202 `InvestigationView` with status `running` | 403, 404 `CASE_NOT_FOUND`, 409 `INVESTIGATION_ACTIVE`, 409 `PROPOSAL_PENDING`, 409 `REOPEN_NOT_ALLOWED` |
+| `POST /investigations`                           | analyst         | `StartInvestigationRequest`   | 202 `InvestigationView` with status `running` | 403, 404 `CASE_NOT_FOUND`, 409 `INVESTIGATION_ACTIVE`, 409 `PROPOSAL_PENDING`, 409 `CASE_NOT_STARTABLE`, 409 `REOPEN_NOT_ALLOWED` |
 | `GET /investigations/{investigation_id}`         | viewer, analyst | —                             | 200 `InvestigationView`                       | 403, 404                                                                        |
 | `GET /investigations?case_id=`                   | viewer, analyst | —                             | 200 `InvestigationView[]`, newest first       | 403                                                                             |
 | `POST /investigations/{investigation_id}/resume` | analyst         | empty body, `Idempotency-Key` | 202 `InvestigationView`                       | 403, 404, 409 `INVESTIGATION_FINISHED`                                          |
@@ -954,6 +954,7 @@ Every error uses one envelope, including FastAPI's validation errors:
 | 409  | `INVESTIGATION_FINISHED`             | Resume on a completed, unsure or failed investigation                                                                   |
 | 409  | `REOPEN_NOT_ALLOWED`                 | `reopen_of` set but the case isn't `reopened`, or it was already reopened once                                          |
 | 409  | `PROPOSAL_PENDING`                   | The case already has a pending proposal                                                                                 |
+| 409  | `CASE_NOT_STARTABLE`                 | A fresh investigation needs an `open` case, or an `investigating` one with no active run. `details.case_status` says which status refused it. A `reopened` case uses `reopen_of` |
 | 409  | `STALE_VERSION`                      | The decision names an old version                                                                                       |
 | 409  | `ALREADY_DECIDED`                    | Proposal already approved or rejected with a different decision                                                         |
 | 409  | `NOT_DISPATCHED`, `REPLY_EXISTS`     | Reply to an undispatched question, or a second reply                                                                    |

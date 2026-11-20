@@ -12,6 +12,7 @@ through HttpDomainClient with a forwarded user token.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 import uuid
@@ -21,8 +22,11 @@ from typing import Any
 import httpx
 import jwt
 import pytest
+from shared.security import JWTSettings
 
 from agent.app.config import get_settings
+from agent.app.contracts.models import InvestigationStatusUpdate
+from agent.app.domain.client import DomainError, HttpDomainClient
 
 DOMAIN_URL = os.environ.get("AGENT_IT_DOMAIN_URL", "").rstrip("/")
 JWT_SECRET = os.environ.get("AGENT_IT_JWT_SECRET", "")
@@ -68,6 +72,32 @@ def release_proposals(live: LiveDomain, case_id: str, investigation_ids: set[str
             http.post(f"/proposals/{proposal['proposal_id']}/decision",
                       json={"version": proposal.get("version", 1), "decision": "reject", "note": "live test cleanup"},
                       headers={**auth(mint()), "Idempotency-Key": str(uuid.uuid4())}).raise_for_status()
+
+
+def reopen_case(live: LiveDomain, store: str) -> None:
+    """Return the store's case to `open` so the API can start a fresh run on it. Earlier tests leave it decided
+    (analyst_review), and a failed run is how Domain's status model returns a case to `open`, so this reports one
+    through the agent's own client. A no-op when the case is already startable or Domain has no status route."""
+    case_id = live.cases[store]
+    with httpx.Client(base_url=live.url, timeout=30) as http:
+        if http.get(f"/cases/{case_id}", headers=auth(mint())).json()["status"] in ("open", "investigating"):
+            return
+
+    async def report_failed() -> None:
+        client = HttpDomainClient(live.url, SERVICE_TOKEN, max_retries=0,
+                                  jwt_settings=JWTSettings(JWT_SECRET, JWT_ISSUER))
+        try:
+            port = client.bind(token=mint(), request_id="live-reset", investigation_id="INV-LIVE-RESET",
+                               store_id=store, case_id=case_id)
+            await port.report_investigation_status(case_id, InvestigationStatusUpdate(
+                investigation_id="INV-LIVE-RESET", status="failed", error_code="INTERNAL"))
+        except DomainError as exc:
+            if not exc.route_missing:
+                raise
+        finally:
+            await client.aclose()
+
+    asyncio.run(report_failed())
 
 
 @pytest.fixture(scope="session")

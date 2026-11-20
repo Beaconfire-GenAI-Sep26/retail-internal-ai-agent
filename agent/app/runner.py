@@ -12,7 +12,7 @@ from agent.app.config import Settings
 from agent.app.contracts.enums import TERMINAL_STATUSES
 from agent.app.contracts.models import InvestigationStatusUpdate
 from agent.app.domain.client import DomainClient, DomainError
-from agent.app.errors import INTERNAL, RUN_TIMEOUT
+from agent.app.errors import AGENT_RESTARTED, INTERNAL, RUN_TIMEOUT
 from agent.app.graph.build import run_config
 from agent.app.graph.context import AgentContext
 from agent.app.graph.nodes.common import now_iso
@@ -108,8 +108,8 @@ class Runner:
             )
         except TimeoutError:
             await self._record_failure(row, domain, RUN_TIMEOUT, "The investigation ran past its time limit.")
-        except asyncio.CancelledError:
-            await self._record_failure(row, domain, INTERNAL, "The investigation was stopped.")
+        except asyncio.CancelledError:  # only shutdown() cancels a run: the service is stopping or restarting
+            await self._record_failure(row, domain, AGENT_RESTARTED, "The Agent Service stopped during the run.")
             raise
         except Exception as exc:  # unexpected: record it as failed and keep the service up
             logger.exception("investigation crashed")

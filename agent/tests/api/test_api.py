@@ -161,6 +161,32 @@ def test_a_pending_proposal_must_be_decided_before_a_new_run():
     assert [u["status"] for u in domain.status_updates] == ["running", "completed"]  # nothing reported for the refusal
 
 
+@pytest.mark.parametrize(("case_status", "starts"), [
+    ("action_dispatched", False), ("analyst_review", False), ("closed", False),
+    ("investigating", True),  # no run here: the agent lost it in a restart
+])
+def test_a_fresh_run_needs_a_case_nobody_has_decided(case_status, starts):
+    domain = FixtureDomainClient(FIXTURES)
+    domain.stores["STORE-A"].case.status = case_status
+    with make_client(model=BlockingModel(), domain=domain) as client:
+        resp = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(token()))
+        if starts:
+            assert resp.status_code == 202, resp.text
+        else:
+            assert resp.status_code == 409
+            assert resp.json()["error"]["code"] == "CASE_NOT_STARTABLE"
+            assert resp.json()["error"]["details"]["case_status"] == case_status
+
+
+def test_a_run_stopped_by_a_shutdown_reports_agent_restarted():
+    domain = FixtureDomainClient(FIXTURES)
+    with make_client(model=BlockingModel(), domain=domain) as client:
+        inv = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(token())).json()
+    # Leaving the block shuts the app down, which stops the run.
+    assert domain.status_updates[-1] == {"case_id": "CASE-0001", "investigation_id": inv["investigation_id"],
+                                         "status": "failed", "error_code": "AGENT_RESTARTED"}
+
+
 def test_reopen_needs_a_reopened_case():
     with make_client() as client:
         resp = client.post("/investigations", json={"case_id": "CASE-0001", "reopen_of": "INV-T0001"},

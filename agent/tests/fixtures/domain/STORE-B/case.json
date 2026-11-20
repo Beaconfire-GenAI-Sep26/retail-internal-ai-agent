@@ -1,0 +1,283 @@
+{
+ "case_id": "CASE-0002",
+ "store_id": "STORE-B",
+ "store_name": "Lone Star Family Grill",
+ "status": "open",
+ "trigger_rule": "over_goal",
+ "window_start": "2026-11-09T06:00:00Z",
+ "window_end": "2026-11-16T05:59:59Z",
+ "mi_rate": 0.0596,
+ "baseline_rate": 0.0221,
+ "eligible_orders": 537,
+ "attributable_claims": 32,
+ "goal_rate": 0.05,
+ "opened_at": "2026-11-16T14:00:00Z",
+ "updated_at": "2026-11-16T14:00:00Z",
+ "active_investigation_id": null,
+ "reopen_count": 0,
+ "last_error": null,
+ "store": {
+  "store_id": "STORE-B",
+  "name": "Lone Star Family Grill",
+  "city": "Houston",
+  "timezone": "America/Chicago",
+  "cuisine": "american"
+ },
+ "daily_rates": [
+  {
+   "date": "2026-10-05",
+   "rate": 0.0,
+   "claims": 0,
+   "eligible_orders": 87
+  },
+  {
+   "date": "2026-10-06",
+   "rate": 0.0,
+   "claims": 0,
+   "eligible_orders": 72
+  },
+  {
+   "date": "2026-10-07",
+   "rate": 0.0,
+   "claims": 0,
+   "eligible_orders": 62
+  },
+  {
+   "date": "2026-10-08",
+   "rate": 0.0,
+   "claims": 0,
+   "eligible_orders": 61
+  },
+  {
+   "date": "2026-10-09",
+   "rate": 0.0,
+   "claims": 0,
+   "eligible_orders": 95
+  },
+  {
+   "date": "2026-10-10",
+   "rate": 0.0268,
+   "claims": 3,
+   "eligible_orders": 112
+  },
+  {
+   "date": "2026-10-11",
+   "rate": 0.0147,
+   "claims": 1,
+   "eligible_orders": 68
+  },
+  {
+   "date": "2026-10-12",
+   "rate": 0.0189,
+   "claims": 1,
+   "eligible_orders": 53
+  },
+  {
+   "date": "2026-10-13",
+   "rate": 0.0137,
+   "claims": 1,
+   "eligible_orders": 73
+  },
+  {
+   "date": "2026-10-14",
+   "rate": 0.0417,
+   "claims": 3,
+   "eligible_orders": 72
+  },
+  {
+   "date": "2026-10-15",
+   "rate": 0.0,
+   "claims": 0,
+   "eligible_orders": 65
+  },
+  {
+   "date": "2026-10-16",
+   "rate": 0.012,
+   "claims": 1,
+   "eligible_orders": 83
+  },
+  {
+   "date": "2026-10-17",
+   "rate": 0.0263,
+   "claims": 2,
+   "eligible_orders": 76
+  },
+  {
+   "date": "2026-10-18",
+   "rate": 0.0135,
+   "claims": 1,
+   "eligible_orders": 74
+  },
+  {
+   "date": "2026-10-19",
+   "rate": 0.0147,
+   "claims": 1,
+   "eligible_orders": 68
+  },
+  {
+   "date": "2026-10-20",
+   "rate": 0.0429,
+   "claims": 3,
+   "eligible_orders": 70
+  },
+  {
+   "date": "2026-10-21",
+   "rate": 0.0,
+   "claims": 0,
+   "eligible_orders": 75
+  },
+  {
+   "date": "2026-10-22",
+   "rate": 0.0541,
+   "claims": 4,
+   "eligible_orders": 74
+  },
+  {
+   "date": "2026-10-23",
+   "rate": 0.0267,
+   "claims": 2,
+   "eligible_orders": 75
+  },
+  {
+   "date": "2026-10-24",
+   "rate": 0.0,
+   "claims": 0,
+   "eligible_orders": 79
+  },
+  {
+   "date": "2026-10-25",
+   "rate": 0.0,
+   "claims": 0,
+   "eligible_orders": 64
+  },
+  {
+   "date": "2026-10-26",
+   "rate": 0.0161,
+   "claims": 1,
+   "eligible_orders": 62
+  },
+  {
+   "date": "2026-10-27",
+   "rate": 0.0,
+   "claims": 0,
+   "eligible_orders": 69
+  },
+  {
+   "date": "2026-10-28",
+   "rate": 0.0,
+   "claims": 0,
+   "eligible_orders": 69
+  },
+  {
+   "date": "2026-10-29",
+   "rate": 0.0159,
+   "claims": 1,
+   "eligible_orders": 63
+  },
+  {
+   "date": "2026-10-30",
+   "rate": 0.0133,
+   "claims": 1,
+   "eligible_orders": 75
+  },
+  {
+   "date": "2026-10-31",
+   "rate": 0.0,
+   "claims": 0,
+   "eligible_orders": 85
+  },
+  {
+   "date": "2026-11-01",
+   "rate": 0.0152,
+   "claims": 1,
+   "eligible_orders": 66
+  },
+  {
+   "date": "2026-11-02",
+   "rate": 0.0241,
+   "claims": 2,
+   "eligible_orders": 83
+  },
+  {
+   "date": "2026-11-03",
+   "rate": 0.0127,
+   "claims": 1,
+   "eligible_orders": 79
+  },
+  {
+   "date": "2026-11-04",
+   "rate": 0.0941,
+   "claims": 8,
+   "eligible_orders": 85
+  },
+  {
+   "date": "2026-11-05",
+   "rate": 0.0465,
+   "claims": 4,
+   "eligible_orders": 86
+  },
+  {
+   "date": "2026-11-06",
+   "rate": 0.027,
+   "claims": 2,
+   "eligible_orders": 74
+  },
+  {
+   "date": "2026-11-07",
+   "rate": 0.0408,
+   "claims": 4,
+   "eligible_orders": 98
+  },
+  {
+   "date": "2026-11-08",
+   "rate": 0.0225,
+   "claims": 2,
+   "eligible_orders": 89
+  },
+  {
+   "date": "2026-11-09",
+   "rate": 0.1084,
+   "claims": 9,
+   "eligible_orders": 83
+  },
+  {
+   "date": "2026-11-10",
+   "rate": 0.0263,
+   "claims": 2,
+   "eligible_orders": 76
+  },
+  {
+   "date": "2026-11-11",
+   "rate": 0.0167,
+   "claims": 1,
+   "eligible_orders": 60
+  },
+  {
+   "date": "2026-11-12",
+   "rate": 0.1447,
+   "claims": 11,
+   "eligible_orders": 76
+  },
+  {
+   "date": "2026-11-13",
+   "rate": 0.0247,
+   "claims": 2,
+   "eligible_orders": 81
+  },
+  {
+   "date": "2026-11-14",
+   "rate": 0.0581,
+   "claims": 5,
+   "eligible_orders": 86
+  },
+  {
+   "date": "2026-11-15",
+   "rate": 0.0267,
+   "claims": 2,
+   "eligible_orders": 75
+  }
+ ],
+ "investigation_ids": [],
+ "proposals": [],
+ "rechecks": []
+}

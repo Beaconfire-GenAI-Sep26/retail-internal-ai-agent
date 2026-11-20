@@ -19,7 +19,7 @@ async def domain_request(http, method, path, *, headers, json=None, params=None)
     if response.status_code in {401, 403, 404, 409, 422}:
         try:
             error = response.json()["error"]
-            raise APIError(response.status_code, error["code"], error["message"])
+            raise APIError(response.status_code, error["code"], error["message"], error.get("details"))
         except (ValueError, KeyError, TypeError):
             pass
     raise APIError(503, "UPSTREAM_UNAVAILABLE", "Domain service unavailable.")

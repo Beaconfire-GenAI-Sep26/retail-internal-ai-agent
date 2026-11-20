@@ -35,7 +35,7 @@ async def json_object(request):
 def error_response(request: Request, error: APIError) -> JSONResponse:
     headers = {"WWW-Authenticate": "Bearer"} if error.status == 401 else {}
     return JSONResponse(status_code=error.status, headers=headers, content={"error": {
-        "code": error.code, "message": error.message, "details": None,
+        "code": error.code, "message": error.message, "details": error.details,
         "request_id": getattr(request.state, "request_id", None),
     }})
 

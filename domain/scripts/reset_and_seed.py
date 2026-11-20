@@ -59,6 +59,13 @@ A_CAUSE_DATE = date(2026, 10, 30)  # Extra sauce modifier added, not mapped to k
 B_CAUSE_DATE = date(2026, 11, 3)  # dinner-daypart packing problem starts
 B_PROMO = (date(2026, 11, 3), date(2026, 11, 9))
 J_SPIKE_DATE = date(2026, 11, 8)
+# Pending claims (review not finished). Added in C-02 so fraud_signals has data to find.
+# They use their own random generator, so every other seeded row stays exactly as before.
+PENDING_SEED = SEED + 1
+REVIEW_BACKLOG_HOURS = 36  # store_fault claims reported this close to the end of data are still pending
+FRAUD_CLUSTER_STORE = "STORE-A"
+FRAUD_CLUSTER_CLAIMS = 5  # one customer_ref, all pending; FRAUD_MIN_PENDING_CLAIMS is 4
+FRAUD_CLUSTER_DAYS = (date(2026, 11, 6), date(2026, 11, 15))  # store local dates, inclusive
 
 BASE_CLAIM_RATE = 0.014  # normal M&I claims per delivered order
 BASE_CANCEL_RATE = 0.012
@@ -360,6 +367,44 @@ def generate_orders(menus):
     return raw
 
 
+def add_pending_claims(claims: list[dict], orders: list, customers: dict) -> None:
+    """Make some claims `pending` (review not finished), as real data would have.
+
+    1. Review backlog: store_fault claims reported in the last REVIEW_BACKLOG_HOURS before the end of
+       data are still pending. store_fault and pending both count toward the M&I rate, so no rate changes.
+    2. Fraud cluster (distractor for STORE-A): one customer_ref files FRAUD_CLUSTER_CLAIMS "entire order"
+       claims in FRAUD_CLUSTER_DAYS, all still pending. fraud_signals should flag this customer_ref,
+       and the agent should see it is too small to explain STORE-A's rise.
+    """
+    prng = random.Random(PENDING_SEED)
+    data_end = datetime.combine(END_DATE + timedelta(days=1), time(0), UTC)
+    backlog_start = data_end - timedelta(hours=REVIEW_BACKLOG_HOURS)
+    for c in claims:
+        if c["review_label"] == ReviewLabel.STORE_FAULT and c["reported_at"] >= backlog_start:
+            c["review_label"] = ReviewLabel.PENDING
+            c["reviewed_at"] = None
+
+    zone = ZoneInfo(next(tz for sid, _, _, tz, *_ in STORES if sid == FRAUD_CLUSTER_STORE))
+    claimed = {c["order_id"] for c in claims}
+    first, last = FRAUD_CLUSTER_DAYS
+    pool = sorted(
+        (o for o in orders
+         if o.store_id == FRAUD_CLUSTER_STORE and o.status == OrderStatus.DELIVERED
+         and o.order_id not in claimed and first <= o.placed_at.astimezone(zone).date() <= last),
+        key=lambda o: o.order_id,
+    )
+    customer = prng.choice(customers[FRAUD_CLUSTER_STORE])
+    for o in prng.sample(pool, FRAUD_CLUSTER_CLAIMS):
+        o.customer_ref = customer  # the same customer placed all of these orders
+        claims.append(dict(
+            order_id=o.order_id, store_id=o.store_id, item_id=None, item_name="Entire order",
+            error_category=ErrorCategory.MISSING_ITEM, modifier_detail=None,
+            customer_comments=prng.choice(FRAUD_COMMENTS), error_charge=o.subtotal,
+            reported_at=o.delivered_at + timedelta(minutes=prng.randint(10, 90)),
+            review_label=ReviewLabel.PENDING, reviewed_at=None,
+        ))
+
+
 def main() -> None:
     print("Resetting schemas and running Alembic migrations...")
     reset_schema()
@@ -513,6 +558,8 @@ def main() -> None:
     # STORE-I: 3 recent claims make its 7-day rate look high (~10%), but it has too few orders
     add_claims_for("STORE-I", 3, in_window(date(2026, 11, 9), date(2026, 11, 16)), store_fault_missing_claim)
 
+    add_pending_claims(claims, orders, customers)
+
     # Assign claim evidence IDs in time order
     claims.sort(key=lambda c: (c["reported_at"], c["order_id"]))
     claim_rows = []
@@ -554,21 +601,22 @@ def main() -> None:
 
     golden = [
         GoldenScenario(
-            scenario_id="GS-01", store_id="STORE-A", split="dev", cause_category="pos",
+            scenario_id="GS-01", store_id="STORE-A", split="dev", cause_category="pos_modifier_mapping",
             true_cause="pos_modifier_not_mapped", cause_started_at=local(chi, A_CAUSE_DATE, 10),
-            expected_outcome="diagnosed", expected_owner="merchant",
-            expected_action="ask_merchant_fix_pos_modifier_mapping",
+            expected_outcome="diagnosis", expected_owner="pos_team",
+            expected_action="fix_modifier_mapping",
             key_evidence=["claims concentrated on modifier_detail 'Extra sauce' after Oct 30",
                           "Oct 30 menu_change adding the Extra sauce modifier"],
             distractors=["Oct 20 store downtime", "Oct 24-26 out-of-stock cancellations",
-                         "same-day unrelated drink rename", "fraud-labeled claims"],
+                         "same-day unrelated drink rename", "fraud-labeled claims",
+                         "one customer_ref with 5 pending entire-order claims (Nov 6-15)"],
             notes="Extra sauce modifier added Oct 30 is not printed on the kitchen ticket.",
         ),
         GoldenScenario(
             scenario_id="GS-02", store_id="STORE-B", split="dev", cause_category="packing",
             true_cause="dinner_multi_bag_packing", cause_started_at=local(chi, B_CAUSE_DATE, 16),
-            expected_outcome="diagnosed", expected_owner="merchant",
-            expected_action="ask_merchant_add_dinner_bag_check",
+            expected_outcome="diagnosis", expected_owner="merchant",
+            expected_action="add_large_order_bag_check",
             key_evidence=["missing_item claims concentrated in dinner orders with 5+ items after Nov 3",
                           "customer comments mention a whole bag missing",
                           "lunch and small orders stay normal"],

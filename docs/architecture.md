@@ -121,6 +121,7 @@ is committed.
 | `AUTH_DB_PASSWORD` | `change-me` | auth | `auth_svc` role password |
 | `DOMAIN_DB_PASSWORD` | `change-me` | domain | `domain_svc` role password |
 | `AGENT_DB_PASSWORD` | `change-me` | agent | `agent_svc` role password |
+| `MIGRATION_DB_PASSWORD`, `EVAL_DB_PASSWORD` | empty | postgres init/admin tooling | Optional `db_migrator` and read-only `eval_runner` logins; blank disables password login |
 | `JWT_SECRET` | `change-me-32-bytes-min` | auth, agent, domain | Token signing key |
 | `JWT_ISSUER` | `mi-auth` | auth, agent, domain | Expected `iss` claim |
 | `JWT_TTL_MINUTES` | `60` | auth | Token lifetime |
@@ -164,3 +165,8 @@ development and Domain administrative scripts may set `DATABASE_URL` instead;
 it takes precedence. Domain runtime and administrative tooling use the same
 factory. Migrations and evaluation seeding require an administrative identity;
 runtime services stay restricted to their schemas.
+
+The consolidated provisioning scripts live in `platform/postgres/` and retain
+main's `db_migrator` / `eval_runner` separation. Domain runtime has DML rights,
+while `db_migrator` owns Domain/evaluation DDL. Auth and Agent can create tables
+only in their own schemas. The retired `a-01-scaffold/` layout stays deleted.

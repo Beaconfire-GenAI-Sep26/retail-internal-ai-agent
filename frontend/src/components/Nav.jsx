@@ -1,6 +1,7 @@
 // [10b] Nav — top bar
 //   logged out:  brand only
-//   logged in:   Cases · display_name · role (LOE Analyst / Viewer) · Logout
+//   logged in:   brand · Cases  ...  display_name · role (LOE Analyst / Viewer) · Logout
+//   left group = where to go, right group = who is signed in (index.css section 2)
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -37,19 +38,18 @@ const Nav = () => {
 
   // ── 2c. Render ──────────────────────────────────────────────────
   return (
-    <nav>
-      <strong>M&amp;I Diagnosis</strong>
+    <nav className='nav'>
+      <div className='nav-left'>
+        <strong className='nav-brand'>M&amp;I Diagnosis</strong>
+        {isLoggedIn && <NavLink to='/cases'>Cases</NavLink>}
+      </div>
+
       {isLoggedIn && (
-        <>
-          {' · '}
-          <NavLink to='/cases'>Cases</NavLink>
-          {' · '}
+        <div className='nav-user'>
           <span>{user?.display_name ?? user?.username}</span>
-          {' · '}
-          <span>{isAnalyst ? 'LOE Analyst' : 'Viewer'}</span>
-          {' · '}
-          <button type='button' onClick={handleLogout}>Logout</button>
-        </>
+          <span className='nav-role'>{isAnalyst ? 'LOE Analyst' : 'Viewer'}</span>
+          <button type='button' className='button-secondary' onClick={handleLogout}>Logout</button>
+        </div>
       )}
     </nav>
   );

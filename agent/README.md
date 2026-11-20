@@ -1,9 +1,15 @@
 # Agent Service
 
-The FastAPI entry point is `agent.app.main:app`. Owns investigation execution and
-checkpoints in the planned architecture. Current code supplies the authentication
-boundary and the request-scoped Domain client; workflow handlers are added by
-B-02/B-03/B-04. No user JWT or Domain client belongs in checkpoint state.
+The FastAPI entry point is `agent.app.main:app`. It runs B-02's investigation API,
+LangGraph, bounded runner and in-memory checkpoints behind A-02's shared JWT
+boundary. The typed HTTP tools use the request-scoped Domain capability. No JWT
+or Domain client belongs in checkpoint state. Resume/merchant interactions and
+Postgres persistence remain later workflow milestones.
+
+Use `AGENT_DOMAIN_MODE=fixtures` for the seeded graph fixtures, or `http` for the
+Domain service. Without an Anthropic key, liveness stays healthy and readiness
+and investigation starts report that model configuration is missing. Tests use
+the scripted model; no external model call is needed to validate the graph.
 
 Dependencies use `pyproject.toml` and the committed `uv.lock`. From the repository
 root:

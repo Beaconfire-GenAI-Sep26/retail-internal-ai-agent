@@ -42,7 +42,7 @@ export const refreshSession = () => {
       recordResponse(config, response);
       const { data } = response;
       if (started !== generation) throw new Error('Session changed during refresh');
-      store?.dispatch(sessionRefreshed({ token: data.access_token, user: data.user }));
+      store?.dispatch(sessionRefreshed({ token: data.access_token, user: data.user, expiresAt: data.expires_at }));
       return data;
     }, (error) => {
       recordResponse(config, error.response);

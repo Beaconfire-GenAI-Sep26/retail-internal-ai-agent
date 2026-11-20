@@ -48,7 +48,7 @@ class DomainAccess:
             store_id = conn.execute(text(f"SELECT {column} FROM {self.schema}{table.format(s=self.schema)} "
                                          f"WHERE {key} = :id"), {"id": resource_id}).scalar()
         if store_id is None:
-            raise APIError(404, "NOT_FOUND", "Resource not found.")
+            raise APIError(404, "CASE_NOT_FOUND" if kind == "cases" else "NOT_FOUND", "Resource not found.")
         return store_id
 
     async def authorize(self, request):

@@ -33,7 +33,7 @@ export const login = createAsyncThunk(
     try {
       await invalidateSession()?.catch(() => {});
       const { data } = await api.post('/auth/login', { username, password });
-      return { token: data.access_token, user: data.user };
+      return { token: data.access_token, user: data.user, expiresAt: data.expires_at };
     } catch (err) {
       // rejectWithValue puts this string on action.payload so the slice can show it
       return rejectWithValue(getErrorMessage(err, 'Login failed'));
@@ -55,7 +55,7 @@ export const bootstrap = createAsyncThunk(
       if (USE_MOCKS) return await mockBootstrap();
 
       const data = await refreshSession();
-      return { token: data.access_token, user: data.user };
+      return { token: data.access_token, user: data.user, expiresAt: data.expires_at };
     } catch {
       // Silent: "not logged in" is a normal outcome on first visit
       return rejectWithValue(null);

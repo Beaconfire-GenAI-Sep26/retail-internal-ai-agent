@@ -6,10 +6,13 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from agent.app.contracts.models import ToolResult
 from agent.app.domain.client import DomainError
 from agent.app.errors import DOMAIN_REJECTED, RUN_TIMEOUT, UNAUTHENTICATED, UPSTREAM_UNAVAILABLE
 from agent.app.graph.policy import scrub
-from agent.app.tools.registry import canonical_key, signature
+from agent.app.tools.registry import RECORD_TOOLS, canonical_key, signature
+
+DETAILS_NOTE_LIMIT = 200
 
 
 def now_iso() -> str:
@@ -28,6 +31,31 @@ def domain_error(exc: DomainError, where: str) -> dict[str, str]:
     else:
         code = DOMAIN_REJECTED
     return {"code": code, "message": f"{where}: Domain returned {exc.status} {exc.code}: {exc.message}"}
+
+
+def normalize_result(tool: str, result: ToolResult) -> ToolResult:
+    """Record tools return records, not rates, so they always have enough data (contracts.md)."""
+    if tool in RECORD_TOOLS and not result.data_sufficient:
+        return result.model_copy(update={"data_sufficient": True})
+    return result
+
+
+def compact_details(details: dict[str, Any]) -> str:
+    """Domain's validation details on one short line: unknown values, the data range or field errors."""
+    parts: list[str] = []
+    for key in ("unknown_modifiers", "unknown_item_ids"):
+        values = details.get(key)
+        if isinstance(values, list) and values:
+            parts.append(f"{key}: {', '.join(str(v) for v in values)}")
+    if details.get("data_start") or details.get("data_end"):
+        parts.append(f"data runs {details.get('data_start')} to {details.get('data_end')}")
+    errors = details.get("errors")
+    if isinstance(errors, list):
+        for err in errors[:3]:
+            if isinstance(err, dict):
+                loc = ".".join(str(p) for p in err.get("loc", []) if p != "body")
+                parts.append(f"{loc}: {err.get('msg', '')}".strip(": "))
+    return "; ".join(parts)[:DETAILS_NOTE_LIMIT]
 
 
 def scrub_result(result: dict[str, Any]) -> dict[str, Any]:

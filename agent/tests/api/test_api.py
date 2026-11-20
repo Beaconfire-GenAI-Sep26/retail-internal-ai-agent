@@ -8,9 +8,10 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
+from agent.app.domain.client import DomainError
 from agent.app.domain.fixtures import FixtureDomainClient
 from agent.app.ids import CounterIdFactory
-from agent.app.llm.base import ModelReply
+from agent.app.llm.base import ModelError, ModelReply
 from agent.app.llm.scripted_model import ScriptedReasonModel
 from agent.app.main import create_app
 from agent.tests.conftest import FIXTURES, TEST_SECRET, make_settings
@@ -146,6 +147,46 @@ def test_a_second_run_on_an_active_case_conflicts():
         assert second.json()["error"]["details"]["investigation_id"] == first.json()["investigation_id"]
 
 
+def test_a_pending_proposal_must_be_decided_before_a_new_run():
+    domain = FixtureDomainClient(FIXTURES)
+    analyst = token()
+    with make_client(domain=domain) as client:
+        first = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(analyst)).json()
+        assert wait_for(client, first["investigation_id"], analyst)["pending_proposal_id"] == "PROP-0001"
+        again = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(analyst))
+        assert again.status_code == 409
+        assert again.json()["error"]["code"] == "PROPOSAL_PENDING"
+        assert again.json()["error"]["details"]["proposal_id"] == "PROP-0001"
+        assert len(client.get("/investigations", params={"case_id": "CASE-0001"}, headers=auth(analyst)).json()) == 1
+    assert [u["status"] for u in domain.status_updates] == ["running", "completed"]  # nothing reported for the refusal
+
+
+@pytest.mark.parametrize(("case_status", "starts"), [
+    ("action_dispatched", False), ("analyst_review", False), ("closed", False),
+    ("investigating", True),  # no run here: the agent lost it in a restart
+])
+def test_a_fresh_run_needs_a_case_nobody_has_decided(case_status, starts):
+    domain = FixtureDomainClient(FIXTURES)
+    domain.stores["STORE-A"].case.status = case_status
+    with make_client(model=BlockingModel(), domain=domain) as client:
+        resp = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(token()))
+        if starts:
+            assert resp.status_code == 202, resp.text
+        else:
+            assert resp.status_code == 409
+            assert resp.json()["error"]["code"] == "CASE_NOT_STARTABLE"
+            assert resp.json()["error"]["details"]["case_status"] == case_status
+
+
+def test_a_run_stopped_by_a_shutdown_reports_agent_restarted():
+    domain = FixtureDomainClient(FIXTURES)
+    with make_client(model=BlockingModel(), domain=domain) as client:
+        inv = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(token())).json()
+    # Leaving the block shuts the app down, which stops the run.
+    assert domain.status_updates[-1] == {"case_id": "CASE-0001", "investigation_id": inv["investigation_id"],
+                                         "status": "failed", "error_code": "AGENT_RESTARTED"}
+
+
 def test_reopen_needs_a_reopened_case():
     with make_client() as client:
         resp = client.post("/investigations", json={"case_id": "CASE-0001", "reopen_of": "INV-T0001"},
@@ -177,3 +218,132 @@ def test_request_id_is_echoed():
     with make_client() as client:
         resp = client.get("/health", headers={"X-Request-ID": "abc123"})
         assert resp.headers["X-Request-ID"] == "abc123"
+
+
+# --- Status reports to Domain --------------------------------------------------------------------
+
+
+def status_calls(domain):
+    return [c for c in domain.calls if c["method"] == "report_investigation_status"]
+
+
+def wait_until(predicate, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.02)
+    raise AssertionError("condition not met in time")
+
+
+def test_a_missing_status_route_is_not_retried_on_every_poll():
+    domain = FixtureDomainClient(FIXTURES, faults={
+        "report_investigation_status": DomainError(404, "NOT_FOUND", "Not Found")})
+    analyst = token()
+    with make_client(domain=domain) as client:
+        inv = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(analyst)).json()
+        wait_for(client, inv["investigation_id"], analyst)
+        for _ in range(3):
+            client.get(f"/investigations/{inv['investigation_id']}", headers=auth(analyst))
+        assert client.app.state.store.get(inv["investigation_id"]).domain_sync_pending is False
+    assert len(status_calls(domain)) == 2  # "running" at start and "completed" at the end, nothing more
+
+
+def test_a_failed_status_report_is_retried_in_the_background_with_a_throttle(monkeypatch):
+    domain = FixtureDomainClient(FIXTURES, faults={
+        "report_investigation_status": DomainError(503, "UPSTREAM_UNAVAILABLE", "down")})
+    analyst = token()
+    with make_client(domain=domain) as client:
+        inv = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(analyst)).json()
+        inv_id = inv["investigation_id"]
+        view = wait_for(client, inv_id, analyst)  # its last read sees the finished row and schedules a flush
+        assert view["status"] == "completed"
+        runner = client.app.state.runner
+        wait_until(lambda: not runner.flush_tasks)
+        tried = len(status_calls(domain))
+        assert tried == 3  # "running" at start, "completed" at the end, and the first background retry
+        for _ in range(5):  # inside the throttle window: no new attempt
+            client.get(f"/investigations/{inv_id}", headers=auth(analyst))
+        wait_until(lambda: not runner.flush_tasks)
+        assert len(status_calls(domain)) == tried
+        assert client.app.state.store.get(inv_id).domain_sync_pending is True
+
+        del domain.faults["report_investigation_status"]  # Domain is back
+        monkeypatch.setattr("agent.app.runner.FLUSH_INTERVAL_SECONDS", 0)
+        client.get(f"/investigations/{inv_id}", headers=auth(analyst))
+        wait_until(lambda: client.app.state.store.get(inv_id).domain_sync_pending is False)
+    assert domain.status_updates[-1]["status"] == "completed"
+
+
+def test_a_new_investigation_drops_an_older_runs_unsent_status_report():
+    domain = FixtureDomainClient(FIXTURES, faults={
+        "report_investigation_status": DomainError(503, "UPSTREAM_UNAVAILABLE", "down")})
+    model = ScriptedReasonModel([*store_a_turns(), ModelError("INTERNAL", "second run stops here")])
+    analyst = token()
+    with make_client(model=model, domain=domain) as client:
+        first = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(analyst)).json()
+        wait_for(client, first["investigation_id"], analyst)
+        store, runner = client.app.state.store, client.app.state.runner
+        wait_until(lambda: not runner.flush_tasks)
+        assert store.get(first["investigation_id"]).domain_sync_pending is True
+        domain.proposals["PROP-0001"].status = "rejected"  # the analyst decides it before starting again
+        second = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(analyst))
+        assert second.status_code == 202
+        # The newer run owns the case status now, so the older report is never sent late.
+        assert store.get(first["investigation_id"]).domain_sync_pending is False
+        before = len(status_calls(domain))
+        client.get(f"/investigations/{first['investigation_id']}", headers=auth(analyst))
+        assert not runner.flush_tasks.get(first["investigation_id"])
+        assert all(c["body"]["investigation_id"] != first["investigation_id"]
+                   for c in status_calls(domain)[before:])
+
+
+def test_a_viewer_read_never_schedules_a_status_write():
+    domain = FixtureDomainClient(FIXTURES, faults={
+        "report_investigation_status": DomainError(503, "UPSTREAM_UNAVAILABLE", "down")})
+    analyst, viewer = token(), token(role="viewer", stores=("STORE-A",))
+    with make_client(domain=domain) as client:
+        inv = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(analyst)).json()
+        wait_for(client, inv["investigation_id"], viewer)
+        for _ in range(3):
+            client.get(f"/investigations/{inv['investigation_id']}", headers=auth(viewer))
+        assert not client.app.state.runner.flush_tasks
+        assert client.app.state.store.get(inv["investigation_id"]).domain_sync_pending is True
+    assert len(status_calls(domain)) == 2  # the start and the end report only
+
+
+def test_an_analysts_list_resends_a_failed_final_report():
+    domain = FixtureDomainClient(FIXTURES, faults={
+        "report_investigation_status": DomainError(503, "UPSTREAM_UNAVAILABLE", "down")})
+    analyst, viewer = token(), token(role="viewer", stores=("STORE-A",))
+    case = {"case_id": "CASE-0001"}
+    with make_client(domain=domain) as client:
+        inv_id = client.post("/investigations", json=case, headers=auth(analyst)).json()["investigation_id"]
+        wait_for(client, inv_id, viewer)  # a viewer's reads never resend, so the end report stays unsent
+        store, runner = client.app.state.store, client.app.state.runner
+        del domain.faults["report_investigation_status"]  # Domain is back
+        sent = len(status_calls(domain))
+        client.get("/investigations", params=case, headers=auth(viewer))
+        assert not runner.flush_tasks and len(status_calls(domain)) == sent
+        client.get("/investigations", params=case, headers=auth(analyst))  # the case page opens
+        wait_until(lambda: store.get(inv_id).domain_sync_pending is False)
+    assert domain.status_updates == [
+        {"case_id": "CASE-0001", "investigation_id": inv_id, "status": "completed", "error_code": None}]
+
+
+@pytest.mark.parametrize("read", ["by_id", "list"])
+def test_no_read_resends_the_report_of_a_running_investigation(read):
+    domain = FixtureDomainClient(FIXTURES, faults={
+        "report_investigation_status": DomainError(503, "UPSTREAM_UNAVAILABLE", "down")})
+    analyst = token()
+    with make_client(model=BlockingModel(), domain=domain) as client:
+        inv_id = client.post("/investigations", json={"case_id": "CASE-0001"},
+                             headers=auth(analyst)).json()["investigation_id"]
+        assert client.app.state.store.get(inv_id).domain_sync_pending is True  # the "running" report failed
+        sent = len(status_calls(domain))
+        if read == "by_id":
+            client.get(f"/investigations/{inv_id}", headers=auth(analyst))
+        else:
+            client.get("/investigations", params={"case_id": "CASE-0001"}, headers=auth(analyst))
+        # Only the run's own final report may follow a failed "running" one, so nothing is resent.
+        assert not client.app.state.runner.flush_tasks and len(status_calls(domain)) == sent

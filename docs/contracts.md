@@ -181,7 +181,7 @@ type tool_name =
 ```
 
 `dasher_handoff` stays a valid `cause_category`, but C-01 has no Dasher data. Platform data can't test
-it, so it is settled through a merchant question or left inconclusive. See [agent-graph.md](agent-graph.md).
+it, so it is never supported or ruled out, even after a merchant reply. See [agent-graph.md](agent-graph.md).
 
 ## Status model
 
@@ -597,9 +597,9 @@ interface InvestigationResult {
   cause_category: cause_category | null;
   cause_started_at: string | null; // date the agent estimates the rise began
   confidence: confidence;
-  summary: string;
+  summary: string; // a count or rate no check result shows reads "[withheld]", here and in the result's other text
   supporting_evidence_ids: string[];
-  contradicting_evidence_ids: string[];
+  contradicting_evidence_ids: string[]; // against the leader, including records that pointed to other causes
   ruled_out: {
     cause_category: cause_category;
     reason: string;
@@ -611,7 +611,7 @@ interface InvestigationResult {
   challenge_check_ids: string[];
   unverified_reply_claims: string[];
   recommendation: Recommendation | null;
-  proposal_id: string | null;
+  proposal_id: string | null; // null for `unsure`, and when Domain has no proposals route (evidence_gaps says so)
 }
 
 interface Recommendation {
@@ -791,7 +791,7 @@ until its short expiry. See [authentication.md](authentication.md) for integrati
 
 | Method and path                                  | Who             | Request                       | Response                                      | Errors                                                                          |
 | ------------------------------------------------ | --------------- | ----------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------- |
-| `POST /investigations`                           | analyst         | `StartInvestigationRequest`   | 202 `InvestigationView` with status `running` | 403, 404 `CASE_NOT_FOUND`, 409 `INVESTIGATION_ACTIVE`, 409 `REOPEN_NOT_ALLOWED` |
+| `POST /investigations`                           | analyst         | `StartInvestigationRequest`   | 202 `InvestigationView` with status `running` | 403, 404 `CASE_NOT_FOUND`, 409 `INVESTIGATION_ACTIVE`, 409 `PROPOSAL_PENDING`, 409 `CASE_NOT_STARTABLE`, 409 `REOPEN_NOT_ALLOWED` |
 | `GET /investigations/{investigation_id}`         | viewer, analyst | —                             | 200 `InvestigationView`                       | 403, 404                                                                        |
 | `GET /investigations?case_id=`                   | viewer, analyst | —                             | 200 `InvestigationView[]`, newest first       | 403                                                                             |
 | `POST /investigations/{investigation_id}/resume` | analyst         | empty body, `Idempotency-Key` | 202 `InvestigationView`                       | 403, 404, 409 `INVESTIGATION_FINISHED`                                          |
@@ -823,7 +823,7 @@ read-only and never change data.
 | `GET /stores/{store_id}/diagnostics/fraud-signals?start=&end=`      | viewer, analyst, agent | —                                                       | 200 `ToolResult`                                                                        | 403, 422                                                               |
 | `GET /catalog/actions`                                              | any user, agent        | —                                                       | 200 `ActionCatalogEntry[]`                                                              | 401                                                                    |
 | `GET /evidence/{evidence_id}`                                       | viewer, analyst, agent | —                                                       | 200 `Evidence`                                                                          | 403, 404                                                               |
-| `POST /evidence/resolve`                                            | agent                  | `EvidenceResolveRequest`                                | 200 `EvidenceResolveResponse`                                                           | 403                                                                    |
+| `POST /evidence/resolve`                                            | agent                  | `EvidenceResolveRequest`, at most 200 IDs               | 200 `EvidenceResolveResponse`                                                           | 403, 422                                                               |
 | `GET /proposals/{proposal_id}`                                      | viewer, analyst, agent | —                                                       | 200 `Proposal`                                                                          | 403, 404                                                               |
 | `POST /proposals/{proposal_id}/versions`                            | analyst                | `ProposalEdit`                                          | 201 `Proposal` with the next version                                                    | 403, 409 `ALREADY_DECIDED`                                             |
 | `POST /proposals/{proposal_id}/decision`                            | analyst                | `DecisionRequest`, `Idempotency-Key`                    | 200 `Proposal`, with `dispatch` set on approve                                          | 403, 409 `STALE_VERSION`, 409 `ALREADY_DECIDED`, 502 `DISPATCH_FAILED` |
@@ -838,7 +838,8 @@ approved `intervention` or `handoff` also schedules a recheck for `dispatched_at
 
 ### Domain Service, internal only
 
-Unreachable through the gateway. Requires `X-Service-Token` and the forwarded user JWT.
+Unreachable through the gateway. Requires `X-Service-Token`, the forwarded user JWT with the `loe_analyst`
+role, `X-Investigation-ID`, and an `X-Store-ID` that is in the JWT's grants and owns the case.
 
 | Method and path                               | Who   | Request                     | Response                                    | Errors                                                                    |
 | --------------------------------------------- | ----- | --------------------------- | ------------------------------------------- | ------------------------------------------------------------------------- |
@@ -857,6 +858,7 @@ Group STORE-A's claims by modifier:
 POST /domain/stores/STORE-A/diagnostics/claim-breakdown
 Authorization: Bearer eyJ...
 X-Investigation-ID: INV-01JD3K9Q8F2M
+X-Store-ID: STORE-A
 Content-Type: application/json
 
 { "filter": { "start": "2026-10-05", "end": "2026-11-15" }, "group_by": "modifier" }
@@ -952,11 +954,12 @@ Every error uses one envelope, including FastAPI's validation errors:
 | 409  | `INVESTIGATION_FINISHED`             | Resume on a completed, unsure or failed investigation                                                                   |
 | 409  | `REOPEN_NOT_ALLOWED`                 | `reopen_of` set but the case isn't `reopened`, or it was already reopened once                                          |
 | 409  | `PROPOSAL_PENDING`                   | The case already has a pending proposal                                                                                 |
+| 409  | `CASE_NOT_STARTABLE`                 | A fresh investigation needs an `open` case, or an `investigating` one with no active run. `details.case_status` says which status refused it. A `reopened` case uses `reopen_of` |
 | 409  | `STALE_VERSION`                      | The decision names an old version                                                                                       |
 | 409  | `ALREADY_DECIDED`                    | Proposal already approved or rejected with a different decision                                                         |
 | 409  | `NOT_DISPATCHED`, `REPLY_EXISTS`     | Reply to an undispatched question, or a second reply                                                                    |
 | 409  | `RECHECK_ALREADY_RUN`                | The recheck already has a result                                                                                        |
-| 422  | `VALIDATION_ERROR`                   | Body or query fails validation, including an unknown `item_id`, modifier, `daypart`, or a date outside the store's data |
+| 422  | `VALIDATION_ERROR`                   | Body or query fails validation, including an unknown `item_id`, modifier, `daypart`, or a date outside the store's data. `details` names the problem: `unknown_item_ids`, `unknown_modifiers`, or `data_start` and `data_end`. |
 | 422  | `INVALID_EVIDENCE`, `UNKNOWN_ACTION` | Proposal cites unresolvable evidence or an action outside the catalog                                                   |
 | 502  | `DISPATCH_FAILED`                    | Mock dispatch failed. The proposal stays `pending`.                                                                     |
 | 503  | `UPSTREAM_UNAVAILABLE`               | A called service or the model is unreachable                                                                            |

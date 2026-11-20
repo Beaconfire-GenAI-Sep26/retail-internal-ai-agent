@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from agent.app.contracts.enums import (
@@ -24,7 +25,7 @@ from agent.app.llm import schemas as w
 if TYPE_CHECKING:
     from agent.app.domain.client import DomainPort
 
-REGISTRY_VERSION = "2026-11-18.1"
+REGISTRY_VERSION = "2026-11-19.3"
 MIN_GROUP_ORDERS_TEXT = "MIN_GROUP_ORDERS (30 by default)"
 
 RATE_TOOLS = frozenset(
@@ -32,6 +33,9 @@ RATE_TOOLS = frozenset(
 )
 RECORD_TOOLS = frozenset({"event_log", "sample_evidence"})
 MODEL_TOOLS = RATE_TOOLS | RECORD_TOOLS
+# Scope fields that select orders. Domain's rest_of_store control is every delivered order outside the
+# target, so a target without one of these covers every order and leaves the control empty.
+ORDER_LEVEL_FIELDS = frozenset({"item_id", "modifiers", "daypart", "weekday", "item_count_min", "item_count_max"})
 
 
 @dataclass(frozen=True)
@@ -42,6 +46,8 @@ class ToolSpec:
     arguments: str
     metrics: str
     notes: tuple[str, ...] = ()
+    returns: str = ""  # overrides the "Returns" line of the prompt
+    examples: tuple[str, ...] = ()  # request JSON, as the model writes it in plan.request
 
     @property
     def returns_rates(self) -> bool:
@@ -60,16 +66,26 @@ TOOLS: dict[str, ToolSpec] = {
             metrics="claim_rate (group null); claim_count per review_label=<label>, all four labels "
             "including the excluded ones; claim_count per error_category=<category>; "
             "daily_claim_rate per day=<YYYY-MM-DD>",
-            notes=("Already run for the whole window at the start. It is the first check.",),
+            notes=(
+                "Already run for the whole window at the start. It is the first check.",
+                "Its evidence_ids list up to 200 claims in the range, newest first, of every review_label "
+                "including fraud and not_store_fault; a note says when the list is cut.",
+            ),
+            examples=('{"tool": "store_overview", "start": "<start>", "end": "<end>"}',),
         ),
         ToolSpec(
             name="event_log",
             measures="Events of every event_type (menu_change, pos_change, store_downtime, promotion) "
-            "with started_at, ended_at and description.",
+            "with started_at, ended_at and description, oldest first.",
             cannot_show="Their effect. Pair an event with compare_periods.",
             arguments="start, end, event_type ([] for all types)",
             metrics="None. The events come back as records.",
-            notes=("A description is the only link from an event to an item or modifier.",),
+            notes=(
+                "It returns every event that overlaps the dates, including one that started earlier and "
+                "has no ended_at, which means it is still in effect.",
+                "A description is the only link from an event to an item or modifier.",
+            ),
+            examples=('{"tool": "event_log", "start": "<start>", "end": "<end>", "event_type": []}',),
         ),
         ToolSpec(
             name="claim_breakdown",
@@ -81,11 +97,22 @@ TOOLS: dict[str, ToolSpec] = {
             metrics="claim_rate, claim_share and order_share per group <group_by>=<value>. "
             "item_count groups are 1-2, 3-4 and 5+.",
             notes=(
+                "Rows come ranked, not in natural order: groups with enough orders first, then by lift, "
+                "highest first.",
                 "Grouped by modifier, claims with no modifier_detail form no group. The note gives "
                 "their count, and the shares don't add up to 1.",
-                "Grouped by item_id, claims with no item_id fall into item_id=unknown.",
+                "Grouped by item_id, claims with no item_id fall into item_id=unknown, which has no "
+                "order denominator, so its claim_rate and order_share are null.",
+                "Grouped by error_category or review_label, every group's claim_rate uses all eligible "
+                "orders in the filter, and order_share is null.",
+                "An item_id or modifiers filter counts the orders that contain the value, and only the "
+                "claims whose item_id or modifier_detail matches it.",
                 "Lift is claim_share divided by order_share. Above 1 means more than a fair share "
                 "of claims.",
+            ),
+            examples=(
+                '{"tool": "claim_breakdown", "filter": {"start": "<start>", "end": "<end>", "daypart": ["<daypart>"]}, '
+                '"group_by": "<group_by>"}',
             ),
         ),
         ToolSpec(
@@ -96,12 +123,23 @@ TOOLS: dict[str, ToolSpec] = {
             "target (a claim scope), control_mode rest_of_store or scope, control",
             metrics="rate_before and rate_after for the groups target and control",
             notes=(
+                "rest_of_store compares the target against every other delivered order of the store, "
+                "using the target's review_label filter. It splits orders, not claims, so the target needs "
+                "an order-level field (item_id, modifiers, daypart, weekday, item_count_min or "
+                "item_count_max); a target with only error_category or review_label covers every order "
+                "and leaves no control.",
                 "Enough data means the target's after period and both control periods each have at "
                 "least " + MIN_GROUP_ORDERS_TEXT + " eligible orders.",
                 "An empty target before period returns rate_before null with a note. A modifier "
                 "first sold on date D has no orders before D, so challenge it against the "
                 "rest-of-store control, or split later to test whether the rise persists.",
                 "The before and after spans must both lie inside the investigation window.",
+            ),
+            examples=(
+                '{"tool": "compare_periods", "split_date": "<date>", "days_before": 14, "days_after": 14, '
+                '"target": {"modifiers": ["<menu modifier>"]}, "control_mode": "rest_of_store"}',
+                '{"tool": "compare_periods", "split_date": "<date>", "days_before": 7, "days_after": 7, '
+                '"target": {"daypart": ["<daypart>"]}, "control_mode": "scope", "control": {"daypart": ["<another daypart>"]}}',
             ),
         ),
         ToolSpec(
@@ -113,6 +151,12 @@ TOOLS: dict[str, ToolSpec] = {
             "filter; limit 1-10",
             metrics="None. The records come back as evidence.",
             notes=("Use it to cite records from a group outside the first 20 IDs shown.",),
+            examples=(
+                '{"tool": "sample_evidence", "evidence_type": "claim", "filter": {"start": "<start>", "end": "<end>", '
+                '"modifiers": ["<menu modifier>"]}, "limit": 5}',
+                '{"tool": "sample_evidence", "evidence_type": "cancellation", "filter": {"start": "<start>", '
+                '"end": "<end>", "cancellation_category": ["<cancellation_category>"]}, "limit": 5}',
+            ),
         ),
         ToolSpec(
             name="cancellation_breakdown",
@@ -121,6 +165,16 @@ TOOLS: dict[str, ToolSpec] = {
             cannot_show="M&I claims. Canceled orders never have claims.",
             arguments="filter (a cancellation filter), group_by",
             metrics="cancellation_rate and cancellation_count per group <group_by>=<value>",
+            notes=(
+                "cancellation_rate is cancellations over placed orders, delivered and canceled. A group's "
+                "rate is null when it has fewer than " + MIN_GROUP_ORDERS_TEXT + " placed orders.",
+                "A cancellation's item_id is set only when an item was out of stock. An item_id filter or "
+                "grouping matches that field; item_id=unknown is rated over all placed orders.",
+            ),
+            examples=(
+                '{"tool": "cancellation_breakdown", "filter": {"start": "<start>", "end": "<end>", '
+                '"daypart": ["<daypart>"]}, "group_by": "<group_by>"}',
+            ),
         ),
         ToolSpec(
             name="fraud_signals",
@@ -133,12 +187,28 @@ TOOLS: dict[str, ToolSpec] = {
                 "Already run for the whole window at the start.",
                 "An empty result means no ref reached that bar, not that no claim is fraudulent.",
             ),
+            returns="counts (claim_count per flagged customer_ref), not rates; it still counts as a tool that "
+            "returns rates for G3, G4 and K2",
+            examples=('{"tool": "fraud_signals", "start": "<start>", "end": "<end>"}',),
         ),
     )
 }
 
 
 # --- Wire to contract ------------------------------------------------------------------------
+
+
+def _date(value: str) -> str:
+    """A date as YYYY-MM-DD.
+
+    Domain parses an all-digit string such as "20261030" as Unix time and rejects it, so any value Python
+    reads as a date is rewritten in ISO form. Anything else is kept for G10 to reject.
+    """
+    text = value.strip()
+    try:
+        return date.fromisoformat(text).isoformat()
+    except ValueError:
+        return text
 
 
 def _uniq(values: list[Any]) -> list[Any]:
@@ -178,11 +248,11 @@ def _claim_scope(src: w.ClaimScopeWire | w.ClaimFilterWire) -> dict[str, Any]:
 
 
 def _claim_filter(src: w.ClaimFilterWire) -> dict[str, Any]:
-    return {"start": src.start.strip(), "end": src.end.strip(), **_claim_scope(src)}
+    return {"start": _date(src.start), "end": _date(src.end), **_claim_scope(src)}
 
 
 def _cancellation_filter(src: w.CancellationFilterWire) -> dict[str, Any]:
-    out: dict[str, Any] = {"start": src.start.strip(), "end": src.end.strip()}
+    out: dict[str, Any] = {"start": _date(src.start), "end": _date(src.end)}
     if src.item_id:
         out["item_id"] = sorted(_uniq(src.item_id))
     if src.daypart:
@@ -197,11 +267,11 @@ def _cancellation_filter(src: w.CancellationFilterWire) -> dict[str, Any]:
 def to_contract_request(req: w.ToolRequestWire) -> tuple[str, dict[str, Any]]:
     """Convert one wire request into (tool, contract request)."""
     if isinstance(req, (w.StoreOverviewRequestWire, w.FraudSignalsRequestWire)):
-        return req.tool, {"start": req.start.strip(), "end": req.end.strip()}
+        return req.tool, {"start": _date(req.start), "end": _date(req.end)}
     if isinstance(req, w.EventLogRequestWire):
         return req.tool, {
-            "start": req.start.strip(),
-            "end": req.end.strip(),
+            "start": _date(req.start),
+            "end": _date(req.end),
             "event_type": _ordered(list(req.event_type), EVENT_TYPES),
         }
     if isinstance(req, w.ClaimBreakdownRequestWire):
@@ -209,7 +279,7 @@ def to_contract_request(req: w.ToolRequestWire) -> tuple[str, dict[str, Any]]:
     if isinstance(req, w.ComparePeriodsRequestWire):
         control = _claim_scope(req.control) if req.control_mode == "scope" else None
         return req.tool, {
-            "split_date": req.split_date.strip(),
+            "split_date": _date(req.split_date),
             "days_before": req.days_before,
             "days_after": req.days_after,
             "target": _claim_scope(req.target),
@@ -303,6 +373,12 @@ def render_tool_catalog() -> str:
         "item_count_max, error_category, review_label. A claim scope is the same without start and "
         "end. Cancellation filter fields: start, end, item_id, daypart, weekday, "
         "cancellation_category.",
+        f"Field values: daypart {', '.join(DAYPARTS)}; weekday 0 (Monday) to 6 (Sunday); error_category "
+        f"{', '.join(ERROR_CATEGORIES)}; review_label {', '.join(REVIEW_LABELS)}; cancellation_category "
+        f"{', '.join(CANCELLATION_CATEGORIES)}.",
+        "",
+        "Each tool lists its request as the JSON you write, as a string, in plan.request. Replace the <...> "
+        "placeholders with real values. Inside a filter or scope, leave out any field you don't constrain.",
         "",
     ]
     for spec in TOOLS.values():
@@ -311,7 +387,9 @@ def render_tool_catalog() -> str:
         lines.append(f"- Can't show: {spec.cannot_show}")
         lines.append(f"- Arguments: {spec.arguments}")
         lines.append(f"- Metrics: {spec.metrics}")
-        lines.append(f"- Returns rates: {'yes' if spec.returns_rates else 'no, only records'}")
+        returns = spec.returns or ("yes" if spec.returns_rates else "no, only records")
+        lines.append(f"- Returns rates: {returns}")
         lines.extend(f"- {note}" for note in spec.notes)
+        lines.extend(f"- Request: {example}" for example in spec.examples)
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"

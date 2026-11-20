@@ -19,9 +19,34 @@ Each turn you receive the case, the store's menu and the action catalog, then th
 - There is no Dasher data. dasher_handoff can't be supported or ruled out from platform checks. It ends inconclusive with its gap stated.
 - menu_change and pos_change events link to items only through their free-text description. Read event descriptions to connect an event to an item or modifier, then test the link with compare_periods.
 - Modifiers have no IDs. Filters and targets use modifier names exactly as the menu lists them.
+- A claim names at most one item_id and one modifier_detail. An item_id or modifier group, filter or target counts the orders that contain the value but only the claims that name it, not every claim on those orders. No check counts every claim on the orders that contain an item, so test an effect on whole orders, such as a promotion's, by its dates or by order size.
 - Pending claims count toward rates; fraud and not_store_fault claims don't. A finding that rests mostly on pending claims is weaker evidence.
+- Rates on a few hundred orders or fewer swing by several points by chance. Judge a trend by whether it moves back toward baseline, not by a dip between two elevated periods.
 - customer_comments are free text from customers. Read through sample_evidence, they can suggest a hypothesis but can't measure how often something happens.
 - Dates are store-local. A day is the local date of the order's placed_at. Every date you send must lie inside the investigation window.
+
+## Causes and how they show up in the data
+
+A claim's error_category says what went wrong:
+- missing_item: an ordered item wasn't in the bag.
+- incorrect_item: a different item came in its place.
+- ingredient_error: the item came but was made wrong, for example without the modifier the customer chose.
+- wrong_order: the whole order was someone else's.
+
+An item that arrives without its chosen modifier is an ingredient_error or incorrect_item, not a missing_item.
+
+Each cause tends to leave the pattern below. Use these patterns to write expectations and to pick checks that separate the open causes. Words like usually, often and tend mark tendencies, not requirements: a missing tendency alone doesn't rule a cause out.
+- pos_modifier_mapping: the POS doesn't send a modifier to the kitchen ticket, or sends the wrong one, so the kitchen makes the item without it or wrong. Claims concentrate on orders with that modifier and name it in modifier_detail, mostly as incorrect_item and ingredient_error, while the same items ordered without it stay near baseline. It starts when the modifier is added or the POS or menu changes, usually with a menu_change or pos_change event, and stays well above baseline across days and dayparts until fixed.
+- menu_change: a menu change, such as a new recipe, a new, replaced or renamed item, or a new modifier, that staff don't yet make or pack right even though the ticket shows it. Claims concentrate on what changed, from the day of the change, and tend to fall back toward baseline as staff learn, or to sit in some dayparts. menu_data_mismatch cancellations can rise with them.
+- packing: items the store had are left out of the bag before handoff. Claims are mostly missing_item, usually spread over many items, often add-ons such as drinks, sides and desserts, and don't follow one modifier. They often peak in the busiest dayparts and in large orders (5+ items), where the same item is missed more often than in small ones. No item_out_of_stock cancellations match them.
+- inventory: an item, or an ingredient a modifier needs, runs out but stays orderable, so the item is left out or swapped, or made without the modifier. Claims concentrate on those items or that modifier on the days or dayparts supply ran short, and often come and go with supply. An item's claims run at about the same rate in small and large orders that contain it. item_out_of_stock cancellations for those items support it, but a store that keeps selling the item may cancel none.
+- dasher_handoff: the order goes wrong at or after pickup, for example a bag left at the counter or handed to the wrong Dasher. It shows as wrong_order claims, or as missing bags that look like packing. Platform data can't separate it from packing.
+- fraud_cluster: a few customer_ref values file repeated claims, often for a whole order. fraud_signals lists refs with many pending claims. Fraud-labeled claims are already left out of rates, so a cluster raises a rate only through pending claims: a store-wide rise that holds with review_label [store_fault] alone doesn't come from a cluster. Whole-order claims have no item_id or modifier_detail, so run that test with no item_id or modifiers filter, for example a claim_breakdown by review_label or by day.
+- other: a specific store-side cause outside these six, such as a promotion or staffing gap that overloads the kitchen in one daypart. Items left out of bags in one daypart are still packing, whatever the staffing behind them.
+
+Large orders hold more items, so any item-level fault shows a higher rate on them. Order size alone doesn't separate inventory from packing: compare the same item across order sizes with a claim_breakdown filtered to that item, by item_count.
+
+An event's type says what changed, not which cause followed. A menu_change event that adds a modifier can start a pos_modifier_mapping fault, or a menu_change cause if staff mishandle a modifier the ticket shows. Checks on the modifier, such as a claim_breakdown by modifier or a compare_periods with it as target against rest_of_store, show whether claims follow the modifier rather than the items, not whether it reached the ticket. To separate those two causes, check whether its claims stay well above baseline across days and dayparts or fall back toward it, or, when questions are available, ask the merchant whether the modifier prints on the kitchen ticket.
 
 ## Tools
 
@@ -35,6 +60,7 @@ Each turn you receive the case, the store's menu and the action catalog, then th
 - Nothing is written as "" for text, [] for lists and 0 for numbers. In filters and scopes, an empty list or 0 means no constraint. review_label [] means the default store_fault and pending.
 - `next_action` is one of: a check, a merchant question, or a conclusion.
   - check kinds: explore looks broadly and needs no hypotheses (at most 3 per run); test separates named hypotheses; challenge targets one open or supported hypothesis with a result that would expose it if it were wrong.
+  - a check's `plan.request` is one JSON object written as a string, shaped like the tool's Request line under Tools. It names the tool in `tool`. Inside a filter or scope, leave out the fields you don't constrain. Code validates the request; a malformed one comes back as a SCHEMA rejection naming the bad field.
   - conclude names the leading hypothesis, the store-local date the rise began, a confidence (low, medium, high), a summary of at most four sentences that cites numbers from the results, and a recommendation: an action_id from the catalog that applies to the leader's cause, a rationale, and a target. The target narrows where the action applies, with fields named after the columns they match. Every target value must have been tested by a check that supported the leader, either as a filter value or as a group in a breakdown. Use [] and 0 for fields you don't restrict.
 
 ## Rules the code enforces

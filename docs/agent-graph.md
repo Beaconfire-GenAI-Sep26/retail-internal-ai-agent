@@ -17,13 +17,38 @@ enforce the ones that matter.
 | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Time slices are `daypart` values, meal periods from order time. There are no crew schedules.             | The agent can show that a problem sits in `dinner`. Linking it to a crew or shift needs a merchant answer.                                                                     |
 | There is no bag data. `item_count` is the proxy for multi-bag orders.                                    | Hypotheses say "large orders, 5+ items", not "multi-bag orders". The bag mechanism can only come from `customer_comments` or the merchant.                                     |
-| There is no Dasher data.                                                                                 | `dasher_handoff` can't be tested from platform data. It ends `inconclusive` with a stated gap, or it is settled by a merchant question.                                        |
+| There is no Dasher data.                                                                                 | `dasher_handoff` can't be tested from platform data, so it is never `supported` or `ruled_out` (G5). It ends `inconclusive` with a stated gap, even after a merchant reply.    |
 | `menu_change` and `pos_change` events link to items only through their free-text `description`.          | The agent reads `event_log` descriptions to connect an event to an item or modifier, then tests that link with `compare_periods`.                                              |
 | Modifiers have no IDs.                                                                                   | Filters and targets use modifier names, such as `Extra sauce`, matching `order_items.modifiers` and `mi_claims.modifier_detail`.                                               |
+| A claim names at most one `item_id` and one `modifier_detail`.                                          | An `item_id` or modifier group, filter or target counts the orders that contain the value but only the claims that name it, never every claim on those orders. An effect on whole orders, such as a promotion's, is tested by its dates or by order size. |
 | Pending claims count toward rates, and claims with `review_label` of `fraud` or `not_store_fault` don't. | Every result reports `pending_claims`. A finding that rests mostly on `pending` claims is weaker evidence.                                                                     |
+| Rates on a few hundred orders or fewer swing by several points by chance.                                | A trend counts when it moves back toward baseline, not when it dips between two elevated periods. |
 | `customer_comments` are free text written by customers.                                                  | Comments, read through `sample_evidence`, can suggest a hypothesis but can't measure how often something happens. They are passed to the model as data, never as instructions. |
 | History covers Oct 5 to Nov 15, 2026.                                                                    | The window is the 42 days ending on the store-local date of the case's `window_end`, which leaves room before every seeded cause.                                              |
 | The Golden Dataset answer key sits in the `eval` schema.                                                 | No tool reads it.                                                                                                                                                              |
+
+## Cause patterns
+
+The prompt tells the model what each `error_category` means and what pattern each `cause_category` tends to
+leave in the data, so it writes expectations from the data model. An item that arrives without its chosen
+modifier is an `ingredient_error` or `incorrect_item`. A `missing_item` means the whole item wasn't in the bag.
+Patterns marked "usually", "often" or "tend" are tendencies, and a missing tendency alone doesn't rule a cause
+out. The patterns name no store, item, modifier or date, and the tool examples use placeholders.
+
+| Cause | Pattern in the data | Separated from its nearest rival by |
+|---|---|---|
+| `pos_modifier_mapping` | Claims on orders with one modifier, named in `modifier_detail`, mostly `incorrect_item` and `ingredient_error`; the same items ordered without it stay near baseline. Starts when the modifier is added or the POS changes, and stays well above baseline across days and dayparts until fixed | Claims that stay well above baseline (`menu_change`, `inventory`). Only the merchant can confirm that the modifier doesn't print on the ticket |
+| `menu_change` | Claims on what changed, such as a recipe, an item, or a new modifier that staff mishandle, from the day of the change. They tend to fall back toward baseline as staff learn, or sit in some dayparts. `menu_data_mismatch` cancellations can rise | Claims that fall back toward baseline or sit in some dayparts (`pos_modifier_mapping`) |
+| `packing` | Mostly `missing_item`, usually spread over many items, often add-ons. Often peaks in the busiest dayparts and in large orders (5+ items), where the same item is missed more than in small ones | The same item missed more often as order size grows, with no matching `item_out_of_stock` cancellations (`inventory`) |
+| `inventory` | Claims on one or a few items, or on a modifier whose ingredient ran out, on the days or dayparts supply ran short. They often come and go with supply | An item's rate about the same in small and large orders that contain it. `item_out_of_stock` cancellations support it but can be absent (`packing`) |
+| `dasher_handoff` | `wrong_order` claims, or missing bags that look like packing | Platform data can't separate it from `packing` |
+| `fraud_cluster` | A few `customer_ref` values with repeated pending claims, often for a whole order | A store-wide rise that holds with `review_label` `store_fault` alone, tested with no `item_id` or `modifiers` filter because whole-order claims name neither |
+| `other` | A specific store-side cause outside the six, such as a promotion or staffing gap that overloads the kitchen in one daypart | Its statement names the cause. Items left out of bags in one daypart are still `packing`. It ends in the analyst handoff (K5) |
+
+Large orders hold more items, so any item-level fault has a higher rate on them. The model compares the same
+item across order sizes instead. An event's type records what changed, not which cause followed. A
+`menu_change` event that adds a modifier can start a `pos_modifier_mapping` fault or a `menu_change` cause,
+and K4 lets either leader cite it.
 
 ## Graph
 
@@ -62,7 +87,7 @@ until then, `guard` rejects every question.
 
 | Node                     | Model call | Does                                                                                                                                                                                                                                                                                                                    | Next                                                 |
 | ------------------------ | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `load_case`              | No         | Reads the case, the store, and the store overview for the window. Reads the store's menu from `GET /stores/{store_id}/menu` and fills `known_items` and `known_modifiers`. Adds the overview's evidence IDs to `retrieved_evidence_ids` and passes the overview to `reason` as the first finding. Records claims excluded with `review_label` of `fraud` or `not_store_fault`. Also calls `fraud_signals` for the window, sets `suspect_cluster` when it flags any `customer_ref`, and adds its evidence IDs. Reads the action catalog. None of these calls counts toward the step limit. For a reopened case, loads the prior run's hypotheses and rulings, and adds the failed recheck as evidence against the cause that was acted on. | `reason`                                             |
+| `load_case`              | No         | Reads the case, the store, and the store overview for the window. Reads the store's menu from `GET /stores/{store_id}/menu` and fills `known_items` and `known_modifiers`. Adds the overview's evidence IDs to `retrieved_evidence_ids` and passes the overview to `reason` as the first finding. Records claims excluded with `review_label` of `fraud` or `not_store_fault`. Also calls `fraud_signals` for the window, sets `suspect_cluster` when it flags any `customer_ref`, and adds its evidence IDs. Reads the action catalog, or uses the bundled copy when Domain has no catalog route (see [Routes Domain doesn't have](#routes-domain-doesnt-have)). The window is the 42 days ending on the case's `window_end`, kept inside the first and last of the case's `daily_rates`. None of these calls counts toward the step limit. A run with `reopen_of` loads nothing from the earlier run yet; its rulings and the failed recheck arrive with reopening in M3. | `reason`                                             |
 | `reason`                 | Yes        | Assesses the latest finding, updates every hypothesis it bears on, and picks one next action with a full plan. Returns a `ReasonOutput`.                                                                                                                                                                                | `guard`                                              |
 | `guard`                  | No         | Applies the rules in [Guards](#guards) to every output: check, question and conclusion. A rejected output goes back to `reason` with the rule IDs attached, at most twice in a row. An accepted check with no steps left ends the run.                                                                                    | `run_check`, `conclude_gate`, `reason` or `finalize` |
 | `run_check`              | No         | Calls one allowlisted read-only tool with validated arguments. Stores the plan, the result, and the evidence IDs in `retrieved_evidence_ids`.                                                                                                                                                                           | `reason`                                             |
@@ -73,11 +98,31 @@ until then, `guard` rejects every question.
 | `finalize`               | No         | Writes the `InvestigationResult` from state and the conclusion, using the [truth table](#how-finalize-decides). Cited IDs must be in `retrieved_evidence_ids` and pass Domain's resolve check, and the action, owner and recheck days come from the catalog.                                                          | `submit_recommendation` or `report_status`           |
 | `submit_recommendation`  | No         | Creates the `intervention` or `handoff` proposal through Domain's internal route. On 409 `PROPOSAL_PENDING` it recovers the proposal this investigation created. Approval is then tracked on the proposal, not the graph.                                                                                              | `report_status`                                      |
 | `fail`                   | No         | Records an operational error as status `failed` with `error.code`, and writes a structured log line.                                                                                                                                                                                                                    | `report_status`                                      |
-| `report_status`          | No         | Reports `completed`, `unsure` or `failed` to Domain with `PUT /internal/cases/{case_id}/investigation`. The call is idempotent. If it fails, the next analyst request retries it.                                                                                                                                     | end                                                  |
+| `report_status`          | No         | Reports `completed`, `unsure` or `failed` to Domain with `PUT /internal/cases/{case_id}/investigation`. The call is idempotent. If it fails, an analyst's next read or list of the investigation retries it in the background: one attempt at most every 30 seconds, with that analyst's JWT. A viewer's request never retries it. | end                                                  |
 
 The model never calls write endpoints. Proposals are created only by the deterministic `draft_question`
-and `submit_recommendation` nodes, after validation. Every terminal path passes through `report_status`,
-so a case never stays `investigating`.
+and `submit_recommendation` nodes, after validation. Every terminal path reports its status: through
+`report_status`, or from the runner when a run times out, crashes or is stopped by a shutdown. If that report
+fails, an analyst's next read or list of the run resends it, and a newer run on the case supersedes it. Until
+then, an `unsure` or `failed` run can leave the case `investigating`. A report still unsent when the agent
+stops is lost with the in-memory index, and the case stays that way until an analyst starts a new run.
+
+### Routes Domain doesn't have
+
+The catalog route, the proposals route and the status route can be missing from a Domain build. Domain's access
+policy already allows them, so once a call passes authorization and finds no handler, Domain answers with its
+generic 404: code `NOT_FOUND`, the message exactly "Not Found" and empty or null `details`. The agent treats only
+that answer as a missing route. A 404 for a missing resource, such as `CASE_NOT_FOUND`, never matches, and a
+route outside Domain's policy gets 403.
+
+| Call | When the route is missing |
+|---|---|
+| `GET /catalog/actions` | `load_case` uses the bundled catalog (`app/data/catalog.json`) and sets `run_config.catalog_source` to `bundled`. |
+| `POST /internal/cases/{case_id}/proposals` | The diagnosis still completes. `proposal_id` stays null and `evidence_gaps` says the recommendation wasn't saved as a proposal. |
+| `PUT /internal/cases/{case_id}/investigation` | The status isn't reported and isn't retried. |
+
+Any other error on these calls is handled as usual. When the routes exist, the agent uses them with no
+configuration change, as long as Domain and the agent share `INTERNAL_SERVICE_TOKEN`.
 
 ## How `reason` works
 
@@ -85,7 +130,7 @@ Each turn, the model receives:
 
 - **The case and store.** The trigger, window, timezone, and exclusions. Also the store's menu: item IDs, item names and modifier names, so filters use values that exist.
 - **The data limits.** The table above, so the model knows what no check can prove.
-- **The hypotheses.** Every hypothesis with its status, evidence and rationale, plus causes ruled out in a prior run. On a new case the list starts empty, and the first turn opens at least two.
+- **The hypotheses.** Every hypothesis with its status, evidence and rationale. The list starts empty, and the first turn opens at least two. A prior run's rulings join it with reopening in M3; until then, the prompt says there are none.
 - **The latest result.** Its headline, metrics and notes in full, plus at most 20 of its evidence IDs and the total count. These are the first 20 in the order the Domain Service returns them, which puts the most concentrated group's newest records first. See "Evidence ID ordering" in [contracts.md](contracts.md#evidence-id-ordering). Every returned ID still goes into `retrieved_evidence_ids`. To cite records from another group, the agent runs `sample_evidence` filtered to that group. On the first turn, this is the store overview from `load_case`. Earlier checks appear as their plan and headline only.
 - **Pending feedback.** Any rejection from `guard` or `conclude_gate`.
 - **Budget.** Steps left, questions left, and whether a question is open.
@@ -95,9 +140,9 @@ The prompt is rebuilt from state on every turn, with no transcript. It has four 
 
 | Part | Role | Holds | Changes |
 |---|---|---|---|
-| S1 | system, cached | Role, the discipline below, the data limits, the tool catalog rendered from the tool registry, and the rules in plain words | Never within a run |
+| S1 | system, cached | Role, the discipline below, the data limits, the cause patterns, the tool catalog rendered from the tool registry, and the rules in plain words | Never within a run |
 | U1 | user, cached | Case and trigger facts, window, timezone, exclusions, the suspect flag, the menu, the action catalog, prior-run rulings | Never within a run |
-| U2 | user | Hypotheses, the check history one line each, the event ledger, the latest result in full, and any rejection feedback | Every turn |
+| U2 | user | Hypotheses, the check history one line each, the event ledger, the latest result in full, and any rejection feedback. Counts narrowed to an item or modifier are labeled as claims that name the value over orders that contain it | Every turn |
 | C | system, last | Turn and budget counters, whether `matched` is due, the failed rule IDs, and the K1-K5 checklist | Every turn |
 
 Domain text in U1 and U2 is escaped, capped at 300 characters and placed inside `<data>` blocks. C holds no
@@ -116,8 +161,14 @@ The system prompt asks for a fixed discipline, not a fixed path:
 ### `ReasonOutput`
 
 `reason` returns one JSON object through structured output. Every field is required and none is
-nullable, so "nothing" is `""`, `[]` or `0`. The schema has exactly two unions: `next_action` and the
-check's `request`. Single-value tags such as `type` and `tool` are one-value enums.
+nullable, so "nothing" is `""`, `[]` or `0`. The schema has one union, `next_action`. Single-value tags
+such as `type` are one-value enums.
+
+A check's `request` is a JSON object written as a string. The API compiles the schema into a grammar, and
+the eight per-tool request shapes make that grammar too large to compile, so the request is validated in
+code: the agent decodes the string and checks it against the request model for its `tool` (and, for
+`sample_evidence`, its `evidence_type`). Inside a filter or scope, a field the model leaves out means no
+constraint. A malformed request is a `SCHEMA` rejection that names the bad field.
 
 ```python
 class ReasonOutput(BaseModel):
@@ -152,7 +203,7 @@ class CheckPlan(BaseModel):
     discriminates: list[str]                 # hypotheses this check separates
     expectations: list[Expectation]          # {hypothesis_id, if_true, if_false}, one per discriminated hypothesis
     challenges: str                          # the targeted hypothesis for a challenge, else ""
-    request: ToolRequest                     # one of 8 variants, each tagged with its tool
+    request: str                             # JSON for one of 8 request shapes, tagged with its tool; validated in code
 
 class AskMerchantAction(BaseModel):
     type: Literal["ask_merchant"]
@@ -245,7 +296,12 @@ code applies this table:
 
 Confidence is capped at `medium` when any rival is `inconclusive`, when the budget ran out, or when the
 checks supporting the leader rest mostly on `pending` claims. Citations that fail Domain's resolve check
-are dropped and listed as a gap.
+are dropped and listed as a gap. The result's contradicting evidence is what contradicted the leader, plus the
+records that pointed to any other cause; a ruled-out cause's are explained by its `ruled_out` entry. Records the
+leader cites, or that a check confirming it returned, are left out. In the summary, the recommendation's
+rationale, the ruled-out reasons and the gaps, a percentage, an n/d fraction or a count of claims, orders or
+cancellations that no check result, record, case fact or catalog threshold shows is replaced with `[withheld]`
+and listed as a gap.
 
 The agent proposes the most likely cause. The analyst's approval and, where asked, the merchant's reply
 confirm it.
@@ -261,14 +317,15 @@ confirm it.
 
 ## Pause and resume
 
-`thread_id` is the `investigation_id`. Checkpoints live in the `agent` schema through LangGraph's Postgres
-checkpointer.
+Pausing and resuming arrive with merchant questions in M3. `thread_id` is the `investigation_id`.
+Checkpoints live in memory (`AGENT_CHECKPOINTER=memory`). The Postgres checkpointer in the `agent` schema
+isn't built yet, and setting `postgres` stops the service at startup.
 
 - **Pausing.** `wait_question_decision` and `wait_merchant_reply` call `interrupt()`, and the checkpoint is saved. The API returns the current status.
 - **Resuming.** The frontend calls `POST /investigations/{id}/resume` after the analyst decides the question or records a reply. The request carries a fresh JWT. The node re-reads the proposal or replies from Domain and never trusts the resume body.
 - **No duplicate effects.** If nothing has changed in Domain, resume returns the current view and does nothing else. A resume on a finished investigation returns 409 `INVESTIGATION_FINISHED`.
-- **Restarts.** A paused investigation survives a container restart because its checkpoint is in Postgres.
-- **Reopening.** After a failed recheck, Domain marks the case `reopened`. The analyst starts a new investigation with `reopen_of` set. A second failed recheck sends the case to `analyst_review`, and no third run is allowed.
+- **Restarts.** No investigation survives a restart yet. Afterwards the list of a case's runs is empty and old IDs return 404. A clean stop first reports each active run to Domain as `failed` with `AGENT_RESTARTED`; if that report fails, nothing resends it. Once checkpoints are in Postgres, a paused investigation will survive a restart.
+- **Reopening.** Start accepts `reopen_of` once per case, only for a `reopened` case and an earlier run of it that the agent still holds. Anything else gets 409 `REOPEN_NOT_ALLOWED`. The rest isn't built yet: Domain reopening a case after a failed recheck and sending it to `analyst_review` after a second one (C-04), and the new run loading the earlier run's rulings (M3).
 
 ## Diagnostic tools
 
@@ -379,7 +436,7 @@ class InvestigationState(TypedDict):
     catalog: list[ActionCatalogEntry]
     excluded: ExclusionSummary           # claims with review_label fraud or not_store_fault
     suspect_cluster: bool                # set by load_case from fraud_signals; pending claims flagged for fraud review
-    prior_hypotheses: list[Hypothesis]   # from the prior run, including its rulings
+    prior_hypotheses: list[Hypothesis]   # from the prior run, including its rulings; empty until M3
 
     # evidence
     checks: Annotated[list[CheckRecord], upsert_by_check_id]
@@ -412,7 +469,7 @@ class InvestigationState(TypedDict):
     # outcome
     result: InvestigationResult | None
     error: ErrorInfo | None
-    domain_sync_pending: bool            # the last status report to Domain failed
+    domain_sync_pending: bool            # a status report failed and will be retried; never set for a missing route
     usage: dict                          # summed token usage
     model_calls: Annotated[list[ModelCall], append]   # model, usage, latency and raw output per turn
 

@@ -100,6 +100,51 @@ def test_unresolvable_citations_are_dropped_and_reported():
     assert result["evidence_gaps"][0].startswith("Dropped citations")
 
 
+def test_contradicting_evidence_adds_what_pointed_to_other_causes():
+    state = passing_state(hypotheses=[
+        H("HYP-1", "pos_modifier_mapping", "supported", sup=("EV-EVT-000005", "EV-CLM-000101"), con=("EV-CLM-000102",)),
+        H("HYP-2", "menu_change", "ruled_out", sup=("EV-EVT-000005", "EV-EVT-000006")),
+        H("HYP-3", "dasher_handoff", "inconclusive", sup=("EV-CLM-000103",)),
+    ])
+    result = build_result(finished(state, "gate_passed", conclusion()), max_steps=12, invalid_ids={"EV-CLM-000103"})
+    # The leader's own contradiction, then what pointed elsewhere. Shared support and failed citations drop out.
+    assert result["contradicting_evidence_ids"] == ["EV-CLM-000102", "EV-EVT-000006"]
+
+
+def test_counts_and_rates_no_check_shows_are_withheld():
+    state = passing_state(case={"mi_rate": 0.0837, "baseline_rate": 0.053, "attributable_claims": 37,
+                                "eligible_orders": 442})
+    state["checks"][1]["result"]["metrics"] = [{"name": "claim_rate", "group": "modifier=Extra sauce", "value": 0.1932,
+                                                "numerator": 103, "denominator": 533, "unit": "rate"}]
+    action = conclusion()
+    action["summary"] = ("Since Oct 30, Extra sauce claims ran at 19.3% (103/533) against 5.3% before, with 41 claims "
+                         "on 2,104 orders elsewhere and 37 claims in the last week.")
+    action["recommendation"] = {**action["recommendation"], "rationale": "The rate is 12.4% above the store's."}
+    result = build_result(finished(state, "gate_passed", action), max_steps=12)
+    assert result["summary"] == ("Since Oct 30, Extra sauce claims ran at 19.3% (103/533) against 5.3% before, with "
+                                 "[withheld] claims on [withheld] orders elsewhere and 37 claims in the last week.")
+    assert result["recommendation"]["rationale"] == "The rate is [withheld] above the store's."
+    assert result["evidence_gaps"][-1] == "Withheld numbers that no check result shows: 41 claims, 2,104 orders, 12.4%."
+
+
+def test_the_number_check_reads_records_thresholds_dates_and_n_of_m():
+    state = passing_state()
+    state["checks"][0]["result"]["evidence"] = [{"evidence_id": "EV-EVT-000007", "type": "operational_event",
+                                                 "summary": "Promotion: 20% off family meals (Nov 3-9).",
+                                                 "attributes": {}}]
+    state["checks"][1]["result"]["metrics"] = [{"name": "claim_share", "group": "modifier=Extra sauce", "value": 0.8583,
+                                                "numerator": 103, "denominator": 120, "unit": "share"}]
+    action = conclusion()
+    action["summary"] = ("The 20% off promotion ran Nov 3-9. Since Oct 30 orders with Extra sauce carry 103 of 120 "
+                         "claims, and only 27 of 120 claims are pending. Groups under 30 eligible orders get no rate; "
+                         "rates fell, marking 412 claims since the launch.")
+    result = build_result(finished(state, "gate_passed", action), max_steps=12)
+    assert result["summary"] == ("The 20% off promotion ran Nov 3-9. Since Oct 30 orders with Extra sauce carry 103 of "
+                                 "120 claims, and only [withheld] of 120 claims are pending. Groups under 30 eligible "
+                                 "orders get no rate; rates fell, marking [withheld] claims since the launch.")
+    assert result["evidence_gaps"][-1] == "Withheld numbers that no check result shows: 27 of 120, 412 claims."
+
+
 def test_cap_never_raises_confidence():
     assert cap("low", "medium") == "low"
     assert cap("high", "medium") == "medium"

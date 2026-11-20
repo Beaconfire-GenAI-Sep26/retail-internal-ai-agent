@@ -28,6 +28,10 @@ async def report_status(state: InvestigationState, runtime: Runtime[AgentContext
     try:
         await ctx.domain.report_investigation_status(state["case_id"], body)
     except DomainError as exc:
+        if exc.route_missing:
+            # Domain hasn't shipped the status route yet; retrying can't help, so nothing is pending.
+            log_event(logger, logging.INFO, "Domain has no status route; status not reported", status=status)
+            return {"domain_sync_pending": False}
         log_event(logger, logging.WARNING, "status report failed", status=status, code=exc.code)
         return {"domain_sync_pending": True}
     return {"domain_sync_pending": False}

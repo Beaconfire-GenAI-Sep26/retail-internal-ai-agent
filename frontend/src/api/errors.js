@@ -59,6 +59,10 @@ const STATUS_MESSAGES = {
 // STALE_VERSION instead of only showing a message.
 export const getErrorCode = (err) => err?.response?.data?.error?.code ?? null;
 
+// The envelope's `details` object, or {} — e.g. INVESTIGATION_ACTIVE carries
+// { investigation_id }, STALE_VERSION carries { current_version }.
+export const getErrorDetails = (err) => err?.response?.data?.error?.details ?? {};
+
 
 // ═══════════════════════════════════════════════════════════════════
 // 3. getErrorMessage(err, fallback) → string

@@ -11,13 +11,15 @@ import { useDispatch } from 'react-redux';
 import { fetchInvestigation } from '../store/investigations/investigationsThunks';
 
 const POLL_INTERVAL_MS = 2000;
+const PAUSED = ['awaiting_approval', 'awaiting_merchant'];
 
 
 // ═══════════════════════════════════════════════════════════════════
 // 2. Hook
 // ═══════════════════════════════════════════════════════════════════
 // Polls only while status is 'running'. Every other status stops it:
-//   awaiting_approval / awaiting_merchant → paused until an analyst acts (D-05)
+//   awaiting_approval / awaiting_merchant → paused until an analyst acts (D-05);
+//                                           refetched when the tab regains focus
 //   completed / unsure / failed           → finished
 // Each poll stores the new status, which re-runs this effect, so polling stops
 // on its own as soon as the status changes. Leaving the page stops it too
@@ -34,6 +36,24 @@ const usePollInvestigation = (investigationId, status) => {
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(timer);
+  }, [dispatch, investigationId, status]);
+
+  // Paused for a person (awaiting_approval / awaiting_merchant): no polling, but
+  // refetch when the analyst comes back to the tab — someone else may have
+  // decided or recorded the reply meanwhile (ui-workflow.md v0.3 "Polling").
+  useEffect(() => {
+    if (!investigationId || !PAUSED.includes(status)) return;
+
+    const refetch = () => {
+      if (document.visibilityState === 'visible') dispatch(fetchInvestigation(investigationId));
+    };
+    window.addEventListener('focus', refetch);
+    document.addEventListener('visibilitychange', refetch);
+
+    return () => {
+      window.removeEventListener('focus', refetch);
+      document.removeEventListener('visibilitychange', refetch);
+    };
   }, [dispatch, investigationId, status]);
 };
 

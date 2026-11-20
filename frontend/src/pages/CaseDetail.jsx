@@ -1,6 +1,7 @@
 // [12b] Case detail page — /cases/:caseId — any logged-in user
 // D-02: header (rate vs baseline and goal) · daily history · start + track the investigation
-// D-03 adds the diagnosis and approve/reject inside InvestigationPanel.
+// D-03 adds the diagnosis and approve/reject inside InvestigationPanel, and the
+// evidence drawer (box 14) that any evidence ID on the page opens.
 // caseId is a string like "CASE-0001" (C-01 convention) — never parse it as a number
 
 
@@ -12,6 +13,7 @@ import { Link, useParams } from 'react-router';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchCase } from '../store/cases/casesThunks';
 import { fetchLatestInvestigation } from '../store/investigations/investigationsThunks';
+import { closeEvidence } from '../store/evidence/evidenceSlice';
 import {
   selectCaseDetail,
   selectCaseDetailStatus,
@@ -22,6 +24,9 @@ import { toStoreDate } from '../api/format';
 import CaseHeader from '../components/caseDetail/CaseHeader';
 import DailyRateChart from '../components/caseDetail/DailyRateChart';
 import InvestigationPanel from '../components/caseDetail/InvestigationPanel';
+import EvidenceDrawer from '../components/caseDetail/EvidenceDrawer';
+import RecheckPanel from '../components/caseDetail/RecheckPanel';
+import AuditLog from '../components/caseDetail/AuditLog';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -42,6 +47,8 @@ const CaseDetail = () => {
   useEffect(() => {
     dispatch(fetchCase(caseId));
     dispatch(fetchLatestInvestigation(caseId));
+    // Leaving the case (or switching to another) closes the evidence drawer
+    return () => dispatch(closeEvidence());
   }, [dispatch, caseId]);
 
   // ── 2c. Render ──────────────────────────────────────────────────
@@ -85,13 +92,22 @@ const CaseDetail = () => {
   return (
     <section className='case-detail'>
       {backLink}
-      <CaseHeader caseDetail={caseDetail} />
-      <DailyRateChart
-        dailyRates={caseDetail.daily_rates}
-        windowStartDate={toStoreDate(caseDetail.window_start, caseDetail.store.timezone)}
-        goalRate={caseDetail.goal_rate}
-      />
-      <InvestigationPanel caseId={caseId} />
+      {/* Main column + activity sidebar (box 16); under 860px the sidebar drops below */}
+      <div className='case-layout'>
+        <div className='case-main'>
+          <CaseHeader caseDetail={caseDetail} />
+          <DailyRateChart
+            dailyRates={caseDetail.daily_rates}
+            windowStartDate={toStoreDate(caseDetail.window_start, caseDetail.store.timezone)}
+            goalRate={caseDetail.goal_rate}
+          />
+          <InvestigationPanel caseId={caseId} />
+          {/* Box 13 sits outside the investigation panel (page map); it hides itself until a recheck exists */}
+          <RecheckPanel caseId={caseId} />
+        </div>
+        <AuditLog caseId={caseId} timeZone={caseDetail.store.timezone} />
+      </div>
+      <EvidenceDrawer timeZone={caseDetail.store.timezone} />
     </section>
   );
 };

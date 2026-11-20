@@ -4,6 +4,10 @@
 //   auth     who is logged in (role, store_ids) + access token   store/auth/
 //   cases           (D-02) case queue · the open case               store/cases/
 //   investigations  (D-02) latest investigation of the open case    store/investigations/
+//   evidence        (D-03) cached evidence records + the drawer     store/evidence/
+//   proposals       (D-03) proposals by ID + their edit / decision  store/proposals/
+//   rechecks        (D-05) "run recheck" requests                   store/rechecks/
+//   audit           (D-05) the open case's activity log             store/audit/
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -13,6 +17,10 @@ import { configureStore } from '@reduxjs/toolkit';
 import authReducer from './auth/authSlice';
 import casesReducer from './cases/casesSlice';
 import investigationsReducer from './investigations/investigationsSlice';
+import evidenceReducer from './evidence/evidenceSlice';
+import proposalsReducer from './proposals/proposalsSlice';
+import rechecksReducer from './rechecks/rechecksSlice';
+import auditReducer from './audit/auditSlice';
 import { injectStore } from '../api/axios';
 
 
@@ -26,6 +34,10 @@ const store = configureStore({
     auth: authReducer,
     cases: casesReducer,
     investigations: investigationsReducer,
+    evidence: evidenceReducer,
+    proposals: proposalsReducer,
+    rechecks: rechecksReducer,
+    audit: auditReducer,
   },
 });
 

@@ -34,6 +34,22 @@ const EvidenceLink = ({ id, children }) => {
 
 
 // ═══════════════════════════════════════════════════════════════════
-// 3. Export
+// 3. EvidenceLinks — a labelled row of evidence IDs, nothing if the list is empty
+// ═══════════════════════════════════════════════════════════════════
+//   <EvidenceLinks label='Supports' ids={hypothesis.supporting_evidence_ids} />
+//   → Supports: EV-EVT-000031 · EV-CLM-004410
+export const EvidenceLinks = ({ label, ids }) => {
+  if (!ids?.length) return null;
+  return (
+    <p className='evidence-links'>
+      {label && <span className='muted'>{label}: </span>}
+      {ids.map((id) => <EvidenceLink key={id} id={id} />)}
+    </p>
+  );
+};
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 4. Export
 // ═══════════════════════════════════════════════════════════════════
 export default EvidenceLink;

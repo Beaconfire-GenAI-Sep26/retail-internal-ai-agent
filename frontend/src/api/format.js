@@ -51,6 +51,20 @@ export const formatDateRange = (startIso, endIso, timeZone) => {
   return `${start} – ${formatDate(endIso, timeZone)}`;
 };
 
+// A plain date with no time, e.g. InvestigationResult.cause_started_at "2026-10-30".
+// It is already a store-local date, so it must NOT go through a timezone:
+// new Date('2026-10-30') is UTC midnight, which is Oct 29 in Chicago.
+// "2026-10-30" → "Oct 30, 2026" · null → "—"
+export const formatDay = (ymd) => {
+  if (!ymd) return '—';
+  return new Date(`${ymd}T00:00:00Z`).toLocaleDateString('en-US', {
+    timeZone: 'UTC',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+};
+
 // Date and time, e.g. for evidence and the audit log
 // "2026-11-04T01:12:00Z", "America/Chicago" → "Nov 3, 2026, 7:12 PM CST" · null → "—"
 // Newer ICU puts a narrow no-break space before AM/PM; a plain space keeps it

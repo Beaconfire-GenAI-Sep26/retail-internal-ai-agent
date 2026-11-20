@@ -5,6 +5,7 @@ import {
   formatRate,
   formatRateWindow,
   formatDateTime,
+  formatDay,
   formatTarget,
   formatMoney,
   formatInvestigationError,
@@ -25,6 +26,13 @@ describe('rates', () => {
 
   it('a RateWindow with rate null still shows its sample size', () => {
     expect(formatRateWindow({ claims: 3, eligible_orders: 40, rate: null })).toBe('3 / 40 · Not enough data');
+  });
+});
+
+describe('formatDay', () => {
+  it('a store-local date stays the same day in any browser timezone', () => {
+    expect(formatDay('2026-10-30')).toBe('Oct 30, 2026');
+    expect(formatDay(null)).toBe('—');
   });
 });
 

@@ -12,6 +12,7 @@ import {
   formatRate,
   formatRatio,
   formatDateRange,
+  formatInvestigationError,
   TRIGGER_LABELS,
 } from '../../api/format';
 
@@ -52,8 +53,13 @@ const CaseHeader = ({ caseDetail }) => {
         </div>
       </dl>
 
-      {/* Set by the Domain Service when the last investigation failed */}
-      {caseDetail.last_error && <p className='error'>Last investigation failed: {caseDetail.last_error}</p>}
+      {/* Set by the Domain Service when the last investigation failed. It holds the
+          investigation error code, so it gets the same friendly text as ErrorPanel. */}
+      {caseDetail.last_error && (
+        <p className='error' title={caseDetail.last_error}>
+          Last investigation failed: {formatInvestigationError(caseDetail.last_error)}
+        </p>
+      )}
 
       {/* ── Stat cards ── */}
       <div className='stat-cards'>

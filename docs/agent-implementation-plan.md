@@ -1,6 +1,6 @@
 # Agent implementation plan
 
-v0.1 draft, Wed Nov 18, 2026. How the Agent Service and its LangGraph investigation will be built. It covers
+v0.2 draft, Thu Nov 19, 2026. How the Agent Service and its LangGraph investigation are built. It covers
 module layout, state, graph wiring, each node's inputs and outputs, tools, guardrails, context engineering,
 milestones and verification. The design it implements is in [agent-graph.md](agent-graph.md), the DTOs and
 endpoints in [contracts.md](contracts.md), and the service rules in [architecture.md](architecture.md).
@@ -16,17 +16,23 @@ B-02 acceptance criteria:
 2. State records attempted checks, findings and ruled-out hypotheses. A configurable step limit prevents unbounded loops.
 3. Insufficient evidence or exhausted checks return `unsure`. An operational failure yields a structured `failed` status and a log.
 
-**Platform integration status:**
-- Root `agent/` now runs B-02's API, graph and memory runner behind the shared JWT boundary and scoped HTTP Domain client.
-- The Agent Service uses **uv**: `agent/pyproject.toml` plus a committed `agent/uv.lock`, built from the repository root so it can include `shared/`.
-- Root `compose.yaml` launches `auth/`, `agent/`, `domain/` and `frontend/`, with gateway/database setup in `platform/`.
-- C-02 case, store, evidence, monitor and diagnostic routers are integrated into the Domain factory.
-- Service and test imports use `agent.app` / `domain.app` from the repository root; package names cannot collide.
-- Memory checkpoints, scripted/fixture tests and direct Claude calls are integrated. Postgres checkpoints, merchant resumes and A-03 tracing remain separate milestones.
+**Repo facts:**
+- The Agent Service is in `agent/` at the repo root, next to `auth/`, `domain/` (C-01, C-02), `frontend/`, `shared/` and `platform/`. It uses **uv**: `agent/pyproject.toml` plus a committed `agent/uv.lock`, and its image builds from the repo root so it can include `shared/`.
+- The root `compose.yaml` launches Auth, the agent, Domain and the frontend. The gateway and the database setup live in `platform/`.
+- Imports are namespaced (`agent.app`, `domain.app`) and run from the repo root. The agent's API sits behind the shared JWT boundary in `shared/security.py`, and it calls Domain through the scoped client in `agent/app/domain_client.py`.
+- The Domain Service (C-02) serves cases, store data, the diagnostic tools, evidence resolve and the monitor. The catalog, proposal and status routes are C-03; until they exist, the agent uses the fallbacks in [agent-graph.md](agent-graph.md#routes-domain-doesnt-have).
+
+**Status:** M1 is built. The agent runs against the real Domain (`AGENT_DOMAIN_MODE=http`): the offline suite
+(`uv run pytest`) and the live Domain suite (`uv run pytest -m live_domain`, see [agent/README.md](../agent/README.md))
+pass. With the cause patterns in the prompt ([agent-graph.md](agent-graph.md#cause-patterns)), live Claude runs end
+`pos_modifier_mapping` on CASE-0001 and `packing` on CASE-0002, with different check sequences. In the latest runs,
+each ruling rests on a check that measures it. CASE-0001 ends medium, because platform data can't confirm that the
+modifier doesn't print on the kitchen ticket. CASE-0002 ends high, or medium when the run opens `dasher_handoff`,
+which can only end inconclusive.
 
 **Seed facts that shape the design** ([`domain/scripts/reset_and_seed.py`](../domain/scripts/reset_and_seed.py)):
 - Orders get `Extra sauce` only from Oct 30. A `compare_periods` with target `modifiers=["Extra sauce"]` split on Oct 30 therefore has no "before" orders.
-- The C-01 seed has no `pending` claims, so `fraud_signals` is empty and the pending caps never fire. C-02 adds pending claims, and C-05 includes a store where one `customer_ref` has 4+ pending claims.
+- The seed has `pending` claims: store_fault claims reported in the last 36 hours of data, and one STORE-A `customer_ref` with 5 pending claims on Nov 6–15, which `fraud_signals` flags, so `suspect_cluster` is set for STORE-A.
 - STORE-B adds 1–3 claims per affected order. The dinner 5+ `claim_rate` is about 0.5–0.7 claims per order.
 
 ## Key decisions
@@ -44,9 +50,11 @@ B-02 acceptance criteria:
 
 ## Milestones (build order)
 
-**M0, the first hour: schema and latency spike.**
+**M0, the first hour: schema and latency spike** (`scripts/m0_spike.py`; `--yes` makes the real calls).
 - Write `llm/schemas.py` and render one STORE-A prompt from fixtures.
 - Send real calls at `low`, `medium` and `high` effort, plus one with `speed="fast"`.
+- Offline results: `anthropic` 1.17's `beta.messages.stream` and `parse` accept `output_format`, `output_config`, `fallbacks` and `speed` directly, so nothing goes in `extra_body`.
+- Live result: the API rejects a schema whose check request is a union of the 8 per-tool shapes ("The compiled grammar is too large"), with or without fallbacks, with enum lists loosened, and with the request flattened into one object. A schema whose request is a JSON string compiles. It is about 6 KB with one union and no optional fields.
 - Record:
   - Whether the schema compiles. The API has an internal "Schema is too complex for compilation" limit and a 180 s compile timeout.
   - Per-turn latency and output tokens.
@@ -81,23 +89,24 @@ A new `agent/` folder at the repo root, next to `domain/` and `frontend/`:
 
 ```
 agent/
-  pyproject.toml  uv.lock  .python-version  Dockerfile  .dockerignore  README.md
+  pyproject.toml  uv.lock  .python-version  Dockerfile  .dockerignore  .env.example  README.md
   app/
     main.py              # FastAPI app; lifespan: settings, clients, checkpointer, graph compile, reconcile
-    config.py            # pydantic-settings; strips "+psycopg" from DATABASE_URL for psycopg/libpq
+    config.py            # pydantic-settings, read from the environment and agent/.env
     auth.py              # minimal JWT verifier per architecture.md (A-02 may replace with shared code)
-    errors.py  logging.py  cli.py  runner.py  store.py   # envelope; JSON logs + request id; CLI; background runs; index
+    errors.py  logs.py  ids.py  cli.py  runner.py  store.py   # envelope; JSON logs + request id; IDs; CLI; background runs; index
     api/investigations.py
     contracts/           # Pydantic mirrors of contracts.md
     domain/client.py     # DomainPort protocol + HttpDomainClient (httpx.AsyncClient)
     domain/fixtures.py   # FixtureDomainClient
-    tools/registry.py    # 7 model tools: wire request model, contract builder, Domain call, prompt text, canonical key
-    llm/schemas.py  llm/anthropic_model.py  llm/scripted_model.py
+    tools/registry.py    # 7 model tools: prompt text, wire-to-contract conversion, canonical key, Domain call
+    llm/schemas.py  llm/base.py  llm/anthropic_model.py  llm/scripted_model.py
     prompts/system.md  prompts/render.py
     graph/state.py  graph/context.py  graph/build.py
     graph/rules.py  graph/gate.py  graph/finalize.py  graph/policy.py   # pure functions
     graph/nodes/         # load_case, reason, guard, run_check, conclude_gate, finalize, submit, report_status, fail, questions (M3)
-    tracing.py           # Langfuse; no-op when keys are unset
+    tracing.py           # Langfuse (M2); no-op when keys are unset
+  scripts/make_fixtures.py  scripts/m0_spike.py
   tests/fixtures/domain/{STORE-A,STORE-B,STORE-C,common}/  tests/unit  tests/graph  tests/api
 ```
 
@@ -136,18 +145,16 @@ Commands:
   - `uv add fastapi==0.164.0 uvicorn==0.54.0` (versions match A-01).
   - `uv add pydantic pydantic-settings "langgraph>=1,<2" langgraph-checkpoint-postgres "psycopg[binary,pool]" "anthropic>=1,<2" httpx pyjwt python-ulid langfuse`
 - Dev dependencies: `uv add --dev pytest pytest-asyncio respx`. They go to `[dependency-groups] dev`.
-- Daily use: `uv sync` to set up, then `uv run pytest`, `uv run python -m app.cli …` and `uv run uvicorn app.main:app --reload`.
+- Daily use: `uv sync` to set up and `uv run pytest` from `agent/`. The CLI and the server run from the repo root: `uv run --project agent python -m agent.app.cli …` and `uv run --project agent uvicorn agent.app.main:app --reload`.
 - After changing dependencies: `uv lock` and commit the lockfile. CI and Docker use `--locked`/`--frozen`, so a stale lock fails fast.
 
-**Dockerfile.** Same base image, port and non-root user as A-01:
-- `FROM python:3.12-slim`.
-- `COPY --from=ghcr.io/astral-sh/uv:<pinned version> /uv /uvx /bin/`.
-- `ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never`.
-- Copy `pyproject.toml` and `uv.lock`, then `RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-install-project`. Dependencies get their own cached layer.
-- Copy `app/`, then `uv sync --frozen --no-dev`.
-- `CMD ["/app/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]`.
-- Keep A-01's optional BuildKit `build_ca` secret. uv reads `SSL_CERT_FILE`, so export it in the `uv sync` step when the secret is present.
-- `.dockerignore` excludes `.venv/`.
+**Dockerfile** (`agent/Dockerfile`, built from the repo root with `docker build -f agent/Dockerfile .`, so it can copy `shared/`):
+- `FROM python:3.12-slim`, with a pinned uv copied from `ghcr.io/astral-sh/uv`.
+- Copy `agent/pyproject.toml` and `agent/uv.lock`, then `uv sync --frozen --no-dev --project agent`. Dependencies get their own layer.
+- Keep the optional BuildKit `build_ca` secret. uv reads `SSL_CERT_FILE`, so the `uv sync` step exports it when the secret is present.
+- Copy `agent/` and `shared/`, then run as the non-root `appuser`.
+- `CMD` runs `/app/.venv/bin/uvicorn agent.app.main:app --host 0.0.0.0 --port 8000`. `UVICORN_ROOT_PATH=/agent` gives the gateway prefix to uvicorn, since FastAPI 0.164 deprecates its own `root_path` argument.
+- The build context is the repo root, so the root `.dockerignore` applies.
 
 **Async clients only**, so the single worker never blocks.
 
@@ -387,7 +394,7 @@ Every node checks `context.deadline` on entry, before any write, and returns `RU
 
 **`report_status`.** No model call.
 - **Calls:** `PUT /internal/cases/{id}/investigation` with `completed`, `unsure` or `failed`. The call is idempotent and retried.
-- **Writes:** on failure, it sets `domain_sync_pending` on the index row. The next analyst request flushes it. The outcome itself never changes.
+- **Writes:** on failure, it sets `domain_sync_pending` on the index row, unless Domain has no status route. An analyst's next read of the investigation retries it in the background, at most once every 30 seconds, with that analyst's JWT. A newer investigation on the same case clears the flag. The outcome itself never changes.
 - **Next:** END.
 
 **`fail`.** No model call.
@@ -449,7 +456,7 @@ from `fraud_signals`.
 | G13 | Fewer than 3 explore checks |
 | G14 | The canonical key hasn't run before, including `load_case`'s calls |
 | G15 | A check needs `step_count < AGENT_MAX_STEPS`. Otherwise the run goes to finalize with `budget_spent`. |
-| G18 | Conclude: the leader exists, `rise_started_at` is inside the window, the action is in the catalog and applies to the cause, and the target's values exist |
+| G18 | Conclude: the leader exists, `rise_started_at` is inside the window, the action is in the catalog and applies to the cause, and the target's values exist and were tested by a check that supported the leader, as a filter value or a breakdown group |
 | P1 | Output policy on the free text: the summary, rationale and question. No requests for refunds, credits, store charges, deactivation, menu edits or customer contact. No URLs, emails, phone numbers or `customer_ref` values. A hit is rejected and traced as `blocked_action`. |
 | G6, G7, G16, G17 | Prior-run rulings, reply-only support, question availability and question content. All M3. |
 
@@ -477,7 +484,7 @@ from `fraud_signals`.
 
 **Boundaries:**
 - The API checks the JWT, role and store grant. Domain calls forward the user's JWT.
-- `X-Service-Token` is sent only on `/internal/` routes.
+- Every call goes through the scoped Domain client. It pins the case and store, allow-lists paths and methods, and sends `X-Store-ID` and `X-Investigation-ID` once the case's store is known. `X-Service-Token` goes only on the two `/internal/` writes and on `POST /evidence/resolve`.
 - The model never writes. Only `submit_recommendation` (and `draft_question` in M3) create proposals, after the guard, the gate and finalize have validated them.
 - No token in state, logs or traces.
 
@@ -496,9 +503,9 @@ are cached. Only U2 and the control message change.
 flowchart LR
   subgraph REQ["One reason call · claude-opus-5-5 · structured output"]
     direction TB
-    S1["S1 · system · cache breakpoint<br/>role and the 7-rule discipline<br/>data limits, including: a modifier first sold on date D<br/>has no orders before D, so challenge it with the<br/>rest-of-store control or a persistence split<br/>tool catalog rendered from the registry<br/>guard, gate and P1 rules in plain words<br/>untrusted-data rule, keep explanations short"]
+    S1["S1 · system · cache breakpoint<br/>role and the 7-rule discipline<br/>data limits, including: a modifier first sold on date D<br/>has no orders before D, so challenge it with the<br/>rest-of-store control or a persistence split<br/>error categories and each cause's data pattern<br/>tool catalog rendered from the registry<br/>guard, gate and P1 rules in plain words<br/>untrusted-data rule, keep explanations short"]
     U1["U1 · user · cache breakpoint, same bytes every turn<br/>case and trigger facts, window, timezone<br/>exclusions and suspect flag<br/>menu as data<br/>catalog actions: id, kind, owner, title, applies_to<br/>prior-run rulings"]
-    U2["U2 · user · changes every turn<br/>hypotheses: status, statement, rationale,<br/>evidence counts and up to 10 IDs,<br/>supportable via CHK, rule-out-able via CHK<br/>checks so far, one line each: id, kind, tool and<br/>canonical args, discriminates, sufficient, matched<br/>event ledger<br/>latest result in full, up to 20 evidence IDs plus total<br/>last rejected action and Domain 422 text, as data<br/>merchant thread, M3"]
+    U2["U2 · user · changes every turn<br/>hypotheses: status, statement, rationale,<br/>evidence counts and up to 10 IDs,<br/>supportable via CHK, rule-out-able via CHK<br/>checks so far, one line each: id, kind, tool and<br/>canonical args, discriminates, sufficient, matched<br/>event ledger<br/>latest result in full, up to 20 evidence IDs plus total<br/>item and modifier counts labeled: claims naming<br/>the value over orders containing it<br/>last rejected action and Domain 422 text, as data<br/>merchant thread, M3"]
     C["C · system · control, no quoted values<br/>checks, explore, questions and reason calls left<br/>final-turn rule<br/>failed rule IDs<br/>K1-K5 checklist"]
     S1 --> U1 --> U2 --> C
   end
@@ -512,8 +519,9 @@ flowchart LR
 ```
 
 **Request:**
-- `claude-opus-5-5` with `output_config={format: ReasonOutputWire, effort: AGENT_EFFORT}`, `max_tokens` 32000, adaptive thinking (default), no tools and no sampling parameters.
-- It goes through `client.beta.messages.stream(..., output_format=…)` plus the final message. The beta client is needed for `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`); if the SDK's helper doesn't take `fallbacks`, pass it in `extra_body`. M0 confirms both.
+- `claude-opus-5-5` with `output_config={"format": {"type": "json_schema", "schema": <ReasonOutputWire>}, "effort": AGENT_EFFORT}`, `max_tokens` 32000, adaptive thinking (Opus 5.5's only mode, so `thinking` is omitted), no tools and no sampling parameters.
+- It goes through `client.beta.messages.stream(...)` plus the final message, with `betas=["server-side-fallback-2026-07-01"]` and `fallbacks="default"`. The agent sends the schema itself and parses the text, so enum casing and the one-value tags stay under its control.
+- The control message C is the last entry in `messages`, as a mid-conversation `role: "system"` message.
 - Check `stop_reason` first:
   - `refusal`, after the fallback chain: `MODEL_REFUSED`.
   - `max_tokens`: one retry at 64000, then `MODEL_TRUNCATED`.
@@ -525,17 +533,19 @@ flowchart LR
   - `CheckAction{plan: CheckPlan}`.
   - `AskMerchantAction{question_text, why_asked}`.
   - `ConcludeAction{leading_hypothesis_id, rise_started_at, confidence, summary, recommendation{action_id, rationale, target}}`.
-- `CheckPlan` = `kind, purpose, discriminates, expectations, challenges ("" if none), request`, where `request` is a union of the 8 per-tool variants.
+- `CheckPlan` = `kind, purpose, discriminates, expectations, challenges ("" if none), request`, where `request` is a JSON object written as a string. Code decodes it and validates it against the 8 per-tool request models, picked by `tool` (and `evidence_type` for samples). Filter and scope fields the model leaves out default to no constraint.
 - A converter maps the wire shape to the internal state shapes in [agent-graph.md](agent-graph.md#reasonoutput).
 
 **Rules for the wire schema**, from the structured-outputs docs:
 - `additionalProperties: false`. A `dict` can only return `{}`.
 - No `oneOf`.
 - At most 24 optional parameters and 16 union-typed parameters. A nullable field counts as a union.
-- So every field is required and non-nullable, the schema has exactly 2 unions, and "none" is written as `""`, `[]` or `0`.
+- So every field is required and non-nullable, the schema has one union, and "none" is written as `""`, `[]` or `0`.
+- The compiled grammar has a size limit. The request travels as a string because its 8 shapes exceed it.
 - No numeric or length constraints, because the SDK would move them client-side and raise on parse. Guard checks bounds.
+- Single-value tags (`type`) are one-value `enum`s. `anthropic.transform_schema()` drops `const` into the description, which would leave the union tags unconstrained.
 - Enum values are lowercased before validation, since the API doesn't guarantee casing.
-- A test snapshots the schema from `transform_schema()` in the `anthropic` package (check the import path) and asserts the union and optional counts. Its hash is `schema_hash`.
+- Tests check the schema from `anthropic.transform_schema()`: one union, the request as a string, no optional fields, no `const`, every object closed. Its hash is `schema_hash`.
 
 **Caching:**
 - Breakpoints on S1 and U1. From turn 2, `cache_read_input_tokens` should cover both.
@@ -583,17 +593,18 @@ sequenceDiagram
 **`POST /investigations`:**
 - **Role:** `loe_analyst`; anyone else gets 403 `FORBIDDEN`.
 - **Case lookup:** `GET /cases/{id}` with the user's JWT. A case hidden by store scope returns 404 `CASE_NOT_FOUND`. Also check the store against the token's grants.
-- **409s:** `REOPEN_NOT_ALLOWED` per the contract.
+- **409s:** `REOPEN_NOT_ALLOWED` per the contract. `PROPOSAL_PENDING` (with `details.proposal_id`) when the case already has a pending proposal and no active run, because Domain allows one pending proposal per case. `CASE_NOT_STARTABLE` (with `details.case_status`) when a run without `reopen_of` targets a case that isn't `open`, or `investigating` with no active run, so a stale page can't restart a decided case.
 - **Token lifetime:** a token expiring before the measured p95 run time gets 401 `UNAUTHENTICATED`.
 - **Concurrency:** a per-case `asyncio.Lock` plus the index insert prevents two runs on one case. Postgres mode adds a partial unique index on active statuses. A clash returns 409 `INVESTIGATION_ACTIVE`.
-- **Status:** a best-effort `PUT running`. A failure sets `domain_sync_pending`.
+- **Status:** a best-effort `PUT running`, one attempt. A failure sets `domain_sync_pending`, unless Domain has no status route. Older rows of the same case stop retrying their reports.
 - **Run:** start the background run and return 202 with an `InvestigationView`.
 
 **`GET /investigations/{id}`:**
 - Read the row and check the store grant. Outside the grants, return 404.
 - Build the `InvestigationView` from `aget_state`.
+- The status turns terminal only after the run has saved its proposal and reported its status, so a `completed` view already carries its `pending_proposal_id`.
 - `pending_proposal_id` is the open question while awaiting approval, or the recommendation's proposal once completed.
-- On analyst requests, flush `domain_sync_pending`.
+- On an analyst's read of a finished investigation with `domain_sync_pending`, retry the status report in the background.
 
 **Other routes:**
 - `GET /investigations?case_id=` lists the permitted rows, newest first.
@@ -615,7 +626,7 @@ sequenceDiagram
 **Startup reconcile (Postgres mode):**
 - For each `running` row, read `aget_state`.
 - A terminal state syncs the row. Anything else becomes `failed AGENT_RESTARTED`.
-- In memory mode, nothing survives a restart.
+- In memory mode, nothing survives a restart. A graceful stop still reports each cancelled run to Domain as `failed AGENT_RESTARTED`.
 
 **Persistence (M2):**
 - `AsyncPostgresSaver` (`langgraph.checkpoint.postgres.aio`) on a psycopg `AsyncConnectionPool` with `kwargs={"autocommit": True, "row_factory": dict_row}`.
@@ -623,18 +634,19 @@ sequenceDiagram
 - `setup()` runs at startup and needs `CREATE` on schema `agent`.
 - The index table is created with idempotent DDL.
 
-**Environment variables** added to [architecture.md](architecture.md#environment-variables): `DATABASE_URL` for the agent, `AGENT_DOMAIN_MODE` (`http` or `fixtures`), `AGENT_CHECKPOINTER` (`postgres` or `memory`), `AGENT_RUN_TIMEOUT_SECONDS` and `AGENT_MAX_QUESTIONS` (0 until M3).
+**Environment variables** added to [architecture.md](architecture.md#environment-variables): `DATABASE_URL` for the agent, `AGENT_DOMAIN_MODE` (`http` or `fixtures`), `AGENT_FIXTURES_DIR`, `AGENT_CHECKPOINTER` (`postgres` or `memory`), `AGENT_RUN_TIMEOUT_SECONDS`, `AGENT_MAX_QUESTIONS` (0 until M3), `AGENT_SPEED` and the optional `AGENT_MAX_REASON_CALLS`. Local values live in `agent/.env`, copied from `agent/.env.example`.
 
 ## Fixtures (`tests/fixtures/domain/`)
 
 - **Files:**
   - Per store: `case.json`, `menu.json`, `overview.json`, `fraud_signals.json` and `checks.json`, a list of `{match, result}`.
-  - Shared: `common/catalog.json`.
+  - The action catalog is not a fixture: the agent bundles it in `app/data/catalog.json`.
+- **Source:** `scripts/make_fixtures.py` simulates the C-01 scenarios for STORE-A, STORE-B and STORE-C and answers a fixed list of queries with the contracts' rate rules. The numbers and claim IDs are synthetic, close to the seeded database; event IDs follow the seed.
 - **Numbers** follow the seed facts above and the contracts' rules: no group for claims without a `modifier_detail`, with a note giving their count, and store-local dates. STORE-C is a flat store, used for a live `unsure` run.
-- **Fraud path:** a separate `fraud_signals` fixture with one flagged `customer_ref` drives the `load_case` test for `suspect_cluster`. Real data covers this path once C-02 adds pending claims to the seed.
+- **Fraud path:** `STORE-B/fraud_signals_flagged.json` has one flagged `customer_ref` and drives the `load_case` test for `suspect_cluster`. On the real seed, STORE-A's `fraud_signals` flags one `customer_ref`, and the live Domain suite checks it.
 - **Matching** keys on the tool, `group_by` and the filter dimensions, not exact dates.
 - **Misses:** an unmatched query returns `data_sufficient: false` with a "no fixture" note. The smoke report counts the misses.
-- **Frontend use:** `AGENT_DOMAIN_MODE=fixtures` lets the frontend drive real investigations through the gateway before C-02 is ready.
+- **Frontend use:** `AGENT_DOMAIN_MODE=fixtures` lets the frontend drive investigations without a Domain database.
 - **Expected routes.** The model picks every step at run time, so these routes are illustrative. Acceptance criterion 1 needs only the two sequences to differ.
 
 ```mermaid
@@ -653,7 +665,7 @@ flowchart TB
 
 ## Tracing and logs (hooks for A-03)
 
-The Langfuse v4 API:
+`langfuse` isn't in the lockfile; M2 adds it with tracing. These are the v4 calls; confirm each against the version it adds:
 - **Trace attributes:** each run segment is wrapped in `propagate_attributes(trace_name, session_id=investigation_id, user_id=started_by, tags=[store_id], metadata={…str ≤200})`.
 - **Graph steps:** `CallbackHandler()` from `langfuse.langchain` goes in `config["callbacks"]`.
 - **Model calls:** `start_as_current_observation(as_type="generation", model=…, input=…)`, then `.update(output=…, usage_details=…)`.
@@ -671,8 +683,6 @@ its direct Claude adapter; see [the integration guide](observability.md#hooks-fo
 The A-03 read-only probe validates these hooks independently while B-02 is pending.
 
 ## Doc updates and open items
-
-**Before C-02 work starts:** merge the B-01 v0.3 docs.
 
 **Doc updates in the B-02 PR:**
 - **agent-graph.md:**
@@ -693,29 +703,23 @@ The A-03 read-only probe validates these hooks independently while B-02 is pendi
 **Domain (C-02, C-03):**
 1. Confirm the breakdown rows of "When a result has enough data" in contracts.md.
 2. Clip dates to the store's data range rather than returning 422, and report the clipped window.
-3. Ship the status `PUT` with C-02, and accept a service-token-only `PUT` for terminal statuses.
-4. A 409 `PROPOSAL_PENDING` should return the existing `proposal_id`.
-5. Catalog contents: include an analyst handoff that applies to every cause. The seed's golden labels (`pos`, `diagnosed`, `merchant`, `ask_merchant_fix_pos_modifier_mapping`) don't match the contracts' enums or the catalog IDs. B-05 needs them aligned.
-6. `/evidence/resolve` must accept the analyst's forwarded JWT.
+3. A 409 `PROPOSAL_PENDING` should return the existing `proposal_id` and the `investigation_id` that created it, so the agent recovers only its own proposal.
+4. Catalog contents: include an analyst handoff that applies to every cause. The seed's golden labels (`pos`, `diagnosed`, `merchant`, `ask_merchant_fix_pos_modifier_mapping`) don't match the contracts' enums or the catalog IDs. B-05 needs them aligned.
 
 **Platform (A-01, A-02, A-03):**
-1. Root `agent/` and the uv image (`pyproject.toml`, `uv.lock`) are integrated. Build with `docker build -f agent/Dockerfile .` from the repository root; shared code requires that root context.
-2. The agent's compose env (DB, JWT, service token, Domain URL, Anthropic, `AGENT_*`, Langfuse) and `depends_on: postgres`.
-3. DB init: the `agent` schema and the `agent_svc` role with `CREATE`.
-4. A-02's shared verifier is installed. B-02 must retain that boundary when adding routes.
-5. The gateway forwards `X-Request-ID`; the Agent forwards it to Domain.
-6. A-02 implements expiring JWTs and rotating HttpOnly refresh sessions; each resume uses a fresh request JWT.
-7. Approval of the contract changes and the finalize truth table's reading of acceptance criterion 3.
+1. The agent's compose service should wait for Domain to be healthy and default `AGENT_EFFORT` to `medium`, and the root `.env.example` should list `ANTHROPIC_API_KEY`.
+2. DB init: the `agent` schema and the `agent_svc` role with `CREATE`, for Postgres checkpoints.
+3. Approval of the contract changes and the finalize truth table's reading of acceptance criterion 3.
 
 **Frontend (D-02, D-03):**
-- The `{error: {code}}` envelope. `errors.js` currently reads `detail`.
 - The investigation error codes and the `pending_proposal_id` semantics.
-- `AGENT_DOMAIN_MODE=fixtures` for UI work before C-02.
+- Find a case's investigations with `GET /agent/investigations?case_id=` while `CaseDetail.investigation_ids` is empty.
+- `AGENT_DOMAIN_MODE=fixtures` for UI work without a Domain database.
 
 ## Verification
 
 **`uv sync --locked` then `uv run pytest`:**
-- **Unit:** guard, gate and P1 rules, the finalize truth table, renderer snapshots, converters, canonical keys, and the schema snapshot (2 unions, 0 optional).
+- **Unit:** guard, gate and P1 rules, the finalize truth table, renderer snapshots, converters, canonical keys, and the schema snapshot (one union, the request as a string, 0 optional).
 - **Graph tests** (scripted model and fixtures), one per acceptance criterion:
   - 1: the STORE-A and STORE-B routes differ.
   - 2:
@@ -727,9 +731,9 @@ The A-03 read-only probe validates these hooks independently while B-02 is pendi
 
 **M0 report:** whether the schema compiles, latency per effort, cache reads on turn 2, and SDK support for `fallbacks`.
 
-**Image:** `docker build -f agent/Dockerfile .` succeeds from the repository root, with `uv sync --frozen` installing the committed lockfile.
+**Image:** `docker build agent/` succeeds from the lockfile alone, with `uv sync --frozen`.
 
-**Live smoke run:** `uv run python -m app.cli --store STORE-A --domain fixtures`, then STORE-B and STORE-C.
+**Live smoke run** (from the repo root): `uv run --project agent python -m agent.app.cli --store STORE-A --domain fixtures`, then STORE-B and STORE-C.
 - A and B reach their causes with different check sequences, and C ends `unsure`.
 - Fixture misses are reported.
 - `cache_read_input_tokens > 0` from turn 2.

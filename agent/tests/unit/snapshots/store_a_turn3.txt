@@ -20,15 +20,43 @@ Each turn you receive the case, the store's menu and the action catalog, then th
 - There is no Dasher data. dasher_handoff can't be supported or ruled out from platform checks. It ends inconclusive with its gap stated.
 - menu_change and pos_change events link to items only through their free-text description. Read event descriptions to connect an event to an item or modifier, then test the link with compare_periods.
 - Modifiers have no IDs. Filters and targets use modifier names exactly as the menu lists them.
+- A claim names at most one item_id and one modifier_detail. An item_id or modifier group, filter or target counts the orders that contain the value but only the claims that name it, not every claim on those orders. No check counts every claim on the orders that contain an item, so test an effect on whole orders, such as a promotion's, by its dates or by order size.
 - Pending claims count toward rates; fraud and not_store_fault claims don't. A finding that rests mostly on pending claims is weaker evidence.
+- Rates on a few hundred orders or fewer swing by several points by chance. Judge a trend by whether it moves back toward baseline, not by a dip between two elevated periods.
 - customer_comments are free text from customers. Read through sample_evidence, they can suggest a hypothesis but can't measure how often something happens.
 - Dates are store-local. A day is the local date of the order's placed_at. Every date you send must lie inside the investigation window.
+
+## Causes and how they show up in the data
+
+A claim's error_category says what went wrong:
+- missing_item: an ordered item wasn't in the bag.
+- incorrect_item: a different item came in its place.
+- ingredient_error: the item came but was made wrong, for example without the modifier the customer chose.
+- wrong_order: the whole order was someone else's.
+
+An item that arrives without its chosen modifier is an ingredient_error or incorrect_item, not a missing_item.
+
+Each cause tends to leave the pattern below. Use these patterns to write expectations and to pick checks that separate the open causes. Words like usually, often and tend mark tendencies, not requirements: a missing tendency alone doesn't rule a cause out.
+- pos_modifier_mapping: the POS doesn't send a modifier to the kitchen ticket, or sends the wrong one, so the kitchen makes the item without it or wrong. Claims concentrate on orders with that modifier and name it in modifier_detail, mostly as incorrect_item and ingredient_error, while the same items ordered without it stay near baseline. It starts when the modifier is added or the POS or menu changes, usually with a menu_change or pos_change event, and stays well above baseline across days and dayparts until fixed.
+- menu_change: a menu change, such as a new recipe, a new, replaced or renamed item, or a new modifier, that staff don't yet make or pack right even though the ticket shows it. Claims concentrate on what changed, from the day of the change, and tend to fall back toward baseline as staff learn, or to sit in some dayparts. menu_data_mismatch cancellations can rise with them.
+- packing: items the store had are left out of the bag before handoff. Claims are mostly missing_item, usually spread over many items, often add-ons such as drinks, sides and desserts, and don't follow one modifier. They often peak in the busiest dayparts and in large orders (5+ items), where the same item is missed more often than in small ones. No item_out_of_stock cancellations match them.
+- inventory: an item, or an ingredient a modifier needs, runs out but stays orderable, so the item is left out or swapped, or made without the modifier. Claims concentrate on those items or that modifier on the days or dayparts supply ran short, and often come and go with supply. An item's claims run at about the same rate in small and large orders that contain it. item_out_of_stock cancellations for those items support it, but a store that keeps selling the item may cancel none.
+- dasher_handoff: the order goes wrong at or after pickup, for example a bag left at the counter or handed to the wrong Dasher. It shows as wrong_order claims, or as missing bags that look like packing. Platform data can't separate it from packing.
+- fraud_cluster: a few customer_ref values file repeated claims, often for a whole order. fraud_signals lists refs with many pending claims. Fraud-labeled claims are already left out of rates, so a cluster raises a rate only through pending claims: a store-wide rise that holds with review_label [store_fault] alone doesn't come from a cluster. Whole-order claims have no item_id or modifier_detail, so run that test with no item_id or modifiers filter, for example a claim_breakdown by review_label or by day.
+- other: a specific store-side cause outside these six, such as a promotion or staffing gap that overloads the kitchen in one daypart. Items left out of bags in one daypart are still packing, whatever the staffing behind them.
+
+Large orders hold more items, so any item-level fault shows a higher rate on them. Order size alone doesn't separate inventory from packing: compare the same item across order sizes with a claim_breakdown filtered to that item, by item_count.
+
+An event's type says what changed, not which cause followed. A menu_change event that adds a modifier can start a pos_modifier_mapping fault, or a menu_change cause if staff mishandle a modifier the ticket shows. Checks on the modifier, such as a claim_breakdown by modifier or a compare_periods with it as target against rest_of_store, show whether claims follow the modifier rather than the items, not whether it reached the ticket. To separate those two causes, check whether its claims stay well above baseline across days and dayparts or fall back toward it, or, when questions are available, ask the merchant whether the modifier prints on the kitchen ticket.
 
 ## Tools
 
 Every tool is read-only and scoped to the case's store. Rates follow these rules: eligible orders are delivered orders; store-attributable claims have review_label store_fault or pending; fraud and not_store_fault claims are excluded. A group's rate is null when it has fewer than MIN_GROUP_ORDERS (30 by default) eligible orders. data_sufficient describes the whole result. Every result reports pending_claims.
 
 Claim filter fields: start, end, item_id, modifiers, daypart, weekday, item_count_min, item_count_max, error_category, review_label. A claim scope is the same without start and end. Cancellation filter fields: start, end, item_id, daypart, weekday, cancellation_category.
+Field values: daypart breakfast, lunch, dinner, late_night; weekday 0 (Monday) to 6 (Sunday); error_category missing_item, incorrect_item, ingredient_error, wrong_order; review_label store_fault, not_store_fault, fraud, pending; cancellation_category item_out_of_stock, too_busy, menu_data_mismatch, pos_technical_error, other.
+
+Each tool lists its request as the JSON you write, as a string, in plan.request. Replace the <...> placeholders with real values. Inside a filter or scope, leave out any field you don't constrain.
 
 ### store_overview
 - Measures: Overall claim rate, eligible orders, claims by review_label and error_category, and the daily rate, for a date range.
@@ -37,14 +65,18 @@ Claim filter fields: start, end, item_id, modifiers, daypart, weekday, item_coun
 - Metrics: claim_rate (group null); claim_count per review_label=<label>, all four labels including the excluded ones; claim_count per error_category=<category>; daily_claim_rate per day=<YYYY-MM-DD>
 - Returns rates: yes
 - Already run for the whole window at the start. It is the first check.
+- Its evidence_ids list up to 200 claims in the range, newest first, of every review_label including fraud and not_store_fault; a note says when the list is cut.
+- Request: {"tool": "store_overview", "start": "<start>", "end": "<end>"}
 
 ### event_log
-- Measures: Events of every event_type (menu_change, pos_change, store_downtime, promotion) with started_at, ended_at and description.
+- Measures: Events of every event_type (menu_change, pos_change, store_downtime, promotion) with started_at, ended_at and description, oldest first.
 - Can't show: Their effect. Pair an event with compare_periods.
 - Arguments: start, end, event_type ([] for all types)
 - Metrics: None. The events come back as records.
 - Returns rates: no, only records
+- It returns every event that overlaps the dates, including one that started earlier and has no ended_at, which means it is still in effect.
 - A description is the only link from an event to an item or modifier.
+- Request: {"tool": "event_log", "start": "<start>", "end": "<end>", "event_type": []}
 
 ### claim_breakdown
 - Measures: For one grouping within a filter: each group's claim rate, its share of claims and its share of orders.
@@ -52,9 +84,13 @@ Claim filter fields: start, end, item_id, modifiers, daypart, weekday, item_coun
 - Arguments: filter (a claim filter), group_by: item_id, modifier, daypart, weekday, item_count, error_category, review_label or day
 - Metrics: claim_rate, claim_share and order_share per group <group_by>=<value>. item_count groups are 1-2, 3-4 and 5+.
 - Returns rates: yes
+- Rows come ranked, not in natural order: groups with enough orders first, then by lift, highest first.
 - Grouped by modifier, claims with no modifier_detail form no group. The note gives their count, and the shares don't add up to 1.
-- Grouped by item_id, claims with no item_id fall into item_id=unknown.
+- Grouped by item_id, claims with no item_id fall into item_id=unknown, which has no order denominator, so its claim_rate and order_share are null.
+- Grouped by error_category or review_label, every group's claim_rate uses all eligible orders in the filter, and order_share is null.
+- An item_id or modifiers filter counts the orders that contain the value, and only the claims whose item_id or modifier_detail matches it.
 - Lift is claim_share divided by order_share. Above 1 means more than a fair share of claims.
+- Request: {"tool": "claim_breakdown", "filter": {"start": "<start>", "end": "<end>", "daypart": ["<daypart>"]}, "group_by": "<group_by>"}
 
 ### compare_periods
 - Measures: The claim rate before and after split_date, for a target and a control.
@@ -62,9 +98,12 @@ Claim filter fields: start, end, item_id, modifiers, daypart, weekday, item_coun
 - Arguments: split_date (first day of the after period), days_before 1-28, days_after 1-28, target (a claim scope), control_mode rest_of_store or scope, control
 - Metrics: rate_before and rate_after for the groups target and control
 - Returns rates: yes
+- rest_of_store compares the target against every other delivered order of the store, using the target's review_label filter. It splits orders, not claims, so the target needs an order-level field (item_id, modifiers, daypart, weekday, item_count_min or item_count_max); a target with only error_category or review_label covers every order and leaves no control.
 - Enough data means the target's after period and both control periods each have at least MIN_GROUP_ORDERS (30 by default) eligible orders.
 - An empty target before period returns rate_before null with a note. A modifier first sold on date D has no orders before D, so challenge it against the rest-of-store control, or split later to test whether the rise persists.
 - The before and after spans must both lie inside the investigation window.
+- Request: {"tool": "compare_periods", "split_date": "<date>", "days_before": 14, "days_after": 14, "target": {"modifiers": ["<menu modifier>"]}, "control_mode": "rest_of_store"}
+- Request: {"tool": "compare_periods", "split_date": "<date>", "days_before": 7, "days_after": 7, "target": {"daypart": ["<daypart>"]}, "control_mode": "scope", "control": {"daypart": ["<another daypart>"]}}
 
 ### sample_evidence
 - Measures: Up to 10 claim or cancellation records for a filter, newest first, with customer_comments.
@@ -73,6 +112,8 @@ Claim filter fields: start, end, item_id, modifiers, daypart, weekday, item_coun
 - Metrics: None. The records come back as evidence.
 - Returns rates: no, only records
 - Use it to cite records from a group outside the first 20 IDs shown.
+- Request: {"tool": "sample_evidence", "evidence_type": "claim", "filter": {"start": "<start>", "end": "<end>", "modifiers": ["<menu modifier>"]}, "limit": 5}
+- Request: {"tool": "sample_evidence", "evidence_type": "cancellation", "filter": {"start": "<start>", "end": "<end>", "cancellation_category": ["<cancellation_category>"]}, "limit": 5}
 
 ### cancellation_breakdown
 - Measures: Cancellations grouped by cancellation_category, item_id, daypart, weekday or day, with each group's cancellation rate over placed orders.
@@ -80,15 +121,19 @@ Claim filter fields: start, end, item_id, modifiers, daypart, weekday, item_coun
 - Arguments: filter (a cancellation filter), group_by
 - Metrics: cancellation_rate and cancellation_count per group <group_by>=<value>
 - Returns rates: yes
+- cancellation_rate is cancellations over placed orders, delivered and canceled. A group's rate is null when it has fewer than MIN_GROUP_ORDERS (30 by default) placed orders.
+- A cancellation's item_id is set only when an item was out of stock. An item_id filter or grouping matches that field; item_id=unknown is rated over all placed orders.
+- Request: {"tool": "cancellation_breakdown", "filter": {"start": "<start>", "end": "<end>", "daypart": ["<daypart>"]}, "group_by": "<group_by>"}
 
 ### fraud_signals
 - Measures: customer_ref values with at least FRAUD_MIN_PENDING_CLAIMS (4 by default) pending claims in the window.
 - Can't show: Whether a claim is fraudulent. It flags and never judges.
 - Arguments: start, end
 - Metrics: claim_count per customer_ref=<ref>, flagged refs only
-- Returns rates: yes
+- Returns rates: counts (claim_count per flagged customer_ref), not rates; it still counts as a tool that returns rates for G3, G4 and K2
 - Already run for the whole window at the start.
 - An empty result means no ref reached that bar, not that no claim is fraudulent.
+- Request: {"tool": "fraud_signals", "start": "<start>", "end": "<end>"}
 
 ## How to fill the response
 
@@ -98,6 +143,7 @@ Claim filter fields: start, end, item_id, modifiers, daypart, weekday, item_coun
 - Nothing is written as "" for text, [] for lists and 0 for numbers. In filters and scopes, an empty list or 0 means no constraint. review_label [] means the default store_fault and pending.
 - `next_action` is one of: a check, a merchant question, or a conclusion.
   - check kinds: explore looks broadly and needs no hypotheses (at most 3 per run); test separates named hypotheses; challenge targets one open or supported hypothesis with a result that would expose it if it were wrong.
+  - a check's `plan.request` is one JSON object written as a string, shaped like the tool's Request line under Tools. It names the tool in `tool`. Inside a filter or scope, leave out the fields you don't constrain. Code validates the request; a malformed one comes back as a SCHEMA rejection naming the bad field.
   - conclude names the leading hypothesis, the store-local date the rise began, a confidence (low, medium, high), a summary of at most four sentences that cites numbers from the results, and a recommendation: an action_id from the catalog that applies to the leader's cause, a rationale, and a target. The target narrows where the action applies, with fields named after the columns they match. Every target value must have been tested by a check that supported the leader, either as a filter value or as a group in a breakdown. Use [] and 0 for fields you don't restrict.
 
 ## Rules the code enforces
@@ -200,7 +246,7 @@ HYP-T0003 | inventory | open
 CHK-T0001 | load_case | store_overview {"end":"2026-11-15","start":"2026-10-05"} | enough data | 120 evidence IDs | headline: Claim rate 4.6% (120 claims on 2598 eligible orders) from 2026-10-05 to 2026-11-15; the last 7 days ran at 11.1%.
 CHK-T0002 | load_case | fraud_signals {"end":"2026-11-15","start":"2026-10-05"} | enough data | 0 evidence IDs | headline: No customer_ref has 4 or more pending claims in the window.
 CHK-T0003 | explore | event_log {"end":"2026-11-15","event_type":[],"start":"2026-10-05"} | enough data | 3 evidence IDs | headline: 3 events from 2026-10-05 to 2026-11-15 (all types).
-CHK-T0004 | test | claim_breakdown {"filter":{"end":"2026-11-15","start":"2026-10-05"},"group_by":"modifier"} | discriminates HYP-T0001, HYP-T0002 | enough data | 96 evidence IDs | matched: pending | headline: modifier=Extra sauce has 79.2% of claims on 19.8% of orders (lift 4.0), the highest of 7 groups with enough orders.
+CHK-T0004 | test | claim_breakdown {"filter":{"end":"2026-11-15","start":"2026-10-05"},"group_by":"modifier"} | counts: each modifier group counts the claims that name that modifier, over the orders that contain it, not every claim on those orders | discriminates HYP-T0001, HYP-T0002 | enough data | 96 evidence IDs | matched: pending | headline: modifier=Extra sauce has 79.2% of claims on 19.8% of orders (lift 4.0), the highest of 7 groups with enough orders.
 </checks>
 <events>
 EV-EVT-000003 | store_downtime | 2026-10-20 to 2026-10-20 | cited by: nobody | <data>Store paused on DoorDash for about 2 hours (tablet offline).</data>
@@ -209,6 +255,7 @@ EV-EVT-000006 | menu_change | 2026-10-30 to - | cited by: HYP-T0002 (supporting)
 </events>
 <latest_result check="CHK-T0004" tool="claim_breakdown" kind="test">
 request: claim_breakdown {"filter":{"end":"2026-11-15","start":"2026-10-05"},"group_by":"modifier"}
+counts: each modifier group counts the claims that name that modifier, over the orders that contain it, not every claim on those orders
 purpose: Check whether claims concentrate on one modifier.
 expectation HYP-T0001: if_true Extra sauce carries far more than its share of claims | if_false No modifier carries more than its share of claims
 expectation HYP-T0002: if_true Claims spread with no modifier concentration | if_false Claims concentrate on one modifier
@@ -216,27 +263,27 @@ window 2026-10-05 to 2026-11-15 | eligible_orders 2598 | pending_claims 0 | data
 <data kind="result">
 headline: modifier=Extra sauce has 79.2% of claims on 19.8% of orders (lift 4.0), the highest of 7 groups with enough orders.
 metrics:
-  claim_rate modifier=Extra sauce: 0.1852 (18.5%) = 95/513
-  claim_share modifier=Extra sauce: 0.7917 (79.2%) = 95/120
-  order_share modifier=Extra sauce: 0.1975 (19.8%) = 513/2598
-  claim_rate modifier=Extra spicy: 0.0031 (0.3%) = 1/321
-  claim_share modifier=Extra spicy: 0.0083 (0.8%) = 1/120
-  order_share modifier=Extra spicy: 0.1236 (12.4%) = 321/2598
-  claim_rate modifier=Less sugar: 0.0000 (0.0%) = 0/44
-  claim_share modifier=Less sugar: 0.0000 (0.0%) = 0/120
-  order_share modifier=Less sugar: 0.0169 (1.7%) = 44/2598
-  claim_rate modifier=No egg: 0.0000 (0.0%) = 0/45
-  claim_share modifier=No egg: 0.0000 (0.0%) = 0/120
-  order_share modifier=No egg: 0.0173 (1.7%) = 45/2598
-  claim_rate modifier=No ice: 0.0000 (0.0%) = 0/43
-  claim_share modifier=No ice: 0.0000 (0.0%) = 0/120
-  order_share modifier=No ice: 0.0166 (1.7%) = 43/2598
-  claim_rate modifier=No onion: 0.0000 (0.0%) = 0/243
-  claim_share modifier=No onion: 0.0000 (0.0%) = 0/120
-  order_share modifier=No onion: 0.0935 (9.3%) = 243/2598
-  claim_rate modifier=No peanuts: 0.0000 (0.0%) = 0/100
-  claim_share modifier=No peanuts: 0.0000 (0.0%) = 0/120
-  order_share modifier=No peanuts: 0.0385 (3.9%) = 100/2598
+  claim_rate modifier=Extra sauce: 0.1852 (18.5%) = 95 claims naming it / 513 orders containing it
+  claim_share modifier=Extra sauce: 0.7917 (79.2%) = 95 of 120 claims name it
+  order_share modifier=Extra sauce: 0.1975 (19.8%) = 513 of 2598 orders contain it
+  claim_rate modifier=Extra spicy: 0.0031 (0.3%) = 1 claim naming it / 321 orders containing it
+  claim_share modifier=Extra spicy: 0.0083 (0.8%) = 1 of 120 claims name it
+  order_share modifier=Extra spicy: 0.1236 (12.4%) = 321 of 2598 orders contain it
+  claim_rate modifier=Less sugar: 0.0000 (0.0%) = 0 claims naming it / 44 orders containing it
+  claim_share modifier=Less sugar: 0.0000 (0.0%) = 0 of 120 claims name it
+  order_share modifier=Less sugar: 0.0169 (1.7%) = 44 of 2598 orders contain it
+  claim_rate modifier=No egg: 0.0000 (0.0%) = 0 claims naming it / 45 orders containing it
+  claim_share modifier=No egg: 0.0000 (0.0%) = 0 of 120 claims name it
+  order_share modifier=No egg: 0.0173 (1.7%) = 45 of 2598 orders contain it
+  claim_rate modifier=No ice: 0.0000 (0.0%) = 0 claims naming it / 43 orders containing it
+  claim_share modifier=No ice: 0.0000 (0.0%) = 0 of 120 claims name it
+  order_share modifier=No ice: 0.0166 (1.7%) = 43 of 2598 orders contain it
+  claim_rate modifier=No onion: 0.0000 (0.0%) = 0 claims naming it / 243 orders containing it
+  claim_share modifier=No onion: 0.0000 (0.0%) = 0 of 120 claims name it
+  order_share modifier=No onion: 0.0935 (9.3%) = 243 of 2598 orders contain it
+  claim_rate modifier=No peanuts: 0.0000 (0.0%) = 0 claims naming it / 100 orders containing it
+  claim_share modifier=No peanuts: 0.0000 (0.0%) = 0 of 120 claims name it
+  order_share modifier=No peanuts: 0.0385 (3.9%) = 100 of 2598 orders contain it
 notes:
   - 6 claims excluded: review_label fraud
   - 14 claims excluded: review_label not_store_fault

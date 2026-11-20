@@ -12,7 +12,7 @@ from agent.app.config import Settings
 from agent.app.contracts.enums import TERMINAL_STATUSES
 from agent.app.contracts.models import InvestigationStatusUpdate
 from agent.app.domain.client import DomainClient, DomainError
-from agent.app.errors import INTERNAL, RUN_TIMEOUT
+from agent.app.errors import AGENT_RESTARTED, INTERNAL, RUN_TIMEOUT
 from agent.app.graph.build import run_config
 from agent.app.graph.context import AgentContext
 from agent.app.graph.nodes.common import now_iso
@@ -27,6 +27,8 @@ from agent.app.tools.registry import REGISTRY_VERSION
 
 logger = logging.getLogger("agent.runner")
 BACKSTOP_SECONDS = 30
+# A status report that failed earlier is retried at most this often per investigation.
+FLUSH_INTERVAL_SECONDS = 30
 
 
 def run_config_record(settings: Settings, model: ReasonModel) -> dict[str, Any]:
@@ -63,6 +65,8 @@ class Runner:
         self.model = model
         self.ids = ids
         self.tasks: dict[str, asyncio.Task[None]] = {}
+        self.flush_tasks: dict[str, asyncio.Task[None]] = {}
+        self._last_flush: dict[str, float] = {}
 
     def config(self, investigation_id: str) -> dict[str, Any]:
         return run_config(investigation_id, self.settings.recursion_limit)
@@ -104,8 +108,8 @@ class Runner:
             )
         except TimeoutError:
             await self._record_failure(row, domain, RUN_TIMEOUT, "The investigation ran past its time limit.")
-        except asyncio.CancelledError:
-            await self._record_failure(row, domain, INTERNAL, "The investigation was stopped.")
+        except asyncio.CancelledError:  # only shutdown() cancels a run: the service is stopping or restarting
+            await self._record_failure(row, domain, AGENT_RESTARTED, "The Agent Service stopped during the run.")
             raise
         except Exception as exc:  # unexpected: record it as failed and keep the service up
             logger.exception("investigation crashed")
@@ -129,8 +133,8 @@ class Runner:
                 row.case_id, InvestigationStatusUpdate(investigation_id=row.investigation_id, status="failed",
                                                        error_code=code)
             )
-        except DomainError:
-            pending = True
+        except DomainError as exc:
+            pending = not exc.route_missing
         self.store.update(row.investigation_id, status="failed", error=error, domain_sync_pending=pending,
                           updated_at=now_iso())
 
@@ -150,27 +154,51 @@ class Runner:
             investigation_id,
             status=status,
             error=values.get("error"),
-            domain_sync_pending=bool(values.get("domain_sync_pending")) or row.domain_sync_pending,
+            # The graph's last report supersedes an earlier failed one, such as the "running" report at start.
+            domain_sync_pending=bool(values.get("domain_sync_pending")),
             updated_at=now_iso(),
         )
 
+    def schedule_flush(self, row: InvestigationRow, *, token: str, request_id: str) -> None:
+        """Retry a failed status report in the background, so the caller never waits on Domain.
+
+        One attempt at most every FLUSH_INTERVAL_SECONDS per investigation. The caller passes the JWT of the
+        analyst whose request triggered the flush; it lives only in the task, never in the row or a checkpoint.
+        """
+        investigation_id = row.investigation_id
+        if not row.domain_sync_pending or investigation_id in self.flush_tasks:
+            return
+        now = time.monotonic()
+        last = self._last_flush.get(investigation_id)
+        if last is not None and now - last < FLUSH_INTERVAL_SECONDS:
+            return
+        self._last_flush[investigation_id] = now
+        task = asyncio.create_task(self.flush_status(row, token=token, request_id=request_id))
+        self.flush_tasks[investigation_id] = task
+        task.add_done_callback(lambda _: self.flush_tasks.pop(investigation_id, None))
+
     async def flush_status(self, row: InvestigationRow, *, token: str, request_id: str) -> None:
-        """Retry a status report that failed earlier, using the current analyst's token."""
+        """One attempt at a status report that failed earlier, with the current analyst's token."""
         if not row.domain_sync_pending:
             return
-        domain = self.domain_client.bind(token=token, request_id=request_id, investigation_id=row.investigation_id, store_id=row.store_id, case_id=row.case_id)
+        domain = self.domain_client.bind(token=token, request_id=request_id, investigation_id=row.investigation_id,
+                                         store_id=row.store_id, case_id=row.case_id, max_retries=0)
         error_code = (row.error or {}).get("code") if row.status == "failed" else None
         try:
             await domain.report_investigation_status(
                 row.case_id,
                 InvestigationStatusUpdate(investigation_id=row.investigation_id, status=row.status, error_code=error_code),
             )
-        except DomainError:
-            return
+        except DomainError as exc:
+            if not exc.route_missing:
+                log_event(logger, logging.WARNING, "status flush failed", status=row.status, code=exc.code,
+                          investigation_id=row.investigation_id, case_id=row.case_id)
+                return
         self.store.update(row.investigation_id, domain_sync_pending=False)
 
     async def shutdown(self) -> None:
-        for task in list(self.tasks.values()):
+        tasks = [*self.tasks.values(), *self.flush_tasks.values()]
+        for task in tasks:
             task.cancel()
-        if self.tasks:
-            await asyncio.gather(*self.tasks.values(), return_exceptions=True)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)

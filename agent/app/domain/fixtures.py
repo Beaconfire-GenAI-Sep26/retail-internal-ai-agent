@@ -1,7 +1,6 @@
 """A Domain stand-in that answers from JSON fixtures (AGENT_DOMAIN_MODE=fixtures).
 
-Layout under the fixtures root:
-  common/catalog.json                 ActionCatalogEntry[]
+Layout under the fixtures root (the action catalog is the bundled one, app/data/catalog.json):
   <STORE>/case.json                   CaseDetail
   <STORE>/menu.json                   MenuItem[]
   <STORE>/overview.json               ToolResult for the whole window
@@ -17,7 +16,7 @@ with a "no fixture" note and are counted in `misses`.
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -33,6 +32,7 @@ from agent.app.contracts.models import (
     ToolResult,
     Window,
 )
+from agent.app.domain.catalog import load_bundled_catalog
 from agent.app.domain.client import DomainError
 
 DATE_KEYS = ("start", "end")
@@ -40,6 +40,10 @@ DATE_KEYS = ("start", "end")
 
 def _load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _instant(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 class _StoreFixtures:
@@ -114,11 +118,12 @@ class FixtureDomainClient:
         *,
         variants: dict[str, dict[str, str]] | None = None,
         faults: dict[str, DomainError] | None = None,
+        catalog: list[ActionCatalogEntry] | None = None,
     ):
         self.root = Path(root)
-        self.catalog = [ActionCatalogEntry.model_validate(e) for e in _load(self.root / "common" / "catalog.json")]
+        self.catalog = list(catalog) if catalog is not None else load_bundled_catalog()
         self.stores: dict[str, _StoreFixtures] = {}
-        for folder in sorted(p for p in self.root.iterdir() if p.is_dir() and p.name != "common"):
+        for folder in sorted(p for p in self.root.iterdir() if p.is_dir()):
             fixtures = _StoreFixtures(folder)
             self.stores[fixtures.case.store_id] = fixtures
         self.faults = dict(faults or {})
@@ -133,7 +138,8 @@ class FixtureDomainClient:
                 self.stores[store_id].known_ids |= set(result.evidence_ids)
 
     # DomainClient
-    def bind(self, *, token: str, request_id: str, investigation_id: str | None, store_id: str | None = None, case_id: str | None = None) -> FixtureDomainClient:
+    def bind(self, *, token: str, request_id: str, investigation_id: str | None, store_id: str | None = None,
+             case_id: str | None = None, max_retries: int | None = None) -> FixtureDomainClient:
         return self
 
     async def aclose(self) -> None:
@@ -219,12 +225,15 @@ class FixtureDomainClient:
         base = next((c["result"] for c in store.checks if c["match"].get("tool") == "event_log"), None)
         if base is None:
             return self._lookup(store_id, "event_log", {"start": start, "end": end, "event_type": event_type})
-        lo, hi = date.fromisoformat(start), date.fromisoformat(end)
+        # Domain's rule: every event that overlaps the store-local dates, including one still in effect.
+        window_start = datetime.combine(date.fromisoformat(start), time.min, store.timezone)
+        window_end = datetime.combine(date.fromisoformat(end) + timedelta(days=1), time.min, store.timezone)
         kept = []
         for ev in base.evidence:
-            started = datetime.fromisoformat(ev.attributes["started_at"].replace("Z", "+00:00"))
-            local_day = started.astimezone(store.timezone).date()
-            if lo <= local_day <= hi and (not event_type or ev.attributes.get("event_type") in event_type):
+            started = _instant(ev.attributes["started_at"])
+            ended = _instant(ev.attributes["ended_at"]) if ev.attributes.get("ended_at") else None
+            overlaps = started < window_end and (ended is None or ended >= window_start)
+            if overlaps and (not event_type or ev.attributes.get("event_type") in event_type):
                 kept.append(ev)
         kinds = ", ".join(event_type) if event_type else "all types"
         return ToolResult(
@@ -238,7 +247,7 @@ class FixtureDomainClient:
             metrics=[],
             evidence_ids=[e.evidence_id for e in kept],
             evidence=kept,
-            notes=[],
+            notes=["Events with no ended_at are still in effect."],
         )
 
     async def claim_breakdown(self, store_id: str, request: dict[str, Any]) -> ToolResult:

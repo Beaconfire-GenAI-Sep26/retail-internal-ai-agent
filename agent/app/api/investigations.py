@@ -29,6 +29,9 @@ from agent.app.store import ActiveInvestigationError, InvestigationRow
 
 router = APIRouter(tags=["investigations"])
 
+# Case statuses that accept a fresh investigation (one without reopen_of).
+STARTABLE_STATUSES = frozenset({"open", "investigating"})
+
 
 def _services(request: Request) -> Any:
     return request.app.state
@@ -55,7 +58,13 @@ def _check_summary(c: dict[str, Any]) -> CheckSummary:
 async def build_view(request: Request, row: InvestigationRow) -> InvestigationView:
     services = _services(request)
     values = await services.runner.state_values(row.investigation_id)
-    status = row.status if row.status in TERMINAL_STATUSES else values.get("status", row.status)
+    checkpoint_status = values.get("status", row.status)
+    if row.status in TERMINAL_STATUSES or checkpoint_status in TERMINAL_STATUSES:
+        # finalize writes a terminal status before the proposal is saved and the status reported; the run
+        # counts as finished only once the runner has recorded it on the row.
+        status = row.status
+    else:
+        status = checkpoint_status
     result = values.get("result")
     error = row.error or values.get("error")
     if status == "awaiting_approval":
@@ -120,6 +129,20 @@ async def start_investigation(
             if case.status != "reopened" or prior is None or prior.case_id != case.case_id or already:
                 raise AppError(409, "REOPEN_NOT_ALLOWED",
                                "reopen_of is set, but this case isn't reopened or was already reopened once.")
+        # Domain allows one pending proposal per case: a new run couldn't save its recommendation, and its failed
+        # report would move the case back to open. An active run still answers INVESTIGATION_ACTIVE below.
+        pending = next((p for p in case.proposals if p.status == "pending"), None)
+        if pending is not None and store.active_for_case(case.case_id) is None:
+            raise AppError(409, "PROPOSAL_PENDING",
+                           f"Case {case.case_id} has a pending proposal, {pending.proposal_id}. Decide it first.",
+                           {"proposal_id": pending.proposal_id})
+        # A fresh run only on a case nobody has decided yet: open, or investigating with no run here (a run lost when
+        # the agent restarted). A reopened case starts its second run with reopen_of, checked above.
+        if (body.reopen_of is None and case.status not in STARTABLE_STATUSES
+                and store.active_for_case(case.case_id) is None):
+            raise AppError(409, "CASE_NOT_STARTABLE",
+                           f"Case {case.case_id} is {case.status}, so it can't start a new investigation.",
+                           {"case_status": case.status})
         now = now_iso()
         row = InvestigationRow(
             investigation_id=services.ids.new("INV"),
@@ -137,16 +160,23 @@ async def start_investigation(
             raise AppError(409, "INVESTIGATION_ACTIVE",
                            f"Case {case.case_id} already has investigation {exc.existing.investigation_id} running.",
                            {"investigation_id": exc.existing.investigation_id}) from exc
+        # A newer investigation now owns the case status, so an older run's unsent report must not land later.
+        for older in store.list(case_id=case.case_id):
+            if older.investigation_id != row.investigation_id and older.domain_sync_pending:
+                store.update(older.investigation_id, domain_sync_pending=False)
 
+    # Best effort and a single attempt, so a slow or missing status route never delays the 202.
     bound = services.domain_client.bind(token=principal.token, request_id=request_id,
-                                        investigation_id=row.investigation_id, store_id=row.store_id, case_id=row.case_id)
+                                        investigation_id=row.investigation_id, store_id=row.store_id,
+                                        case_id=row.case_id, max_retries=0)
     try:
         await bound.report_investigation_status(
             case.case_id, InvestigationStatusUpdate(investigation_id=row.investigation_id, status="running",
                                                     error_code=None)
         )
-    except DomainError:
-        row = store.update(row.investigation_id, domain_sync_pending=True) or row
+    except DomainError as exc:
+        if not exc.route_missing:
+            row = store.update(row.investigation_id, domain_sync_pending=True) or row
     services.runner.start(row, token=principal.token, request_id=request_id)
     return await build_view(request, row)
 
@@ -159,9 +189,9 @@ async def get_investigation(
     row = services.store.get(investigation_id)
     if row is None or not principal.can_see(row.store_id):
         raise AppError(404, "NOT_FOUND", f"Investigation {investigation_id} was not found.")
+    # Only an analyst's request may retry the status write (an /internal/ call made with that analyst's JWT).
     if principal.is_analyst and row.domain_sync_pending and row.status in TERMINAL_STATUSES:
-        await services.runner.flush_status(row, token=principal.token, request_id=request_id_var.get() or "unknown")
-        row = services.store.get(investigation_id) or row
+        services.runner.schedule_flush(row, token=principal.token, request_id=request_id_var.get() or "unknown")
     return await build_view(request, row)
 
 

@@ -90,6 +90,10 @@ FIRST_TURN_CASES = [
                 new_hypotheses=TWO)),
     ("G10", out("x", check("explore", "p", breakdown("day", "2026-11-15", "2026-10-05")), new_hypotheses=TWO)),
     ("G10", out("x", check("explore", "p", breakdown("day", *FULL, weekday=[7])), new_hypotheses=TWO)),
+    # rest_of_store with a claim-only target: Domain's control would have no orders.
+    ("G10", out("x", check("explore", "p", compare("2026-10-30", 14, 17, scope(error_category=["incorrect_item"]))),
+                new_hypotheses=TWO)),
+    ("G10", out("x", check("explore", "p", breakdown("day", "Oct 5", "2026-11-15")), new_hypotheses=TWO)),
     ("G11", out("x", check("explore", "p", breakdown("day", *FULL, modifiers=["Truffle oil"])), new_hypotheses=TWO)),
     ("G11", out("x", check("explore", "p", breakdown("day", "2026-09-01", "2026-11-15")), new_hypotheses=TWO)),
     ("G11", out("x", check("explore", "p", compare("2026-10-30", 28, 17, scope(modifiers=["Extra sauce"]))),

@@ -6,6 +6,7 @@ import logging
 from agent.app.domain.client import DomainError
 from agent.app.domain.fixtures import FixtureDomainClient
 from agent.app.errors import MODEL_REFUSED, RUN_TIMEOUT, UPSTREAM_UNAVAILABLE
+from agent.app.graph.nodes.submit import NO_PROPOSALS_ROUTE_GAP
 from agent.app.llm.base import ModelError
 from agent.app.llm.scripted_model import ScriptedReasonModel
 from agent.app.logs import JsonFormatter
@@ -55,6 +56,15 @@ async def test_the_diagnosis_carries_the_catalog_action_and_the_tested_target():
     proposal = domain.proposals["PROP-0001"]
     assert proposal.kind == "intervention"
     assert "dinner orders" in proposal.content["instructions"]
+
+
+async def test_a_contradicting_record_domain_cant_resolve_is_dropped():
+    domain = FixtureDomainClient(FIXTURES)
+    domain.stores["STORE-A"].known_ids.discard("EV-EVT-000006")
+    a, _ = await run_investigation("STORE-A", ScriptedReasonModel(store_a_turns()), settings=make_settings(),
+                                   domain=domain)
+    assert "EV-EVT-000006" not in a["result"]["contradicting_evidence_ids"]
+    assert any(g.startswith("Dropped citations") and "EV-EVT-000006" in g for g in a["result"]["evidence_gaps"])
 
 
 # --- Acceptance criterion 2: state records everything, and the loop is bounded ------------------
@@ -164,6 +174,15 @@ async def test_a_domain_422_is_a_wasted_step_fed_back_as_data():
     assert "Unknown modifier." in rejected[0]["result"]["notes"]
 
 
+async def test_a_domain_422_shows_the_reasons_from_its_details():
+    domain = FixtureDomainClient(FIXTURES, faults={"claim_breakdown": DomainError(
+        422, "VALIDATION_ERROR", "The request is not valid.", {"unknown_modifiers": ["Truffle oil"]})})
+    final, _ = await run_investigation("STORE-A", ScriptedReasonModel(store_a_turns()[:2]), settings=make_settings(),
+                                       domain=domain)
+    rejected = next(c for c in final["checks"] if c.get("domain_rejected"))
+    assert rejected["result"]["notes"] == ["The request is not valid.", "Details: unknown_modifiers: Truffle oil"]
+
+
 async def test_fraud_signals_set_the_suspect_cluster():
     domain = FixtureDomainClient(FIXTURES, variants={"STORE-B": {"fraud_signals": "fraud_signals_flagged.json"}})
     state = await capture_state("STORE-B", [], domain=domain)
@@ -218,3 +237,74 @@ async def test_load_case_failure_is_reported():
 async def test_state_is_json_native():
     final, _ = await run_investigation("STORE-A", ScriptedReasonModel(store_a_turns()), settings=make_settings())
     json.dumps(final)
+
+
+# --- Routes the Domain Service doesn't have yet (C-03) -----------------------------------------------
+
+ROUTE_MISSING = DomainError(404, "NOT_FOUND", "Not Found")
+
+
+async def test_a_missing_catalog_route_falls_back_to_the_bundled_catalog():
+    domain = FixtureDomainClient(FIXTURES, faults={"get_catalog": ROUTE_MISSING})
+    final, _ = await run_investigation("STORE-A", ScriptedReasonModel(store_a_turns()), settings=make_settings(),
+                                       domain=domain)
+    assert final["status"] == "completed"
+    assert final["run_config"]["catalog_source"] == "bundled"
+    assert final["result"]["recommendation"]["action_id"] == "fix_modifier_mapping"
+
+
+async def test_the_catalog_comes_from_domain_when_the_route_exists():
+    final, _ = await run_investigation("STORE-A", ScriptedReasonModel(store_a_turns()), settings=make_settings())
+    assert final["run_config"]["catalog_source"] == "domain"
+
+
+async def test_a_catalog_outage_or_a_real_404_still_fails_the_run():
+    for fault, code in ((DomainError(503, "UPSTREAM_UNAVAILABLE", "down"), UPSTREAM_UNAVAILABLE),
+                        (DomainError(404, "NOT_FOUND", "Catalog was not found."), "DOMAIN_REJECTED")):
+        domain = FixtureDomainClient(FIXTURES, faults={"get_catalog": fault})
+        final, _ = await run_investigation("STORE-A", ScriptedReasonModel(store_a_turns()), settings=make_settings(),
+                                           domain=domain)
+        assert final["status"] == "failed" and final["error"]["code"] == code
+
+
+async def test_a_missing_proposals_route_completes_without_a_saved_proposal():
+    domain = FixtureDomainClient(FIXTURES, faults={"create_proposal": ROUTE_MISSING})
+    final, _ = await run_investigation("STORE-A", ScriptedReasonModel(store_a_turns()), settings=make_settings(),
+                                       domain=domain)
+    assert final["status"] == "completed"
+    assert final["result"]["proposal_id"] is None
+    assert final["result"]["evidence_gaps"][-1] == NO_PROPOSALS_ROUTE_GAP
+    assert domain.status_updates[-1]["status"] == "completed"
+
+
+async def test_a_pending_proposal_from_another_investigation_is_not_adopted():
+    other = DomainError(409, "PROPOSAL_PENDING", "Case CASE-0001 already has a pending proposal.",
+                        {"proposal_id": "PROP-0099", "investigation_id": "INV-OTHER"})
+    domain = FixtureDomainClient(FIXTURES, faults={"create_proposal": other})
+    final, _ = await run_investigation("STORE-A", ScriptedReasonModel(store_a_turns()), settings=make_settings(),
+                                       domain=domain)
+    assert final["status"] == "failed" and "PROPOSAL_PENDING" in final["error"]["message"]
+
+
+async def test_a_retried_request_recovers_this_investigations_own_proposal():
+    own = DomainError(409, "PROPOSAL_PENDING", "Case CASE-0001 already has a pending proposal.",
+                      {"proposal_id": "PROP-0042", "investigation_id": "INV-TEST-STORE-A"})
+    domain = FixtureDomainClient(FIXTURES, faults={"create_proposal": own})
+    final, _ = await run_investigation("STORE-A", ScriptedReasonModel(store_a_turns()), settings=make_settings(),
+                                       domain=domain)
+    assert final["status"] == "completed" and final["result"]["proposal_id"] == "PROP-0042"
+
+
+async def test_a_missing_status_route_leaves_nothing_pending():
+    domain = FixtureDomainClient(FIXTURES, faults={"report_investigation_status": ROUTE_MISSING})
+    final, _ = await run_investigation("STORE-A", ScriptedReasonModel(store_a_turns()), settings=make_settings(),
+                                       domain=domain)
+    assert final["status"] == "completed" and final["domain_sync_pending"] is False
+
+
+async def test_a_failed_status_report_stays_pending():
+    domain = FixtureDomainClient(FIXTURES, faults={
+        "report_investigation_status": DomainError(503, "UPSTREAM_UNAVAILABLE", "down")})
+    final, _ = await run_investigation("STORE-A", ScriptedReasonModel(store_a_turns()), settings=make_settings(),
+                                       domain=domain)
+    assert final["status"] == "completed" and final["domain_sync_pending"] is True

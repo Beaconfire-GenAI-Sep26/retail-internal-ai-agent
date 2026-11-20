@@ -180,7 +180,7 @@ def create_app(
         require_store(user, row.store_id, hide=method == "GET")
         domain = app.state.domain_client.bind(token=request.state.access_token,
             request_id=request.state.request_id, investigation_id=row.investigation_id,
-            store_id=row.store_id, case_id=row.case_id)
+            store_id=row.store_id, case_id=row.case_id, max_retries=0)
         try:
             case = await domain.get_case(row.case_id)
         except DomainError as exc:

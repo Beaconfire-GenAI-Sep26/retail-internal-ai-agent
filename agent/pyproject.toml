@@ -28,6 +28,9 @@ pythonpath = [".."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "live_domain: needs a running, seeded Domain Service; set AGENT_IT_DOMAIN_URL and AGENT_IT_JWT_SECRET",
+]
 
 [dependency-groups]
 dev = [

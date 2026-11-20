@@ -839,29 +839,6 @@ def menu(store: Store) -> list[dict[str, Any]]:
              "price": m.price, "available_modifiers": m.modifiers} for m in store.menu]
 
 
-ALL_CAUSES = ["pos_modifier_mapping", "menu_change", "packing", "inventory", "dasher_handoff", "fraud_cluster", "other"]
-CATALOG = [
-    {"action_id": "fix_modifier_mapping", "kind": "handoff", "owner_team": "pos_team",
-     "title": "Fix the POS modifier mapping so paid modifiers print on kitchen tickets",
-     "applies_to": ["pos_modifier_mapping"], "default_recheck_days": 14},
-    {"action_id": "add_large_order_bag_check", "kind": "intervention", "owner_team": "merchant",
-     "title": "Add a bag-count check before handoff for large orders",
-     "applies_to": ["packing"], "default_recheck_days": 14},
-    {"action_id": "review_menu_change", "kind": "handoff", "owner_team": "menu_team",
-     "title": "Review the recent menu change with the merchant", "applies_to": ["menu_change"],
-     "default_recheck_days": 14},
-    {"action_id": "update_item_availability", "kind": "intervention", "owner_team": "merchant",
-     "title": "Mark out-of-stock items unavailable sooner", "applies_to": ["inventory"], "default_recheck_days": 14},
-    {"action_id": "review_dasher_handoff", "kind": "handoff", "owner_team": "dasher_ops",
-     "title": "Review Dasher pickup and handoff at this store", "applies_to": ["dasher_handoff"],
-     "default_recheck_days": 14},
-    {"action_id": "send_to_fraud_review", "kind": "handoff", "owner_team": "fraud_review",
-     "title": "Send the flagged claim cluster to fraud review", "applies_to": ["fraud_cluster"],
-     "default_recheck_days": 7},
-    {"action_id": "analyst_review", "kind": "handoff", "owner_team": "analyst",
-     "title": "Hand the case to an analyst for manual review", "applies_to": ALL_CAUSES, "default_recheck_days": 14},
-]
-
 # --- The queries each store's fixtures answer ---------------------------------------------------
 
 FULL = ("2026-10-05", "2026-11-15")
@@ -976,7 +953,7 @@ def main() -> None:
         simulate(stores[sid], offset)
     add_events(stores)
     assign_ids(stores)
-    write(OUT / "common" / "catalog.json", CATALOG)
+    # The action catalog isn't a fixture: the agent bundles it in app/data/catalog.json.
     for sid, store in stores.items():
         folder = OUT / sid
         write(folder / "case.json", case_detail(store))

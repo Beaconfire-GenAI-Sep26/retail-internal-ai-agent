@@ -42,6 +42,18 @@ async def test_event_log_filters_by_local_date_and_type(client):
     assert r.evidence_ids == ["EV-EVT-000003"]
 
 
+async def test_event_log_returns_events_that_overlap_the_dates_like_domain(client):
+    # The Oct 30 menu changes have no ended_at, so they are still in effect in November.
+    r = await client.event_log("STORE-A", "2026-11-01", "2026-11-15", [])
+    assert r.evidence_ids == ["EV-EVT-000005", "EV-EVT-000006"]
+    assert "Events with no ended_at are still in effect." in r.notes
+    # The STORE-B promotion ends at Nov 10 00:00 local. Domain counts an end equal to the window start as
+    # overlapping (ended_at >= start), so it is in Nov 10-15 and not in Nov 11-15.
+    assert (await client.event_log("STORE-B", "2026-11-05", "2026-11-15", ["promotion"])).evidence_ids == ["EV-EVT-000009"]
+    assert (await client.event_log("STORE-B", "2026-11-10", "2026-11-15", ["promotion"])).evidence_ids == ["EV-EVT-000009"]
+    assert (await client.event_log("STORE-B", "2026-11-11", "2026-11-15", ["promotion"])).evidence_ids == []
+
+
 async def test_sample_applies_the_limit(client):
     r = await client.evidence_sample("STORE-A", {"evidence_type": "claim", "limit": 3,
                                                  "filter": {"start": "2026-10-30", "end": "2026-11-15",

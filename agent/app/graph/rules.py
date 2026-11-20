@@ -18,7 +18,14 @@ from agent.app.contracts.enums import DAYPARTS
 from agent.app.graph.policy import policy_hits
 from agent.app.ids import IdFactory
 from agent.app.llm import schemas as w
-from agent.app.tools.registry import RATE_TOOLS, canonical_key, scopes, signature, to_contract_request
+from agent.app.tools.registry import (
+    ORDER_LEVEL_FIELDS,
+    RATE_TOOLS,
+    canonical_key,
+    scopes,
+    signature,
+    to_contract_request,
+)
 
 DATA_LIMIT_CAUSES = frozenset({"dasher_handoff"})
 EXPLORE_CAP = 3
@@ -188,6 +195,11 @@ def request_problems(
         g10.append(f"limit must be 1 to 10, not {request.get('limit')}")
     if tool == "compare_periods" and request.get("control") == {}:
         g10.append("control_mode scope needs at least one control field; use rest_of_store otherwise")
+    if (tool == "compare_periods" and request.get("control") is None
+            and not ORDER_LEVEL_FIELDS & set(request.get("target") or {})):
+        g10.append("control_mode rest_of_store needs a target with an order-level field (item_id, modifiers, "
+                   "daypart, weekday, item_count_min or item_count_max); otherwise the target covers every "
+                   "order and the control is empty")
     for role, scope in scopes(tool, request):
         for wd in scope.get("weekday", []):
             if not 0 <= wd <= 6:

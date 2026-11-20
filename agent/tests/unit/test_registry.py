@@ -63,6 +63,16 @@ def test_signature_ignores_values_and_dates():
     assert signature("claim_breakdown", a) != signature("claim_breakdown", c)
 
 
+def test_dates_are_sent_as_iso_dates():
+    # Domain reads an all-digit date as Unix time, so dates are always sent as YYYY-MM-DD.
+    _, req = convert(breakdown("day", "20261005", " 2026-11-15 "))
+    assert (req["filter"]["start"], req["filter"]["end"]) == ("2026-10-05", "2026-11-15")
+    _, req = convert(compare("20261030", 14, 17, scope(modifiers=["Extra sauce"])))
+    assert req["split_date"] == "2026-10-30"
+    _, req = convert(breakdown("day", "Oct 5", "2026-11-15"))
+    assert req["filter"]["start"] == "Oct 5"  # left as is for G10 to reject
+
+
 def test_catalog_text_covers_every_model_tool_and_the_contract_rules():
     text = render_tool_catalog()
     for name in TOOLS:
@@ -70,3 +80,6 @@ def test_catalog_text_covers_every_model_tool_and_the_contract_rules():
     assert "claims with no modifier_detail form no group" in text
     assert "FRAUD_MIN_PENDING_CLAIMS (4 by default)" in text
     assert "An empty target before period returns rate_before null" in text
+    assert "It splits orders, not claims" in text
+    assert "including one that started earlier and has no ended_at" in text
+    assert "Returns rates: counts (claim_count per flagged customer_ref), not rates; it still counts" in text

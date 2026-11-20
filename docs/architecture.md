@@ -27,7 +27,7 @@ use their own requirements files.
 | **auth** (FastAPI) | Accounts, roles, store grants, refresh sessions, `auth` schema | Login, current user, refresh and logout | Postgres | Issue a token with more stores than the user's grants. |
 | **agent** (FastAPI + LangGraph) | Investigations, graph checkpoints, `agent` schema | Start, status and resume of investigations | Domain, Claude API, Langfuse | Write business data, dispatch, read the `domain` schema, or store a JWT in a checkpoint |
 | **domain** (FastAPI + SQLAlchemy) | All business data, `domain` schema | Cases, evidence, diagnostics, proposals, decisions, replies, rechecks, audit | Postgres | Dispatch anything that is unapproved, stale or a duplicate |
-| **postgres** | Storage | Internal only | — | Let a service role reach another service's schema |
+| **postgres** | Storage | Internal only | â€” | Let a service role reach another service's schema |
 
 ## How the services connect
 
@@ -52,10 +52,10 @@ endpoint, and the agent then reads the new state from the Domain Service.
 
 ## Rules every service follows
 
-- **Only the Domain Service changes business data or acts.** The agent's one write is creating a draft proposal through an internal route. A draft does nothing until an analyst approves it.
+- **Only the Domain Service changes business data or acts.** The agent's two writes go through internal routes: it creates a draft proposal and reports its investigation status. A draft does nothing until an analyst approves it.
 - **Every service checks the JWT itself.** The gateway checks nothing. Auth, Agent and Domain each verify the signature, expiry, role and store grant on every request.
 - **The agent forwards the user's JWT unchanged** on every Domain call, so it can never act with more rights than the analyst who started the work.
-- **Internal routes need a service token.** Domain routes under `/internal/` are unreachable through the gateway. They also require the `X-Service-Token` header to match `INTERNAL_SERVICE_TOKEN`.
+- **Internal routes need a service token.** Domain routes under `/internal/` are unreachable through the gateway. They also require the `X-Service-Token` header to match `INTERNAL_SERVICE_TOKEN`, and so does `POST /evidence/resolve`.
 - **Agent calls are narrowed to one store.** `X-Store-ID` must match the resource's stored owner and be included in the JWT's grants. The Domain client permits only reads and the two internal writes; it cannot decide or dispatch proposals. The public gateway strips service tokens.
 - **No tokens in checkpoints.** Graph state stores the user ID and store ID only. Every resume arrives with a fresh token on the new request.
 - **Customer and merchant text is untrusted data.** `customer_comments` and merchant reply text are passed to the model as quoted evidence, never as instructions.
@@ -122,7 +122,7 @@ is committed.
 | `DOMAIN_DB_PASSWORD` | `change-me` | domain | `domain_svc` role password |
 | `AGENT_DB_PASSWORD` | `change-me` | agent | `agent_svc` role password |
 | `MIGRATION_DB_PASSWORD`, `EVAL_DB_PASSWORD` | empty | postgres init/admin tooling | Optional `db_migrator` and read-only `eval_runner` logins; blank disables password login |
-| `JWT_SECRET` | `change-me-32-bytes-min` | auth, agent, domain | Token signing key |
+| `JWT_SECRET` | `change-me-32-bytes-min-local-only` | auth, agent, domain | Token signing key, at least 32 bytes |
 | `JWT_ISSUER` | `mi-auth` | auth, agent, domain | Expected `iss` claim |
 | `JWT_TTL_MINUTES` | `60` | auth | Token lifetime |
 | `REFRESH_TTL_DAYS` | `7` | auth | Absolute refresh-session lifetime |
@@ -134,12 +134,20 @@ is committed.
 | `DOMAIN_SERVICE_URL` | `http://domain:8000` | agent | Internal Domain address |
 | `ANTHROPIC_API_KEY` | empty | agent | Claude API key |
 | `ANTHROPIC_MODEL` | `claude-opus-5-5` | agent | Model ID, recorded in every eval run |
-| `AGENT_EFFORT` | `high` | agent | Effort for the investigation node |
+| `AGENT_EFFORT` | `medium` | agent | Effort for the `reason` node: `low`, `medium`, `high`, `xhigh` or `max`. `medium` is Claude Opus 5.5's default; the M0 spike measures the options. |
+| `AGENT_SPEED` | `standard` | agent | `standard` or `fast`. Fast mode costs about twice as much per token. |
 | `AGENT_MAX_STEPS` | `12` | agent | Maximum tool checks per investigation |
 | `AGENT_MAX_RETRIES` | `2` | agent | Retries per failed model or tool call |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | empty | agent | Langfuse Cloud keys |
 | `LANGFUSE_BASE_URL` | `https://cloud.langfuse.com` | agent | Langfuse v4 endpoint; legacy `LANGFUSE_HOST` is a fallback |
 | `LANGFUSE_TRACING_ENABLED` | `true` | agent | Export only when enabled and both keys exist; logs remain active |
+
+| `AGENT_RUN_TIMEOUT_SECONDS` | `1200` | agent | Wall-clock limit per investigation. A run past it fails with `RUN_TIMEOUT`. A token that expires sooner is refused at start. |
+| `AGENT_MAX_QUESTIONS` | `0` | agent | Merchant questions per run. `0` until merchant questions are on, then `2`. |
+| `AGENT_MAX_REASON_CALLS` | empty | agent | Optional cap on reasoning turns. Empty means `2 * AGENT_MAX_STEPS + 4`. |
+| `AGENT_DOMAIN_MODE` | `http` | agent | `http` calls the Domain Service. `fixtures` answers from the agent's fixtures, for work without a Domain database. |
+| `AGENT_FIXTURES_DIR` | `tests/fixtures/domain` | agent | The fixture folder for fixtures mode |
+| `AGENT_CHECKPOINTER` | `memory` | agent | `memory`, or `postgres` once the `agent` schema and role exist |
 | `MONITOR_GOAL_RATE` | `0.05` | domain | 7-day M&I rate goal for the demo. The proposal cites 2.25% as a real-world reference. |
 | `MONITOR_SPIKE_RATIO` | `1.5` | domain | Opens a case when the 7-day rate is at least this multiple of the 28-day baseline |
 | `MONITOR_MIN_ORDERS` | `100` | domain | Minimum 7-day eligible orders before a store can open a case |

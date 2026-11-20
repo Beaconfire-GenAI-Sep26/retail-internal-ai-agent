@@ -16,7 +16,7 @@ vi.mock('../cases/casesThunks', () => ({
 
 const { default: api } = await import('../../api/axios');
 const { default: proposals } = await import('./proposalsSlice');
-const { decideProposal, editProposal } = await import('./proposalsThunks');
+const { decideProposal, editProposal, recordMerchantReply } = await import('./proposalsThunks');
 
 const v1 = { proposal_id: 'PROP-0001', case_id: 'CASE-0001', version: 1, status: 'pending', content: { title: 'T', instructions: 'I' } };
 const httpError = (status, code) => ({ response: { status, data: { error: { code, message: `${code} from server` } } } });
@@ -111,5 +111,38 @@ describe('editProposal', () => {
     expect(api.post).toHaveBeenCalledWith('/domain/proposals/PROP-0001/versions', { content: { title: 'New', instructions: 'I' } });
     expect(store.getState().proposals.byId['PROP-0001'].version).toBe(2);
     expect(store.getState().proposals.writeById['PROP-0001']).toBeUndefined();
+  });
+});
+
+describe('recordMerchantReply', () => {
+  const reply = { evidence_id: 'EV-RPL-000001', proposal_id: 'PROP-0002', outcome: 'replied', text: 'Two bags.' };
+
+  it('sends the trimmed text with the Idempotency-Key and files the reply under its question', async () => {
+    const store = makeStore();
+    api.post.mockResolvedValue({ data: reply });
+    await store.dispatch(recordMerchantReply({ id: 'PROP-0002', caseId: 'CASE-0002', outcome: 'replied', text: '  Two bags. ', idempotencyKey: 'k1' }));
+    expect(api.post).toHaveBeenCalledWith(
+      '/domain/proposals/PROP-0002/merchant-reply',
+      { outcome: 'replied', text: 'Two bags.' },
+      { headers: { 'Idempotency-Key': 'k1' } },
+    );
+    expect(store.getState().proposals.repliesByProposal['PROP-0002']).toEqual(reply);
+  });
+
+  it('no_reply sends text null, whatever was typed', async () => {
+    const store = makeStore();
+    api.post.mockResolvedValue({ data: { ...reply, outcome: 'no_reply', text: null } });
+    await store.dispatch(recordMerchantReply({ id: 'PROP-0002', caseId: 'CASE-0002', outcome: 'no_reply', text: 'draft', idempotencyKey: 'k1' }));
+    expect(api.post.mock.calls[0][1]).toEqual({ outcome: 'no_reply', text: null });
+  });
+
+  it('REPLY_EXISTS → reloads the replies, so the saved one shows', async () => {
+    const store = makeStore();
+    api.post.mockRejectedValue(httpError(409, 'REPLY_EXISTS'));
+    api.get.mockResolvedValue({ data: [reply] });
+    const result = await store.dispatch(recordMerchantReply({ id: 'PROP-0002', caseId: 'CASE-0002', outcome: 'replied', text: 'x', idempotencyKey: 'k1' }));
+    expect(result.payload.message).toMatch(/already recorded/);
+    await vi.waitFor(() => expect(store.getState().proposals.repliesByProposal['PROP-0002']).toEqual(reply));
+    expect(api.get).toHaveBeenCalledWith('/domain/cases/CASE-0002/merchant-replies');
   });
 });

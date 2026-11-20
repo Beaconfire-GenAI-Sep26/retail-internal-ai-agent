@@ -5,7 +5,13 @@
 // 1. Imports
 // ═══════════════════════════════════════════════════════════════════
 import { createSlice } from '@reduxjs/toolkit';
-import { fetchProposal, editProposal, decideProposal } from './proposalsThunks';
+import {
+  fetchProposal,
+  editProposal,
+  decideProposal,
+  fetchMerchantReplies,
+  recordMerchantReply,
+} from './proposalsThunks';
 import { credentialsCleared } from '../auth/authSlice';
 import { logout } from '../auth/authThunks';
 
@@ -22,8 +28,12 @@ const initialState = {
   fetchStatusById: {}, // → 'loading' | 'succeeded' | 'failed'
   fetchErrorById: {}, // → message
 
-  // editProposal / decideProposal — one write at a time per proposal
-  writeById: {}, // → { kind: 'edit' | 'decide', status: 'loading' | 'failed', error: { message, code, noResponse } | null }
+  // editProposal / decideProposal / recordMerchantReply — one write at a time per proposal
+  writeById: {}, // → { kind: 'edit' | 'decide' | 'reply', status: 'loading' | 'failed', error: { message, code, noResponse } | null }
+
+  // Merchant replies (D-05) — at most one per question
+  repliesByProposal: {}, // proposal_id → contract MerchantReply
+  repliesStatusByCase: {}, // case_id → 'loading' | 'succeeded' | 'failed'
 };
 
 
@@ -83,6 +93,26 @@ const proposalsSlice = createSlice({
       .addCase(decideProposal.pending, startWrite('decide'))
       .addCase(decideProposal.fulfilled, writeDone)
       .addCase(decideProposal.rejected, writeFailed('decide'))
+
+      // fetchMerchantReplies — file each reply under its question
+      .addCase(fetchMerchantReplies.pending, (state, action) => {
+        state.repliesStatusByCase[action.meta.arg] = 'loading';
+      })
+      .addCase(fetchMerchantReplies.fulfilled, (state, action) => {
+        state.repliesStatusByCase[action.meta.arg] = 'succeeded';
+        action.payload.forEach((reply) => { state.repliesByProposal[reply.proposal_id] = reply; });
+      })
+      .addCase(fetchMerchantReplies.rejected, (state, action) => {
+        state.repliesStatusByCase[action.meta.arg] = 'failed';
+      })
+
+      // recordMerchantReply — the response is the saved reply, not the proposal
+      .addCase(recordMerchantReply.pending, startWrite('reply'))
+      .addCase(recordMerchantReply.fulfilled, (state, action) => {
+        state.repliesByProposal[action.meta.arg.id] = action.payload;
+        delete state.writeById[action.meta.arg.id];
+      })
+      .addCase(recordMerchantReply.rejected, writeFailed('reply'))
 
       // A different user must not see these
       .addCase(logout.pending, () => initialState)

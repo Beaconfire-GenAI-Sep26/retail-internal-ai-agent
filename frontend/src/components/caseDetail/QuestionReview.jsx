@@ -8,7 +8,7 @@
 //            worked but the resume didn't, a "Continue" box offers the resume
 //            only — worked out from the data (needsResume), so a reload keeps it.
 //   history  read-only, from step 4 until the run ends: the question, the
-//            decision and where it was sent. Commit 6 adds the merchant's reply.
+//            decision, where it was sent, and the merchant's reply.
 //
 //   Reject → the agent continues without asking (usually ends unsure).
 //   Approve → sent to the merchant; the run waits for the reply (step 4).
@@ -19,7 +19,7 @@
 // ═══════════════════════════════════════════════════════════════════
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { fetchProposal, editProposal } from '../../store/proposals/proposalsThunks';
+import { fetchProposal, editProposal, fetchMerchantReplies } from '../../store/proposals/proposalsThunks';
 import { proposalWriteCleared } from '../../store/proposals/proposalsSlice';
 import {
   selectProposal,
@@ -31,8 +31,9 @@ import { selectCaseDetail } from '../../store/cases/casesSelectors';
 import { selectIsAnalyst } from '../../store/auth/authSelectors';
 import useResume from '../../hooks/useResume';
 import Pill from '../common/Pill';
-import { EvidenceLinks } from '../common/EvidenceLink';
+import EvidenceLink, { EvidenceLinks } from '../common/EvidenceLink';
 import DecisionControls from './DecisionControls';
+import ContinueBox from './ContinueBox';
 import { needsResume, runQuestions } from './caseSteps';
 import { formatDateTime } from '../../api/format';
 
@@ -111,28 +112,26 @@ const DecisionLine = ({ proposal, timeZone }) => {
   );
 };
 
-// Decision saved, run not continued yet → resume only
-const ContinueBox = ({ investigationId, proposal }) => {
-  const isAnalyst = useSelector(selectIsAnalyst);
-  const { resume, resuming, error } = useResume(investigationId);
 
+// The merchant's answer (commit 6). Plain text: untrusted merchant words.
+// The reply is also evidence (EV-RPL-…), so it links to the drawer.
+const ReplyLine = ({ reply, timeZone }) => {
+  if (!reply) return null;
+  const when = `${reply.recorded_by} · ${formatDateTime(reply.recorded_at, timeZone)}`;
+  if (reply.outcome === 'no_reply') {
+    return (
+      <div className='reply-line'>
+        <p><strong>No reply</strong> from the merchant <span className='muted'>· recorded by {when}</span></p>
+      </div>
+    );
+  }
   return (
-    <div className='continue-box' role='status'>
+    <div className='reply-line'>
       <p>
-        Your decision is saved ({proposal.status}). The agent hasn't continued yet.
+        <strong>Merchant replied</strong> <span className='muted'>· recorded by {when} · </span>
+        <EvidenceLink id={reply.evidence_id} />
       </p>
-      {isAnalyst ? (
-        <button type='button' onClick={resume} disabled={resuming}>
-          {resuming ? 'Continuing…' : 'Continue the investigation'}
-        </button>
-      ) : (
-        <p className='muted'>Waiting for an analyst to continue it.</p>
-      )}
-      {error && (
-        <p className='error' role='alert'>
-          {error.noResponse ? "Couldn't reach the agent. Try again." : error.message}
-        </p>
-      )}
+      <blockquote className='reply-text'>{reply.text}</blockquote>
     </div>
   );
 };
@@ -204,7 +203,7 @@ const QuestionDecide = ({ investigation, timeZone }) => {
         <>
           <DecisionLine proposal={proposal} timeZone={timeZone} />
           {needsResume(investigation, proposal) && (
-            <ContinueBox investigationId={investigation.investigation_id} proposal={proposal} />
+            <ContinueBox investigationId={investigation.investigation_id} saved={`Your decision (${proposal.status})`} />
           )}
         </>
       )}
@@ -217,9 +216,18 @@ const QuestionDecide = ({ investigation, timeZone }) => {
 // 4. History mode — read-only, until the run ends
 // ═══════════════════════════════════════════════════════════════════
 const QuestionHistory = ({ investigation, timeZone }) => {
+  const dispatch = useDispatch();
   const caseDetail = useSelector((state) => selectCaseDetail(state, investigation.case_id));
   const latest = useSelector((state) => state.proposals.byId);
+  const replies = useSelector((state) => state.proposals.repliesByProposal);
   const questions = runQuestions(investigation, caseDetail, latest);
+  const askedAny = questions.length > 0;
+
+  // The replies, for questions that were sent. Reloaded when the run moves on
+  // (e.g. a reply recorded → running → completed).
+  useEffect(() => {
+    if (askedAny) dispatch(fetchMerchantReplies(investigation.case_id));
+  }, [dispatch, askedAny, investigation.case_id, investigation.status]);
 
   // Only if this run asked one (ui-workflow.md v0.3 notes)
   if (questions.length === 0) return null;
@@ -234,6 +242,7 @@ const QuestionHistory = ({ investigation, timeZone }) => {
           </div>
           <QuestionText proposal={q} />
           <DecisionLine proposal={q} timeZone={timeZone} />
+          <ReplyLine reply={replies[q.proposal_id]} timeZone={timeZone} />
         </div>
       ))}
     </div>

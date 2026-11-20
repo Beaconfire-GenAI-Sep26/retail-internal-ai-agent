@@ -15,7 +15,13 @@ import { createAsyncThunk } from '@reduxjs/toolkit';
 import api from '../../api/axios';
 import { getErrorCode, getErrorMessage } from '../../api/errors';
 import { USE_MOCKS } from '../../api/mockAuth';
-import { mockGetProposal, mockEditProposal, mockDecideProposal } from '../../api/mocks/mockInvestigations';
+import {
+  mockGetProposal,
+  mockEditProposal,
+  mockDecideProposal,
+  mockRecordReply,
+  mockListMerchantReplies,
+} from '../../api/mocks/mockInvestigations';
 import { fetchCase } from '../cases/casesThunks';
 
 
@@ -28,6 +34,8 @@ const DECISION_MESSAGES = {
   STALE_VERSION: 'Someone edited it. Review the new version before deciding.',
   ALREADY_DECIDED: 'Already decided by someone else.',
   DISPATCH_FAILED: 'Send failed. The proposal is still pending — approve again.',
+  REPLY_EXISTS: 'A reply was already recorded for this question.',
+  NOT_DISPATCHED: "This question wasn't sent to the merchant, so there is no reply to record.",
 };
 
 const toActionError = (err, fallback) => {
@@ -125,6 +133,58 @@ export const decideProposal = createAsyncThunk(
         const caseId = getState().proposals.byId[id]?.case_id;
         if (caseId) dispatch(fetchCase(caseId));
       }
+      return rejectWithValue(error);
+    }
+  },
+);
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 6. fetchMerchantReplies — GET /domain/cases/{case_id}/merchant-replies (D-05)
+// ═══════════════════════════════════════════════════════════════════
+// → MerchantReply[] for the whole case; the slice files them by proposal_id.
+export const fetchMerchantReplies = createAsyncThunk(
+  'proposals/fetchReplies',
+  async (caseId, { getState, rejectWithValue }) => {
+    try {
+      if (USE_MOCKS) return await mockListMerchantReplies(caseId, userOf(getState));
+      const { data } = await api.get(`/domain/cases/${encodeURIComponent(caseId)}/merchant-replies`);
+      return data;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err, 'Could not load the merchant replies'));
+    }
+  },
+  {
+    condition: (caseId, { getState }) => getState().proposals.repliesStatusByCase[caseId] !== 'loading',
+  },
+);
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 7. recordMerchantReply — POST /domain/proposals/{id}/merchant-reply (D-05)
+// ═══════════════════════════════════════════════════════════════════
+// Body: MerchantReplyCreate { outcome: 'replied' | 'no_reply', text }
+//   text is required for 'replied', null for 'no_reply'. The analyst types or
+//   pastes what the merchant said — untrusted text, always shown as plain text.
+// Header: Idempotency-Key.
+// → 201 MerchantReply (it is also evidence EV-RPL-…). The caller then resumes
+//   the run (MerchantReplyForm) — "reply first, then resume".
+//
+// 409 REPLY_EXISTS → someone recorded it first: reload the replies, so the form
+//   turns into "reply saved → Continue".
+export const recordMerchantReply = createAsyncThunk(
+  'proposals/recordReply',
+  async ({ id, caseId, outcome, text, idempotencyKey }, { getState, dispatch, rejectWithValue }) => {
+    const body = { outcome, text: outcome === 'replied' ? text.trim() : null };
+    try {
+      if (USE_MOCKS) return await mockRecordReply(id, body, { ...userOf(getState), idempotencyKey });
+      const { data } = await api.post(`/domain/proposals/${encodeURIComponent(id)}/merchant-reply`, body, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+      });
+      return data;
+    } catch (err) {
+      const error = toActionError(err, 'Could not save the reply');
+      if (error.code === 'REPLY_EXISTS') dispatch(fetchMerchantReplies(caseId));
       return rejectWithValue(error);
     }
   },

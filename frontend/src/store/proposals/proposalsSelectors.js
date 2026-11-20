@@ -15,3 +15,10 @@ export const selectProposalFetchError = (state, proposalId) => state.proposals.f
 // ═══════════════════════════════════════════════════════════════════
 // → { kind: 'edit' | 'decide', status: 'loading' | 'failed', error } or null = nothing pending
 export const selectProposalWrite = (state, proposalId) => state.proposals.writeById[proposalId] ?? null;
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 3. Merchant replies (D-05)
+// ═══════════════════════════════════════════════════════════════════
+// The reply recorded for a question, or null = none yet
+export const selectReply = (state, proposalId) => state.proposals.repliesByProposal[proposalId] ?? null;

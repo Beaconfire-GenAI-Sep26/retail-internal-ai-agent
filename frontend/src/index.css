@@ -529,6 +529,35 @@ button.recommendation-edit { justify-self: start; }
   border-radius: 8px;
   resize: vertical;
 }
+/* Merchant reply — box 7, and the reply under a past question */
+.reply-form {
+  display: grid;
+  gap: 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--wait);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.reply-form > label { font-size: 0.9rem; font-weight: 500; }
+.reply-form textarea {
+  width: 100%;
+  font: inherit;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  resize: vertical;
+}
+.reply-line { display: grid; gap: 4px; padding-top: 10px; border-top: 1px solid var(--border); }
+.reply-text {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--wait);
+  border-radius: 4px;
+  background: var(--surface);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .continue-box {
   display: grid;
   gap: 8px;

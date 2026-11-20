@@ -9,7 +9,7 @@
 //   │ 3. Checks (11)  |  Possible causes (12)                          │
 //   └──────────────────────────────────────────────────────────────────┘
 //
-// Still to come: MerchantReplyForm (commit 6), PreviousInvestigation (commit 7).
+// Still to come: PreviousInvestigation (commit 7).
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -31,6 +31,7 @@ import InvestigationProgress from './InvestigationProgress';
 import ResultPanel from './ResultPanel';
 import RecommendationReview from './RecommendationReview';
 import QuestionReview from './QuestionReview';
+import MerchantReplyForm from './MerchantReplyForm';
 import ErrorPanel from './ErrorPanel';
 import CheckTimeline from './CheckTimeline';
 import HypothesisList from './HypothesisList';
@@ -44,14 +45,9 @@ const Slot = ({ view, caseId, investigation, timeZone }) => {
     // Step 3: review the agent's question (box 6)
     case 'question':
       return <QuestionReview mode='review' investigation={investigation} timeZone={timeZone} />;
-    // Step 4: the reply form comes in commit 6. Until then say so instead of showing nothing.
+    // Step 4: record the merchant's reply, or "no reply" (box 7)
     case 'reply':
-      return (
-        <div className='slot-placeholder'>
-          <p>The question was sent to the merchant.</p>
-          <p className='muted'>Recording the merchant's reply comes in D-05.</p>
-        </div>
-      );
+      return <MerchantReplyForm investigation={investigation} />;
     // Result (box 8), then the recommended action under it (box 9)
     case 'result': {
       const { result } = investigation;

@@ -23,3 +23,5 @@ export const selectPollError = (state) => state.investigations.pollError;
 // resumeInvestigation (D-05): 'idle' | 'loading' | 'failed', and { message, code, noResponse }
 export const selectResumeStatus = (state) => state.investigations.resumeStatus;
 export const selectResumeError = (state) => state.investigations.resumeError;
+// fetchPreviousInvestigation (D-05): { id, view, status, error }
+export const selectPrevious = (state) => state.investigations.previous;

@@ -55,14 +55,16 @@ export const fetchLatestInvestigation = createAsyncThunk(
 // 3. startInvestigation — POST /agent/investigations
 // ═══════════════════════════════════════════════════════════════════
 // Analysts only (the backend answers 403 for a Viewer).
-// Body: StartInvestigationRequest { case_id, reopen_of }
-//   reopen_of stays null in D-02 — starting again after a recheck reopens
-//   the case is D-05.
+// Arg: { caseId, reopenOf } → StartInvestigationRequest { case_id, reopen_of }
+//   reopenOf: the last investigation_id when the case is 'reopened' (the fix
+//   didn't work, step 7 → "Start new investigation"); null otherwise.
+//   Known gap (d03 plan, "需要确认"): a failed second run leaves the case 'open',
+//   so "Start again" sends null. The mock still treats it as the second run.
 // → 202 InvestigationView with status 'running'; polling takes over from there.
 export const startInvestigation = createAsyncThunk(
   'investigations/start',
-  async (caseId, { getState, dispatch, rejectWithValue }) => {
-    const body = { case_id: caseId, reopen_of: null };
+  async ({ caseId, reopenOf = null }, { getState, dispatch, rejectWithValue }) => {
+    const body = { case_id: caseId, reopen_of: reopenOf };
 
     try {
       const view = USE_MOCKS
@@ -140,5 +142,32 @@ export const resumeInvestigation = createAsyncThunk(
         noResponse: !err?.response,
       });
     }
+  },
+);
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 6. fetchPreviousInvestigation — GET /agent/investigations/{reopen_of} (D-05)
+// ═══════════════════════════════════════════════════════════════════
+// A second run (reopen_of set) shows the first one folded above it (box 15):
+// its cause, its action, and the recheck that didn't improve. It has ended,
+// so it is loaded once, never polled.
+export const fetchPreviousInvestigation = createAsyncThunk(
+  'investigations/fetchPrevious',
+  async (investigationId, { getState, rejectWithValue }) => {
+    try {
+      if (USE_MOCKS) return await mockGetInvestigation(investigationId, { user: getState().auth.user });
+      const { data } = await api.get(`/agent/investigations/${encodeURIComponent(investigationId)}`);
+      return data;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err, 'Could not load the previous investigation'));
+    }
+  },
+  {
+    // Already loaded or loading for this ID → skip
+    condition: (investigationId, { getState }) => {
+      const { previous } = getState().investigations;
+      return !(previous.id === investigationId && previous.status !== 'failed');
+    },
   },
 );

@@ -4,8 +4,8 @@
 // Viewers see a note instead of the button: the backend answers 403 for them
 // anyway, hiding it just keeps them from hitting that error.
 //
-// D-05 (commit 7) sends reopen_of on "Start new investigation"; commit 9 adds the
-// token refresh before Start.
+// "Start new investigation" sends reopen_of (the run whose fix didn't work).
+// Commit 9 adds the token refresh before Start.
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -20,7 +20,8 @@ import { selectStartStatus, selectStartError } from '../../store/investigations/
 // ═══════════════════════════════════════════════════════════════════
 // 2. StartInvestigationButton component
 // ═══════════════════════════════════════════════════════════════════
-const StartInvestigationButton = ({ caseId, label }) => {
+// reopenOf: the last investigation_id at step 7 (case reopened), else null
+const StartInvestigationButton = ({ caseId, label, reopenOf = null }) => {
   const dispatch = useDispatch();
   const isAnalyst = useSelector(selectIsAnalyst);
   const startStatus = useSelector(selectStartStatus);
@@ -34,7 +35,7 @@ const StartInvestigationButton = ({ caseId, label }) => {
 
   return (
     <div className='investigation-start'>
-      <button type='button' onClick={() => dispatch(startInvestigation(caseId))} disabled={starting}>
+      <button type='button' onClick={() => dispatch(startInvestigation({ caseId, reopenOf }))} disabled={starting}>
         {starting ? 'Starting…' : label}
       </button>
       {startError && <p className='error' role='alert'>{startError}</p>}

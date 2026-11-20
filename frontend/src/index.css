@@ -588,6 +588,24 @@ button.recommendation-edit { justify-self: start; }
 }
 .recheck-facts dt { color: var(--text-muted); font-size: 0.9rem; }
 .recheck-facts dd { margin: 0; }
+.recheck-next { font-weight: 500; padding: 8px 12px; border-radius: 6px; background: var(--surface-soft); }
+.recheck-next-improved { color: var(--ok); }
+.recheck-next-not_improved { color: var(--danger); background: var(--danger-soft); }
+.recheck-next-insufficient_data { color: var(--warn); }
+.recheck-run { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; }
+.recheck-run label { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; }
+.recheck-run .error { flex-basis: 100%; text-align: right; }
+
+/* Previous investigation — box 15, folded under the panel title */
+.previous-investigation {
+  padding: 10px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+.previous-investigation summary { cursor: pointer; line-height: 1.7; }
+.previous-body { display: grid; gap: 10px; margin-top: 10px; }
+.previous-action { display: grid; gap: 4px; }
 @media (max-width: 600px) {
   .recheck-panel { padding: 16px; }
   .recheck-facts > div { grid-template-columns: 1fr; gap: 2px; }

@@ -9,7 +9,7 @@
 //   │ 3. Checks (11)  |  Possible causes (12)                          │
 //   └──────────────────────────────────────────────────────────────────┘
 //
-// Still to come: PreviousInvestigation (commit 7).
+// A second run also shows the first one, folded, under the title (box 15).
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -32,6 +32,7 @@ import ResultPanel from './ResultPanel';
 import RecommendationReview from './RecommendationReview';
 import QuestionReview from './QuestionReview';
 import MerchantReplyForm from './MerchantReplyForm';
+import PreviousInvestigation from './PreviousInvestigation';
 import ErrorPanel from './ErrorPanel';
 import CheckTimeline from './CheckTimeline';
 import HypothesisList from './HypothesisList';
@@ -116,10 +117,8 @@ const InvestigationPanel = ({ caseId }) => {
         )}
       </div>
 
-      {/* Second run: commit 7 replaces this line with the folded previous run (box 15) */}
-      {view.showPrevious && (
-        <p className='muted'>Second investigation — the fix from {investigation.reopen_of} did not work.</p>
-      )}
+      {/* Second run: the first one, folded (box 15) */}
+      {view.showPrevious && <PreviousInvestigation investigation={investigation} />}
 
       {/* ── Part 1: Start (box 4) and/or progress (box 5) ── */}
       {view.step === '1' && (
@@ -127,7 +126,12 @@ const InvestigationPanel = ({ caseId }) => {
       )}
       {/* On failure the Start again button sits inside the error box instead */}
       {view.showStart && view.slot !== 'error' && (
-        <StartInvestigationButton caseId={caseId} label={view.startLabel} />
+        <StartInvestigationButton
+          caseId={caseId}
+          label={view.startLabel}
+          // Step 7 (reopened): the new run points at the one whose fix didn't work
+          reopenOf={view.step === '7' ? investigation.investigation_id : null}
+        />
       )}
       {view.showProgress && (
         <InvestigationProgress investigation={investigation} pausedFor={view.pausedFor} pollError={pollError} />

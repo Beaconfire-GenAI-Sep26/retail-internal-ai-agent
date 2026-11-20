@@ -597,9 +597,9 @@ interface InvestigationResult {
   cause_category: cause_category | null;
   cause_started_at: string | null; // date the agent estimates the rise began
   confidence: confidence;
-  summary: string;
+  summary: string; // a count or rate no check result shows reads "[withheld]", here and in the result's other text
   supporting_evidence_ids: string[];
-  contradicting_evidence_ids: string[];
+  contradicting_evidence_ids: string[]; // against the leader, including records that pointed to other causes
   ruled_out: {
     cause_category: cause_category;
     reason: string;

@@ -9,7 +9,7 @@ from langgraph.runtime import Runtime
 
 from agent.app.domain.client import DomainError
 from agent.app.graph.context import AgentContext
-from agent.app.graph.finalize import build_result, decide
+from agent.app.graph.finalize import build_result, contradicting_ids, decide
 from agent.app.graph.state import InvestigationState
 from agent.app.logs import log_event
 
@@ -26,10 +26,10 @@ async def finalize(state: InvestigationState, runtime: Runtime[AgentContext]) ->
         cited: list[str] = []
         for h in state.get("hypotheses", []):
             if h["hypothesis_id"] == leader:
-                cited += h["supporting_evidence_ids"] + h["contradicting_evidence_ids"]
+                cited += h["supporting_evidence_ids"]
             elif h["status"] == "ruled_out":
                 cited += h["contradicting_evidence_ids"]
-        cited = list(dict.fromkeys(cited))
+        cited = list(dict.fromkeys([*cited, *contradicting_ids(dict(state), leader)]))
         retrieved = set(state.get("retrieved_evidence_ids", []))
         invalid = {e for e in cited if e not in retrieved}
         to_resolve = [e for e in cited if e in retrieved]

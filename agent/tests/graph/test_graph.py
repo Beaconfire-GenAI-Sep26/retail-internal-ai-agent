@@ -58,6 +58,15 @@ async def test_the_diagnosis_carries_the_catalog_action_and_the_tested_target():
     assert "dinner orders" in proposal.content["instructions"]
 
 
+async def test_a_contradicting_record_domain_cant_resolve_is_dropped():
+    domain = FixtureDomainClient(FIXTURES)
+    domain.stores["STORE-A"].known_ids.discard("EV-EVT-000006")
+    a, _ = await run_investigation("STORE-A", ScriptedReasonModel(store_a_turns()), settings=make_settings(),
+                                   domain=domain)
+    assert "EV-EVT-000006" not in a["result"]["contradicting_evidence_ids"]
+    assert any(g.startswith("Dropped citations") and "EV-EVT-000006" in g for g in a["result"]["evidence_gaps"])
+
+
 # --- Acceptance criterion 2: state records everything, and the loop is bounded ------------------
 
 

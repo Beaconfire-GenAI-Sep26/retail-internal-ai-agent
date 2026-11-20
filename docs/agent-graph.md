@@ -293,7 +293,12 @@ code applies this table:
 
 Confidence is capped at `medium` when any rival is `inconclusive`, when the budget ran out, or when the
 checks supporting the leader rest mostly on `pending` claims. Citations that fail Domain's resolve check
-are dropped and listed as a gap.
+are dropped and listed as a gap. The result's contradicting evidence is what contradicted the leader, plus the
+records that pointed to any other cause; a ruled-out cause's are explained by its `ruled_out` entry. Records the
+leader cites, or that a check confirming it returned, are left out. In the summary, the recommendation's
+rationale, the ruled-out reasons and the gaps, a percentage, an n/d fraction or a count of claims, orders or
+cancellations that no check result, record, case fact or catalog threshold shows is replaced with `[withheld]`
+and listed as a gap.
 
 The agent proposes the most likely cause. The analyst's approval and, where asked, the merchant's reply
 confirm it.

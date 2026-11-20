@@ -1,6 +1,6 @@
 // [08f] useResume — the second call of "decide first, then resume" (D-05)
 // Used after a question decision (QuestionReview) and a merchant reply
-// (MerchantReplyForm), and by their "Continue" button when only the resume failed.
+// (MerchantReplyCard), and by their "Continue" button when only the resume failed.
 //
 //   const { resume, resuming, error } = useResume(investigationId);
 //   await resume();   // → true when the run continued

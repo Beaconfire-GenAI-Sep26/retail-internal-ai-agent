@@ -25,7 +25,7 @@ flowchart TD
   S1["1 · Not started<br/>✋ Start"] --> S2["2 · Agent checking"]
   S2 -->|asks merchant| S3["3 · Question to approve<br/>✋ edit · reject · approve"]
   S3 -->|reject| S2
-  S3 -->|approve| S4["4 · Waiting for the reply<br/>✋ enter reply or no reply"]
+  S3 -->|approve| S4["4 · Waiting for the reply<br/>✋ confirm reply or no reply"]
   S4 --> S2
   S2 -->|diagnosis| S5["5 · Result and action<br/>✋ approve · reject"]
   S2 -->|no cause| UNS["Unsure → analyst review"]
@@ -45,7 +45,7 @@ flowchart TD
 | 1 Not started | Start button | Click Start |
 | 2 Agent checking | Progress, checks and causes fill in | Watch |
 | 3 Question to approve (M3) | The agent's question for the merchant | Edit, reject or approve |
-| 4 Waiting for the reply (M3) | Reply form | Enter the reply, or "no reply". Agent goes back to step 2. |
+| 4 Waiting for the reply (M3) | Reply card | Confirm the merchant replied, or "no reply". The reply reaches Domain by itself; the analyst never types it. Agent goes back to step 2. |
 | 5 Result and action | Cause, plus the recommended action | Approve or reject the action |
 | 6 Action sent | Recheck card, scheduled | Wait, or run the recheck (demo) |
 | 7 Not improved | Recheck result, Start comes back | Start a new investigation |
@@ -63,7 +63,7 @@ Where a case ends:
 Key rules:
 
 - **The frontend triggers resume.** Domain never calls the agent.
-- **Decide first, then resume.** Each question decision and each reply is two calls.
+- **Decide first, then resume.** Each question decision and each "no reply" is two calls. Confirming a reply is resume only: the agent reads the reply from Domain.
 - **No resume after the action decision.** The investigation has already ended.
 - **Max 2 questions per run.** One open at a time.
 - **Max 2 investigations per case.** The second starts only after a reopen.
@@ -80,7 +80,7 @@ Key rules:
 | 4 | `StartInvestigationButton` | Starts the agent. Analysts only. | Agent `POST /investigations` | D-02 |
 | 5 | `InvestigationProgress` | Checks done, and what the agent checks now | Agent `step_count`, `max_steps` | D-02 |
 | 6 | `QuestionReview` | Approve a question before it goes to the merchant | Domain proposal | To build, M3 |
-| 7 | `MerchantReplyForm` | Enter the merchant's answer, or no reply | Domain merchant reply | To build, M3 |
+| 7 | `MerchantReplyCard` | Confirm the merchant's answer arrived, or no reply | Domain merchant reply | To build, M3 |
 | 8 | `ResultPanel` | The agent's conclusion | Agent `result` | To build |
 | 9 | `RecommendationReview` | Approve the action. Reject sends the case to analyst review. | Domain proposal, dispatch | To build |
 | 10 | `ErrorPanel` | Why the run stopped | Agent `error` | To build |
@@ -106,7 +106,7 @@ Which box shows at each step:
 | 4 `StartInvestigationButton` | ✓ | | | | | | ✓ | | ✓ |
 | 5 `InvestigationProgress` | | ✓ | paused | paused | | | | ✓ | |
 | 6 `QuestionReview` | | | ✓ | read-only | read-only | read-only | read-only | | |
-| 7 `MerchantReplyForm` | | | | ✓ | | | | | |
+| 7 `MerchantReplyCard` | | | | ✓ | | | | | |
 | 8 `ResultPanel` | | | | | ✓ | ✓ | ✓ | | |
 | 9 `RecommendationReview` | | | | | ✓ | ✓ | ✓ | | |
 | 10 `ErrorPanel` | | | | | | | | | ✓ |
@@ -234,8 +234,8 @@ Paths as the browser calls them, with the gateway prefix.
 | 7 | Start new investigation | Same, with `reopen_of: <last investigation_id>` | Poll |
 | 3, 5 | Edit question or action | `POST /domain/proposals/{id}/versions` | Refresh proposal |
 | 3 | Approve or reject question | 1. `POST /domain/proposals/{id}/decision` 2. `POST /agent/investigations/{id}/resume` | Poll |
-| 4 | Record reply | 1. `POST /domain/proposals/{id}/merchant-reply` `{outcome: "replied", text}` 2. resume | Poll |
-| 4 | Record no reply | 1. Same, `{outcome: "no_reply", text: null}` 2. resume | Poll |
+| 4 | Confirm reply arrived | `POST /agent/investigations/{id}/resume` (the agent reads `GET /domain/cases/{id}/merchant-replies`) | Poll |
+| 4 | Record no reply | 1. `POST /domain/proposals/{id}/merchant-reply` `{outcome: "no_reply", text: null}` 2. resume | Poll |
 | 5 | Approve or reject action | `POST /domain/proposals/{id}/decision` | Refresh case. **No resume.** |
 | 6 | Run recheck (demo) | `POST /domain/rechecks/{id}/run` | Refresh case |
 
@@ -310,10 +310,10 @@ sequenceDiagram
   participant UI
   participant Agent
   participant Domain
-  A->>UI: Enter reply text
-  UI->>Domain: POST /proposals/{pid}/merchant-reply
-  Domain-->>UI: 201, EV-RPL-000001
+  Note over Domain: merchant's reply arrives by itself (EV-RPL-000001)
+  A->>UI: Merchant replied — continue
   UI->>Agent: POST /investigations/{id}/resume
+  Agent->>Domain: GET /cases/{case_id}/merchant-replies
   Agent-->>UI: 202, running
   loop every 2 s
     UI->>Agent: GET /investigations/{id}

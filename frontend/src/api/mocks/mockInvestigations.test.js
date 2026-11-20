@@ -182,6 +182,21 @@ describe('other endings', () => {
     expect((await pollToRest(start.investigation_id)).status).toBe('unsure');
   });
 
+  it('reply arrives by itself: resume alone → reply recorded as evidence → completed', async () => {
+    const start = await call(m.mockStartInvestigation, { case_id: 'CASE-0002', reopen_of: null }, ctx);
+    const paused = await pollToRest(start.investigation_id);
+    const q = await call(m.mockGetProposal, paused.pending_proposal_id, ctx);
+    await decide(q, 'approve');
+    await resume(start.investigation_id);
+    await resume(start.investigation_id); // analyst confirms the reply arrived — nothing typed
+    const replies = await call(m.mockListMerchantReplies, 'CASE-0002', ctx);
+    expect(replies).toHaveLength(1);
+    expect(replies[0]).toMatchObject({ proposal_id: q.proposal_id, outcome: 'replied', text: SAMPLE_REPLY_TEXT });
+    const done = await pollToRest(start.investigation_id);
+    expect(done.status).toBe('completed');
+    expect(done.result.supporting_evidence_ids).toContain(replies[0].evidence_id);
+  });
+
   it('CASE-0001: completed → approve → improved → closed', async () => {
     const start = await call(m.mockStartInvestigation, { case_id: 'CASE-0001', reopen_of: null }, ctx);
     const done = await pollToRest(start.investigation_id);

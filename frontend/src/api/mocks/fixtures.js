@@ -902,7 +902,7 @@ export const buildRecommendationProposal = (scenarioName, { proposal_id, case_id
   });
 };
 
-// Reply text the mock suggests when none is typed — matches check 8 of the packing run
+// The mock merchant's answer, which arrives in the system on resume — matches check 8 of the packing run
 export const SAMPLE_REPLY_TEXT =
   'Since early November, large dinner orders go out in two bags. During the rush the second bag is sometimes left on the shelf.';
 

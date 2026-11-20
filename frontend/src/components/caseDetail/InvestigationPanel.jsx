@@ -31,7 +31,7 @@ import InvestigationProgress from './InvestigationProgress';
 import ResultPanel from './ResultPanel';
 import RecommendationReview from './RecommendationReview';
 import QuestionReview from './QuestionReview';
-import MerchantReplyForm from './MerchantReplyForm';
+import MerchantReplyCard from './MerchantReplyCard';
 import PreviousInvestigation from './PreviousInvestigation';
 import ErrorPanel from './ErrorPanel';
 import CheckTimeline from './CheckTimeline';
@@ -48,7 +48,7 @@ const Slot = ({ view, caseId, investigation, timeZone }) => {
       return <QuestionReview mode='review' investigation={investigation} timeZone={timeZone} />;
     // Step 4: record the merchant's reply, or "no reply" (box 7)
     case 'reply':
-      return <MerchantReplyForm investigation={investigation} />;
+      return <MerchantReplyCard investigation={investigation} />;
     // Result (box 8), then the recommended action under it (box 9)
     case 'result': {
       const { result } = investigation;

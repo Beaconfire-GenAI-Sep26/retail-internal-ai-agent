@@ -1,7 +1,7 @@
 // [10u] ContinueBox — "saved, but the agent hasn't continued yet" → resume only
 // Shown when the first call of "decide first, then resume" worked and the second
 // didn't (or the page reloaded in between). caseSteps.needsResume decides when.
-// Used by QuestionReview (decision saved) and MerchantReplyForm (reply saved).
+// Used by QuestionReview (decision saved) and MerchantReplyCard (reply saved).
 
 
 // ═══════════════════════════════════════════════════════════════════

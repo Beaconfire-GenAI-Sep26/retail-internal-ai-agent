@@ -497,3 +497,6 @@ button.recommendation-edit { justify-self: start; }
 .decision-outcome { display: grid; gap: 2px; padding-top: 10px; border-top: 1px solid var(--border); }
 .decision-note { font-style: italic; white-space: pre-wrap; }
 .decision-viewer { padding-top: 10px; border-top: 1px solid var(--border); }
+
+/* Mock mode: "Reset demo" in the nav — dashed so it reads as a dev tool */
+button.nav-reset { border-style: dashed; color: var(--warn); font-size: 0.82rem; padding: 4px 10px; }

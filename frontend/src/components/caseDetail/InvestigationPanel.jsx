@@ -9,8 +9,7 @@
 //   │ 3. Checks (11)  |  Possible causes (12)                          │
 //   └──────────────────────────────────────────────────────────────────┘
 //
-// Still to come: QuestionReview / MerchantReplyForm (commits 5, 6),
-// PreviousInvestigation (commit 7).
+// Still to come: MerchantReplyForm (commit 6), PreviousInvestigation (commit 7).
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -31,6 +30,7 @@ import StartInvestigationButton from './StartInvestigationButton';
 import InvestigationProgress from './InvestigationProgress';
 import ResultPanel from './ResultPanel';
 import RecommendationReview from './RecommendationReview';
+import QuestionReview from './QuestionReview';
 import ErrorPanel from './ErrorPanel';
 import CheckTimeline from './CheckTimeline';
 import HypothesisList from './HypothesisList';
@@ -41,15 +41,10 @@ import HypothesisList from './HypothesisList';
 // ═══════════════════════════════════════════════════════════════════
 const Slot = ({ view, caseId, investigation, timeZone }) => {
   switch (view.slot) {
-    // D-05 builds these two (commits 5, 6). Until then the run can't continue
-    // from the page, so say so instead of showing nothing.
+    // Step 3: review the agent's question (box 6)
     case 'question':
-      return (
-        <div className='slot-placeholder'>
-          <p>The agent wants to ask the merchant a question.</p>
-          <p className='muted'>Question review comes in D-05.</p>
-        </div>
-      );
+      return <QuestionReview mode='review' investigation={investigation} timeZone={timeZone} />;
+    // Step 4: the reply form comes in commit 6. Until then say so instead of showing nothing.
     case 'reply':
       return (
         <div className='slot-placeholder'>
@@ -140,6 +135,11 @@ const InvestigationPanel = ({ caseId }) => {
       )}
       {view.showProgress && (
         <InvestigationProgress investigation={investigation} pausedFor={view.pausedFor} pollError={pollError} />
+      )}
+
+      {/* Questions this run already asked, read-only, until the run ends (box 6) */}
+      {view.showQuestionHistory && (
+        <QuestionReview mode='history' investigation={investigation} timeZone={timeZone} />
       )}
 
       {/* ── Part 2: the shared spot (boxes 6–10) ── */}

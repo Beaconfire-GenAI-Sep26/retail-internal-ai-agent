@@ -1,7 +1,7 @@
 // [08a] Investigation thunks — async calls to /agent/investigations (Agent Service, B-02)
 // Mock branch when USE_MOCKS (api/mocks/mockInvestigations.js, D-04), until the
-// Agent Service runs locally. The mocks know CASE-0001 and CASE-0002, the same
-// IDs the seeded Domain database opens.
+// Agent Service runs locally. The mocks pick a scenario by the case's store
+// (STORE-A, STORE-B), whatever ID the seeded Domain database gave the case.
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -9,12 +9,13 @@
 // ═══════════════════════════════════════════════════════════════════
 import { createAsyncThunk } from '@reduxjs/toolkit';
 import api from '../../api/axios';
-import { getErrorMessage } from '../../api/errors';
+import { getErrorCode, getErrorMessage } from '../../api/errors';
 import { USE_MOCKS } from '../../api/mockAuth';
 import {
   mockListInvestigations,
   mockStartInvestigation,
   mockGetInvestigation,
+  mockResumeInvestigation,
 } from '../../api/mocks/mockInvestigations';
 import { fetchCase } from '../cases/casesThunks';
 
@@ -102,5 +103,42 @@ export const fetchInvestigation = createAsyncThunk(
     // Skip this tick if the previous request hasn't come back yet, so a slow
     // network never stacks up requests. A skipped call dispatches nothing.
     condition: (_, { getState }) => !getState().investigations.polling,
+  },
+);
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 5. resumeInvestigation — POST /agent/investigations/{id}/resume (D-05)
+// ═══════════════════════════════════════════════════════════════════
+// The frontend wakes a paused run; Domain never calls the agent. Always the
+// second call of a pair (ui-workflow.md v0.3 "Decide first, then resume"):
+//   question decided → resume · reply recorded → resume
+// Empty body: the agent re-reads Domain. Header: Idempotency-Key.
+// → 202 InvestigationView — 'running' (polling takes over) or 'awaiting_merchant'.
+//
+// Rejects with { message, code, noResponse }, like the proposal writes.
+// 409 INVESTIGATION_FINISHED → the run already ended: reload it.
+export const resumeInvestigation = createAsyncThunk(
+  'investigations/resume',
+  async ({ id, idempotencyKey }, { getState, dispatch, rejectWithValue }) => {
+    try {
+      const view = USE_MOCKS
+        ? await mockResumeInvestigation(id, { user: getState().auth.user, idempotencyKey })
+        : (await api.post(`/agent/investigations/${encodeURIComponent(id)}/resume`, null, {
+          headers: { 'Idempotency-Key': idempotencyKey },
+        })).data;
+
+      // Running again, or now waiting for the merchant → the case status moved
+      dispatch(fetchCase(view.case_id));
+      return view;
+    } catch (err) {
+      const code = getErrorCode(err);
+      if (code === 'INVESTIGATION_FINISHED') dispatch(fetchInvestigation(id));
+      return rejectWithValue({
+        code,
+        message: getErrorMessage(err, "Couldn't continue the investigation"),
+        noResponse: !err?.response,
+      });
+    }
   },
 );

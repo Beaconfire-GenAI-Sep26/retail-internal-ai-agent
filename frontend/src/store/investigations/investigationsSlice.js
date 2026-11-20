@@ -9,6 +9,7 @@ import {
   fetchLatestInvestigation,
   startInvestigation,
   fetchInvestigation,
+  resumeInvestigation,
 } from './investigationsThunks';
 
 
@@ -32,6 +33,10 @@ const initialState = {
   // fetchInvestigation — the 2 s poll
   polling: false, // a poll request is in flight (see the thunk's `condition`)
   pollError: null, // last poll failed; polling keeps trying
+
+  // resumeInvestigation — after a question decision or a merchant reply (D-05)
+  resumeStatus: 'idle', // 'idle' | 'loading' | 'failed'
+  resumeError: null, // { message, code, noResponse }
 };
 
 
@@ -91,6 +96,23 @@ const investigationsSlice = createSlice({
       .addCase(fetchInvestigation.rejected, (state, action) => {
         state.polling = false;
         state.pollError = action.payload ?? 'Could not refresh the investigation';
+      })
+
+      // resumeInvestigation — the 202 view replaces the paused one; if it is
+      // 'running', usePollInvestigation starts polling again by itself
+      .addCase(resumeInvestigation.pending, (state) => {
+        state.resumeStatus = 'loading';
+        state.resumeError = null;
+      })
+      .addCase(resumeInvestigation.fulfilled, (state, action) => {
+        state.resumeStatus = 'idle';
+        if (action.payload.investigation_id === state.current?.investigation_id) {
+          state.current = action.payload;
+        }
+      })
+      .addCase(resumeInvestigation.rejected, (state, action) => {
+        state.resumeStatus = 'failed';
+        state.resumeError = action.payload ?? { message: "Couldn't continue the investigation", code: null, noResponse: false };
       });
   },
 });

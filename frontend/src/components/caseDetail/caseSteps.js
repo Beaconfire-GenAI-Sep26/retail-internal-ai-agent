@@ -46,6 +46,28 @@ export const findRecheck = (investigation, caseDetail) => {
 
 const hasRecheckFor = (investigation, caseDetail) => Boolean(findRecheck(investigation, caseDetail));
 
+// This run's merchant questions (max 2 per run), oldest first.
+// From CaseDetail.proposals; `latest` (proposals slice, by ID) wins when it has a
+// newer copy, e.g. right after a decision, before the case reloads.
+export const runQuestions = (investigation, caseDetail, latest = {}) =>
+  (caseDetail?.proposals ?? [])
+    .filter((p) => p.kind === 'merchant_question' && p.investigation_id === investigation?.investigation_id)
+    .map((p) => latest[p.proposal_id] ?? p)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+// Decided (or replied) but the run hasn't continued: the decision call worked
+// and the resume call didn't, or the page reloaded in between. Worked out from
+// the data, not remembered in a component, so a reload still shows "Continue"
+// (d03 plan, Commits 5–6).
+//   awaiting_approval + the question is no longer pending
+//   awaiting_merchant + a reply (or no_reply) is recorded for it   (reply from commit 6)
+export const needsResume = (investigation, question, reply = null) => {
+  if (!investigation || !question) return false;
+  if (investigation.status === 'awaiting_approval') return question.status !== 'pending';
+  if (investigation.status === 'awaiting_merchant') return Boolean(reply);
+  return false;
+};
+
 // Everything hidden — each step turns on what it needs
 const NOTHING = {
   step: null,

@@ -1,7 +1,7 @@
 // getCaseView: every step of ui-workflow.md v0.3, Failed, Unsure, and the case
 // ends the d03 plan added (analyst_review, closed, paused).
 import { describe, expect, it } from 'vitest';
-import { getCaseView, findRecheck } from './caseSteps';
+import { getCaseView, findRecheck, runQuestions, needsResume } from './caseSteps';
 
 const inv = (status, extra = {}) => ({
   investigation_id: 'INV-2',
@@ -127,5 +127,47 @@ describe('findRecheck', () => {
   it('no action yet, or not scheduled yet → null', () => {
     expect(findRecheck(inv('unsure'), caseIn('analyst_review'))).toBeNull();
     expect(findRecheck(inv('completed'), caseIn('awaiting_decision'))).toBeNull();
+  });
+});
+
+describe('runQuestions', () => {
+  const q = (id, invId, created_at, status = 'pending') => ({ proposal_id: id, kind: 'merchant_question', investigation_id: invId, created_at, status });
+  const c = caseIn('awaiting_merchant', { proposals: [
+    q('PROP-0004', 'INV-2', '2026-11-16T15:10:00Z'),
+    q('PROP-0002', 'INV-2', '2026-11-16T15:04:00Z'),
+    q('PROP-0001', 'INV-1', '2026-11-01T10:00:00Z'),
+    { proposal_id: 'PROP-0003', kind: 'intervention', investigation_id: 'INV-2', created_at: '2026-11-16T15:20:00Z' },
+  ] });
+
+  it("only this run's questions, oldest first", () => {
+    expect(runQuestions(inv('running'), c).map((p) => p.proposal_id)).toEqual(['PROP-0002', 'PROP-0004']);
+  });
+
+  it('a newer copy from the proposals slice wins', () => {
+    const latest = { 'PROP-0002': { ...c.proposals[1], status: 'approved' } };
+    expect(runQuestions(inv('running'), c, latest)[0].status).toBe('approved');
+  });
+});
+
+describe('needsResume', () => {
+  const question = (status) => ({ proposal_id: 'PROP-0002', status });
+
+  it('question decided while the run still waits for approval → Continue', () => {
+    expect(needsResume(inv('awaiting_approval'), question('approved'))).toBe(true);
+    expect(needsResume(inv('awaiting_approval'), question('rejected'))).toBe(true);
+  });
+
+  it('question still pending → no', () => {
+    expect(needsResume(inv('awaiting_approval'), question('pending'))).toBe(false);
+  });
+
+  it('waiting for the merchant: only once a reply is recorded', () => {
+    expect(needsResume(inv('awaiting_merchant'), question('approved'))).toBe(false);
+    expect(needsResume(inv('awaiting_merchant'), question('approved'), { outcome: 'no_reply' })).toBe(true);
+  });
+
+  it('a running or finished run never needs it', () => {
+    expect(needsResume(inv('running'), question('approved'))).toBe(false);
+    expect(needsResume(inv('completed'), question('approved'), { outcome: 'replied' })).toBe(false);
   });
 });

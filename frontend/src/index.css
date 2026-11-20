@@ -498,6 +498,46 @@ button.recommendation-edit { justify-self: start; }
 .decision-note { font-style: italic; white-space: pre-wrap; }
 .decision-viewer { padding-top: 10px; border-top: 1px solid var(--border); }
 
+/* ═══ 12. Merchant question — box 6 (D-05) ═══ */
+.question-history { display: grid; gap: 10px; }
+.question-review {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--wait);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.question-past { background: var(--surface-soft); }
+.question-text {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-soft);
+  font-size: 1rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.question-past .question-text { background: var(--surface); }
+.question-review textarea {
+  width: 100%;
+  font: inherit;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  resize: vertical;
+}
+.continue-box {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px dashed var(--wait);
+}
+
 /* ═══ 11. Recheck card — box 13 (D-03) ═══ */
 .recheck-panel {
   display: grid;

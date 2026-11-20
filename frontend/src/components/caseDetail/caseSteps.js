@@ -35,11 +35,16 @@ const START_LABELS = {
   again: 'Start again',
 };
 
-// A recheck exists for this run's action (Domain schedules it on approval)
-const hasRecheckFor = (investigation, caseDetail) => {
-  const proposalId = investigation.result?.proposal_id;
-  return Boolean(proposalId && caseDetail?.rechecks?.some((r) => r.proposal_id === proposalId));
+// The recheck of this run's action, or null. Matched by proposal_id, not by
+// position: contracts.md doesn't fix the order of CaseDetail.rechecks, and a
+// reopened case has one recheck per run.
+export const findRecheck = (investigation, caseDetail) => {
+  const proposalId = investigation?.result?.proposal_id;
+  if (!proposalId) return null;
+  return caseDetail?.rechecks?.find((r) => r.proposal_id === proposalId) ?? null;
 };
+
+const hasRecheckFor = (investigation, caseDetail) => Boolean(findRecheck(investigation, caseDetail));
 
 // Everything hidden — each step turns on what it needs
 const NOTHING = {

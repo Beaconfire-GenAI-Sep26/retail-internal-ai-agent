@@ -25,6 +25,7 @@ import CaseHeader from '../components/caseDetail/CaseHeader';
 import DailyRateChart from '../components/caseDetail/DailyRateChart';
 import InvestigationPanel from '../components/caseDetail/InvestigationPanel';
 import EvidenceDrawer from '../components/caseDetail/EvidenceDrawer';
+import RecheckPanel from '../components/caseDetail/RecheckPanel';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -97,6 +98,8 @@ const CaseDetail = () => {
         goalRate={caseDetail.goal_rate}
       />
       <InvestigationPanel caseId={caseId} />
+      {/* Box 13 sits outside the investigation panel (page map); it hides itself until a recheck exists */}
+      <RecheckPanel caseId={caseId} />
       <EvidenceDrawer timeZone={caseDetail.store.timezone} />
     </section>
   );

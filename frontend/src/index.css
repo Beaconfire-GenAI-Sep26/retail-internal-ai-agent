@@ -498,5 +498,31 @@ button.recommendation-edit { justify-self: start; }
 .decision-note { font-style: italic; white-space: pre-wrap; }
 .decision-viewer { padding-top: 10px; border-top: 1px solid var(--border); }
 
+/* ═══ 11. Recheck card — box 13 (D-03) ═══ */
+.recheck-panel {
+  display: grid;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+}
+.recheck-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.recheck-facts { display: grid; gap: 0; margin: 0; }
+.recheck-facts > div {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.recheck-facts dt { color: var(--text-muted); font-size: 0.9rem; }
+.recheck-facts dd { margin: 0; }
+@media (max-width: 600px) {
+  .recheck-panel { padding: 16px; }
+  .recheck-facts > div { grid-template-columns: 1fr; gap: 2px; }
+}
+
 /* Mock mode: "Reset demo" in the nav — dashed so it reads as a dev tool */
 button.nav-reset { border-style: dashed; color: var(--warn); font-size: 0.82rem; padding: 4px 10px; }

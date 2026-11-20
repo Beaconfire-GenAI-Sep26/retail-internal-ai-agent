@@ -65,6 +65,21 @@ export const formatDay = (ymd) => {
   });
 };
 
+// Two plain dates, e.g. a RateWindow's start and end
+// "2026-11-03", "2026-11-15" → "Nov 3 – Nov 15, 2026"
+// "2026-12-28", "2027-01-05" → "Dec 28, 2026 – Jan 5, 2027" (years differ, both shown)
+export const formatDayRange = (startYmd, endYmd) => {
+  if (!startYmd || !endYmd) return '—';
+  const end = formatDay(endYmd);
+  if (startYmd.slice(0, 4) !== endYmd.slice(0, 4)) return `${formatDay(startYmd)} – ${end}`;
+  const start = new Date(`${startYmd}T00:00:00Z`).toLocaleDateString('en-US', {
+    timeZone: 'UTC',
+    month: 'short',
+    day: 'numeric',
+  });
+  return `${start} – ${end}`;
+};
+
 // Date and time, e.g. for evidence and the audit log
 // "2026-11-04T01:12:00Z", "America/Chicago" → "Nov 3, 2026, 7:12 PM CST" · null → "—"
 // Newer ICU puts a narrow no-break space before AM/PM; a plain space keeps it

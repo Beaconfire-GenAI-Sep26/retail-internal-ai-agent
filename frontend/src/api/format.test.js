@@ -6,6 +6,7 @@ import {
   formatRateWindow,
   formatDateTime,
   formatDay,
+  formatDayRange,
   formatTarget,
   formatMoney,
   formatInvestigationError,
@@ -33,6 +34,11 @@ describe('formatDay', () => {
   it('a store-local date stays the same day in any browser timezone', () => {
     expect(formatDay('2026-10-30')).toBe('Oct 30, 2026');
     expect(formatDay(null)).toBe('—');
+  });
+
+  it('a range shows the year once, or both when they differ', () => {
+    expect(formatDayRange('2026-11-03', '2026-11-15')).toBe('Nov 3 – Nov 15, 2026');
+    expect(formatDayRange('2026-12-28', '2027-01-05')).toBe('Dec 28, 2026 – Jan 5, 2027');
   });
 });
 

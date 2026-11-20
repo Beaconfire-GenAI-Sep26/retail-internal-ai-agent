@@ -1,7 +1,7 @@
 // getCaseView: every step of ui-workflow.md v0.3, Failed, Unsure, and the case
 // ends the d03 plan added (analyst_review, closed, paused).
 import { describe, expect, it } from 'vitest';
-import { getCaseView } from './caseSteps';
+import { getCaseView, findRecheck } from './caseSteps';
 
 const inv = (status, extra = {}) => ({
   investigation_id: 'INV-2',
@@ -112,5 +112,20 @@ describe('where a case ends after a diagnosis', () => {
 
   it('case still loading → treated as step 5', () => {
     expect(view(inv('completed'), null).step).toBe('5');
+  });
+});
+
+describe('findRecheck', () => {
+  it("picks this run's recheck by proposal_id, whatever the order", () => {
+    const c = caseIn('closed', { rechecks: [
+      { recheck_id: 'RCK-0002', proposal_id: 'PROP-0001' },
+      { recheck_id: 'RCK-0001', proposal_id: 'PROP-0009' },
+    ] });
+    expect(findRecheck(inv('completed'), c).recheck_id).toBe('RCK-0002');
+  });
+
+  it('no action yet, or not scheduled yet → null', () => {
+    expect(findRecheck(inv('unsure'), caseIn('analyst_review'))).toBeNull();
+    expect(findRecheck(inv('completed'), caseIn('awaiting_decision'))).toBeNull();
   });
 });

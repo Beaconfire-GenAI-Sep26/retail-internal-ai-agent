@@ -1,6 +1,7 @@
 """Tests run against the seeded database (python -m scripts.reset_and_seed first).
 
-They delete rows from domain.cases and domain.idempotency_keys, which the seed leaves empty.
+They delete rows from the tables the seed leaves empty: cases, idempotency_keys and the
+C-03 tables (proposals, proposal_versions, dispatches, rechecks, audit_log).
 """
 import time
 import os
@@ -21,7 +22,15 @@ os.environ.setdefault("INTERNAL_SERVICE_TOKEN", "domain-test-service-token")
 
 from domain.app.db import SessionLocal
 from domain.app.main import app
-from domain.app.models import Case, IdempotencyRecord
+from domain.app.models import (
+    AuditEntry,
+    Case,
+    Dispatch,
+    IdempotencyRecord,
+    Proposal,
+    ProposalVersion,
+    Recheck,
+)
 from domain.app.settings import settings
 
 ALL_STORES = [f"STORE-{c}" for c in "ABCDEFGHIJ"]
@@ -56,8 +65,8 @@ def client():
 def clean_cases():
     def wipe():
         with SessionLocal() as s:
-            s.execute(delete(IdempotencyRecord))
-            s.execute(delete(Case))
+            for model in (AuditEntry, Recheck, Dispatch, ProposalVersion, Proposal, IdempotencyRecord, Case):
+                s.execute(delete(model))  # children before parents
             s.commit()
 
     wipe()

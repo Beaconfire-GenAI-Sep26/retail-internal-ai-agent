@@ -1,7 +1,7 @@
 """Runtime settings for the Domain service, read from environment variables.
 
 Names follow architecture.md (B-01). MONITOR_MIN_RISE and FRAUD_MIN_PENDING_CLAIMS are
-C-02 additions that architecture.md does not list yet.
+C-02 additions that architecture.md does not list yet. MOCK_DISPATCH_FAIL is a C-03 demo switch.
 """
 import os
 from dataclasses import dataclass
@@ -21,6 +21,8 @@ class Settings:
     # Diagnostics
     min_group_orders: int  # below this a group's rate is null (insufficient data)
     fraud_min_pending_claims: int  # pending claims per customer_ref that fraud_signals flags
+    # Mock dispatch (C-03). INTERNAL_SERVICE_TOKEN is read by app/main.py and checked in app/access.py.
+    mock_dispatch_fail: bool  # demo switch: every mock send fails with 502 DISPATCH_FAILED
 
 
 def load_settings() -> Settings:
@@ -34,6 +36,7 @@ def load_settings() -> Settings:
         monitor_min_orders=int(env("MONITOR_MIN_ORDERS", "100")),
         min_group_orders=int(env("MIN_GROUP_ORDERS", "30")),
         fraud_min_pending_claims=int(env("FRAUD_MIN_PENDING_CLAIMS", "4")),
+        mock_dispatch_fail=env("MOCK_DISPATCH_FAIL", "false").lower() == "true",
     )
 
 

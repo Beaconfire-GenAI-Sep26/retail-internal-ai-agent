@@ -1,11 +1,11 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Body, Depends, Header
+from fastapi import APIRouter, Body, Depends, Header, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from domain.app.deps import get_session
-from domain.app.errors import ApiError
+from domain.app.errors import ApiError, request_id
 from domain.app.models import IdempotencyRecord
 from domain.app.schemas import MonitorRunRequest, MonitorRunResponse
 from domain.app.security import CurrentUser, require_analyst
@@ -17,6 +17,7 @@ ROUTE = "POST /monitor/run"
 
 @router.post("/monitor/run", response_model=MonitorRunResponse)
 def monitor_run(
+    request: Request,
     body: MonitorRunRequest | None = Body(default=None),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     user: CurrentUser = Depends(require_analyst),
@@ -36,7 +37,7 @@ def monitor_run(
         session.rollback()
         return MonitorRunResponse.model_validate(stored.response)
 
-    response = run_monitor(session, user, body.as_of if body else None)
+    response = run_monitor(session, user, body.as_of if body else None, request_id(request))
     session.add(
         IdempotencyRecord(
             key=idempotency_key,

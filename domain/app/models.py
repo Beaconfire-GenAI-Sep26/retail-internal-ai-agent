@@ -23,8 +23,10 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Numeric,
+    Sequence,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -237,7 +239,7 @@ class OperationalEvent(Base):
 class Case(Base):
     """Case opened by the C-02 monitor; empty after seeding.
 
-    Later tickets add active_investigation_id and last_error (C-03) and reopen_count (C-04).
+    C-03 adds the investigation columns. C-04 adds reopen_count.
     """
 
     __tablename__ = "cases"
@@ -256,6 +258,10 @@ class Case(Base):
     goal_rate: Mapped[Decimal] = mapped_column(RATE)  # MONITOR_GOAL_RATE at open time (C-02)
     opened_at: Mapped[datetime] = mapped_column(TZ)
     updated_at: Mapped[datetime] = mapped_column(TZ)
+    # C-03: reported by the agent through PUT /internal/cases/{case_id}/investigation
+    active_investigation_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    investigation_ids: Mapped[list] = mapped_column(JSON, default=list, server_default=text("'[]'"))  # oldest first
+    last_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
 
 class IdempotencyRecord(Base):
@@ -275,6 +281,133 @@ class IdempotencyRecord(Base):
 
 
 # ---------------------------------------------------------------------------
+# Proposals, decisions, dispatch, rechecks and audit (C-03)
+# ---------------------------------------------------------------------------
+class ProposalKind(str, enum.Enum):
+    MERCHANT_QUESTION = "merchant_question"
+    INTERVENTION = "intervention"
+    HANDOFF = "handoff"
+
+
+class ProposalStatus(str, enum.Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class RecheckStatus(str, enum.Enum):
+    SCHEDULED = "scheduled"
+    IMPROVED = "improved"
+    NOT_IMPROVED = "not_improved"
+    INSUFFICIENT_DATA = "insufficient_data"
+
+
+# ID sequences (created by the C-03 migration). Postgres sequences never hand out the same
+# number twice, even to two requests at the same moment. A rolled-back request leaves a gap.
+PROPOSAL_SEQ = Sequence("proposal_id_seq", schema=DOMAIN_SCHEMA, metadata=Base.metadata)
+DISPATCH_SEQ = Sequence("dispatch_id_seq", schema=DOMAIN_SCHEMA, metadata=Base.metadata)
+RECHECK_SEQ = Sequence("recheck_id_seq", schema=DOMAIN_SCHEMA, metadata=Base.metadata)
+AUDIT_SEQ = Sequence("audit_id_seq", schema=DOMAIN_SCHEMA, metadata=Base.metadata)
+
+
+class Proposal(Base):
+    """A merchant question or a recommended action, created by the agent, decided by an analyst.
+
+    The text lives in proposal_versions. An edit adds a version; a decision must name the
+    current version, so an analyst never approves text they have not seen.
+    """
+
+    __tablename__ = "proposals"
+    __table_args__ = {"schema": DOMAIN_SCHEMA}
+
+    proposal_id: Mapped[str] = mapped_column(String(20), primary_key=True)  # PROP-0001
+    case_id: Mapped[str] = mapped_column(ForeignKey(f"{DOMAIN_SCHEMA}.cases.case_id"), index=True)
+    investigation_id: Mapped[str] = mapped_column(String(40))
+    kind: Mapped[ProposalKind] = mapped_column(str_enum(ProposalKind, "proposal_kind"))
+    status: Mapped[ProposalStatus] = mapped_column(str_enum(ProposalStatus, "proposal_status"))
+    current_version: Mapped[int] = mapped_column(Integer)
+    evidence_ids: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(TZ)
+    decided_by: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(TZ, nullable=True)
+    decided_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ProposalVersion(Base):
+    """Every version of a proposal's content is kept, never overwritten."""
+
+    __tablename__ = "proposal_versions"
+    __table_args__ = {"schema": DOMAIN_SCHEMA}
+
+    proposal_id: Mapped[str] = mapped_column(
+        ForeignKey(f"{DOMAIN_SCHEMA}.proposals.proposal_id"), primary_key=True
+    )
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    content: Mapped[dict] = mapped_column(JSON)
+    created_by: Mapped[str] = mapped_column(String(20))  # user_id, or svc_agent for version 1
+    created_at: Mapped[datetime] = mapped_column(TZ)
+
+
+class Dispatch(Base):
+    """The mock send after approval. proposal_id is unique, so a proposal is dispatched at most once."""
+
+    __tablename__ = "dispatches"
+    __table_args__ = {"schema": DOMAIN_SCHEMA}
+
+    dispatch_id: Mapped[str] = mapped_column(String(20), primary_key=True)  # DSP-000001
+    proposal_id: Mapped[str] = mapped_column(
+        ForeignKey(f"{DOMAIN_SCHEMA}.proposals.proposal_id"), unique=True
+    )
+    version: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(20))  # dispatched / failed
+    channel: Mapped[str] = mapped_column(String(20))  # mock_merchant / mock_team_queue
+    owner_team: Mapped[str] = mapped_column(String(20))
+    payload: Mapped[dict] = mapped_column(JSON)  # what was "sent": the approved content
+    dispatched_by: Mapped[str] = mapped_column(String(20))
+    dispatched_at: Mapped[datetime] = mapped_column(TZ)
+
+
+class Recheck(Base):
+    """Planned follow-up after an approved intervention or handoff. C-03 schedules it; C-04 runs it."""
+
+    __tablename__ = "rechecks"
+    __table_args__ = {"schema": DOMAIN_SCHEMA}
+
+    recheck_id: Mapped[str] = mapped_column(String(20), primary_key=True)  # RCK-0001
+    case_id: Mapped[str] = mapped_column(ForeignKey(f"{DOMAIN_SCHEMA}.cases.case_id"), index=True)
+    proposal_id: Mapped[str] = mapped_column(
+        ForeignKey(f"{DOMAIN_SCHEMA}.proposals.proposal_id"), unique=True
+    )
+    scheduled_for: Mapped[datetime] = mapped_column(TZ)
+    status: Mapped[RecheckStatus] = mapped_column(str_enum(RecheckStatus, "recheck_status"))
+    target: Mapped[dict] = mapped_column(JSON)
+    before: Mapped[dict] = mapped_column(JSON)  # RateWindow
+    after: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    control: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    data_sufficient: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    ran_at: Mapped[datetime | None] = mapped_column(TZ, nullable=True)
+
+
+class AuditEntry(Base):
+    """Append-only log of who did what to a case. Rows are only ever inserted."""
+
+    __tablename__ = "audit_log"
+    __table_args__ = {"schema": DOMAIN_SCHEMA}
+
+    audit_id: Mapped[str] = mapped_column(String(20), primary_key=True)  # AUD-000001
+    case_id: Mapped[str] = mapped_column(ForeignKey(f"{DOMAIN_SCHEMA}.cases.case_id"), index=True)
+    actor_id: Mapped[str] = mapped_column(String(20))  # USR-001, svc_agent or svc_monitor
+    actor_role: Mapped[str] = mapped_column(String(20))  # viewer / loe_analyst / service
+    action: Mapped[str] = mapped_column(String(40))  # proposal.created, proposal.approved, dispatch.sent ...
+    proposal_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    request_id: Mapped[str] = mapped_column(String(64))
+    at: Mapped[datetime] = mapped_column(TZ)
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+# ---------------------------------------------------------------------------
 # Evaluation answer key (hidden from the agent)
 # ---------------------------------------------------------------------------
 class GoldenScenario(Base):
@@ -284,12 +417,12 @@ class GoldenScenario(Base):
     scenario_id: Mapped[str] = mapped_column(String(10), primary_key=True)  # GS-01
     store_id: Mapped[str] = mapped_column(String(20))  # no FK: keep eval independent of domain
     split: Mapped[str] = mapped_column(String(10))  # dev / holdout
-    cause_category: Mapped[str] = mapped_column(String(20))  # pos/packing/inventory/dasher/fraud/multiple/none/unknown
+    cause_category: Mapped[str] = mapped_column(String(20))  # contracts cause_category, or none when no case should open
     true_cause: Mapped[str] = mapped_column(String(64))
     cause_started_at: Mapped[datetime | None] = mapped_column(TZ, nullable=True)
-    expected_outcome: Mapped[str] = mapped_column(String(20))  # no_case / diagnosed / unsure_handoff
-    expected_owner: Mapped[str] = mapped_column(String(20))  # merchant / dasher_ops / fraud_team / analyst
-    expected_action: Mapped[str] = mapped_column(String(80))
+    expected_outcome: Mapped[str] = mapped_column(String(20))  # diagnosis / unsure / no_case (InvestigationResult.outcome)
+    expected_owner: Mapped[str] = mapped_column(String(20))  # contracts owner_team
+    expected_action: Mapped[str] = mapped_column(String(80))  # catalog action_id (app/catalog.py), or no_case
     key_evidence: Mapped[list] = mapped_column(JSON, default=list)  # descriptions, never concrete IDs
     distractors: Mapped[list] = mapped_column(JSON, default=list)
     notes: Mapped[str] = mapped_column(Text, default="")

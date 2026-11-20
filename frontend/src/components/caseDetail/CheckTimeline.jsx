@@ -73,7 +73,8 @@ const CheckItem = ({ check, number, hypothesesById }) => {
         </div>
         <p>{check.purpose}</p>
         <p className='check-headline'>{check.headline}</p>
-        <EvidenceLinks label='Evidence' ids={check.evidence_ids} />
+        {/* A check can cite dozens of records: first 3, the rest folded */}
+        <EvidenceLinks label='Evidence' ids={check.evidence_ids} limit={3} />
 
         {/* Per cause: did the result match what the agent expected if it were true? */}
         {matches.length > 0 && (

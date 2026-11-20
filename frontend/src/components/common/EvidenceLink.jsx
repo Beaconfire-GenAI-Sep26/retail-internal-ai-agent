@@ -8,6 +8,7 @@
 // ═══════════════════════════════════════════════════════════════════
 // 1. Imports
 // ═══════════════════════════════════════════════════════════════════
+import { useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { openEvidence } from '../../store/evidence/evidenceSlice';
 
@@ -38,12 +39,26 @@ const EvidenceLink = ({ id, children }) => {
 // ═══════════════════════════════════════════════════════════════════
 //   <EvidenceLinks label='Supports' ids={hypothesis.supporting_evidence_ids} />
 //   → Supports: EV-EVT-000031 · EV-CLM-004410
-export const EvidenceLinks = ({ label, ids }) => {
+// limit (optional): show the first `limit` IDs, fold the rest behind "+N more"
+//   <EvidenceLinks label='Evidence' ids={check.evidence_ids} limit={3} />
+//   → Evidence: EV-CLM-1 · EV-CLM-2 · EV-CLM-3  +9 more
+export const EvidenceLinks = ({ label, ids, limit }) => {
+  const [expanded, setExpanded] = useState(false);
   if (!ids?.length) return null;
+
+  // Folding one ID saves nothing, so fold only when 2+ would be hidden
+  const foldable = limit != null && ids.length > limit + 1;
+  const shown = foldable && !expanded ? ids.slice(0, limit) : ids;
+
   return (
     <p className='evidence-links'>
       {label && <span className='muted'>{label}: </span>}
-      {ids.map((id) => <EvidenceLink key={id} id={id} />)}
+      {shown.map((id) => <EvidenceLink key={id} id={id} />)}
+      {foldable && (
+        <button type='button' className='evidence-more' onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
+          {expanded ? 'Show less' : `+${ids.length - limit} more`}
+        </button>
+      )}
     </p>
   );
 };

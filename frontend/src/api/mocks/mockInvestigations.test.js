@@ -291,4 +291,23 @@ describe('errors and guards', () => {
     const real = realCase('CASE-0001');
     expect(m.applyMockCase(real)).toBe(real);
   });
+
+  it('picks the scenario by store, not by case ID', async () => {
+    // The monitor may open STORE-B's case as CASE-0001 when more stores cross the line
+    m.applyMockCaseSummary({ ...realCase('CASE-0001'), store_id: 'STORE-B' });
+    const start = await call(m.mockStartInvestigation, { case_id: 'CASE-0001', reopen_of: null }, ctx);
+    expect(start.case_id).toBe('CASE-0001');
+    expect(start.store_id).toBe('STORE-B');
+    const paused = await pollToRest(start.investigation_id);
+    expect(paused.status).toBe('awaiting_approval'); // the packing run asks a question
+    const question = await call(m.mockGetProposal, paused.pending_proposal_id, ctx);
+    expect(question.case_id).toBe('CASE-0001');
+  });
+
+  it('a case from a store with no scenario → CASE_NOT_FOUND with a clear message', async () => {
+    m.applyMockCaseSummary({ ...realCase('CASE-0003'), store_id: 'STORE-C' });
+    const err = await fail(m.mockStartInvestigation, { case_id: 'CASE-0003', reopen_of: null }, { user: { ...analyst, store_ids: ['STORE-C'] } });
+    expect(err.data.error.code).toBe('CASE_NOT_FOUND');
+    expect(err.data.error.message).toMatch(/no scenario for STORE-C/);
+  });
 });

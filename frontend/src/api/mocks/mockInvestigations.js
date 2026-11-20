@@ -32,7 +32,9 @@
 // status, proposals and rechecks, applyMockCase lays the mock's case state over
 // the real CaseDetail, following contracts.md "Status model".
 //
-// Flows (ui-workflow.md "Workflow at a glance"):
+// Flows (ui-workflow.md "Workflow at a glance"). The scenario is picked by the
+// case's store (STORE-A → pos, STORE-B → packing), so it still fits when the
+// monitor numbers the cases differently. CASE-0001 / CASE-0002 below are the usual IDs.
 //   CASE-0001 · running → completed (POS) → approve → action_dispatched
 //       run recheck → improved → closed
 //   CASE-0002 · running → awaiting_approval
@@ -66,7 +68,8 @@
 // ═══════════════════════════════════════════════════════════════════
 import {
   CASE_SCENARIOS,
-  CASE_REOPEN_SCENARIOS,
+  STORE_SCENARIOS,
+  STORE_REOPEN_SCENARIOS,
   SCENARIOS,
   INVESTIGATION_ERRORS,
   RECHECK_STATUSES,
@@ -118,11 +121,22 @@ const requireAnalyst = (user) => {
 // Single-resource reads hide other stores behind 404 (contracts.md "Errors")
 const canSeeStore = (user, storeId) => (user?.store_ids ?? []).includes(storeId);
 
-const caseStore = (caseId) => SCENARIOS[CASE_SCENARIOS[caseId]]?.store_id;
+// A case's store comes from the real CaseSummary (applyMockCaseSummary records it).
+// Before Domain has shown the case, fall back to the demo IDs (unit tests).
+const caseStore = (caseId) =>
+  db.caseStores.get(caseId) ?? SCENARIOS[CASE_SCENARIOS[caseId]]?.store_id;
+
+// The scenario a case's run plays, picked by its store
+const scenarioForCase = (caseId, isSecond) =>
+  (isSecond ? STORE_REOPEN_SCENARIOS : STORE_SCENARIOS)[caseStore(caseId)];
 
 const requireCase = (caseId, user) => {
-  if (!caseStore(caseId) || !canSeeStore(user, caseStore(caseId))) {
+  const storeId = caseStore(caseId);
+  if (!storeId || !canSeeStore(user, storeId)) {
     throw mockError(404, 'CASE_NOT_FOUND', `Case ${caseId} not found.`);
+  }
+  if (!STORE_SCENARIOS[storeId]) {
+    throw mockError(404, 'CASE_NOT_FOUND', `The mock has no scenario for ${storeId}. Only ${Object.keys(STORE_SCENARIOS).join(' and ')} are scripted.`);
   }
 };
 
@@ -133,7 +147,7 @@ const FINAL = ['completed', 'unsure', 'failed'];
 // 3. In-memory state — saved to sessionStorage after every change
 // ═══════════════════════════════════════════════════════════════════
 const STORAGE_KEY = 'mock-workflow-db-v2';
-const MAPS = ['investigations', 'proposals', 'replies', 'rechecks', 'cases', 'idempotency'];
+const MAPS = ['investigations', 'proposals', 'replies', 'rechecks', 'cases', 'caseStores', 'idempotency'];
 
 let db;
 
@@ -143,6 +157,7 @@ const emptyDb = () => ({
   replies: new Map(),        // proposal_id → MerchantReply
   rechecks: new Map(),       // recheck_id → Recheck
   cases: new Map(),          // case_id → { status, last_error, reopen_count, reopened_from, updated_at }
+  caseStores: new Map(),     // case_id → store_id, learned from the real CaseSummary
   audit: [],                 // AuditEntry[], oldest first
   idempotency: new Map(),    // "<endpoint>:<key>" → stored response
   seq: { inv: 0, prop: 0, dsp: 0, rpl: 0, rck: 0, aud: 0 },
@@ -264,6 +279,7 @@ const runsOf = (caseId) => [...db.investigations.values()].filter((r) => r.case_
 const toView = (rec) => {
   const view = buildView({
     scenario: rec.scenario,
+    case_id: rec.case_id,
     investigation_id: rec.investigation_id,
     status: rec.status,
     nChecks: rec.nChecks,
@@ -288,7 +304,7 @@ const finishRun = (rec) => {
 
   if (rec.then === 'ask') {
     const proposal = buildQuestionProposal({
-      proposal_id: nextProposalId(), investigation_id: rec.investigation_id, created_at: now(),
+      proposal_id: nextProposalId(), case_id: rec.case_id, investigation_id: rec.investigation_id, created_at: now(),
     });
     db.proposals.set(proposal.proposal_id, proposal);
     rec.status = 'awaiting_approval';
@@ -301,7 +317,7 @@ const finishRun = (rec) => {
 
   if (rec.then === 'complete') {
     const proposal = buildRecommendationProposal(rec.scenario, {
-      proposal_id: nextProposalId(), investigation_id: rec.investigation_id, created_at: now(),
+      proposal_id: nextProposalId(), case_id: rec.case_id, investigation_id: rec.investigation_id, created_at: now(),
     });
     db.proposals.set(proposal.proposal_id, proposal);
     rec.status = 'completed';
@@ -374,7 +390,7 @@ export const mockStartInvestigation = async ({ case_id, reopen_of = null }, { us
   // After a reopen every later run (including "Start again" after a failed
   // second run) plays the second-run scenario and keeps pointing at the first run.
   const isSecond = Boolean(reopen_of) || cs.reopen_count > 0;
-  const scenarioName = isSecond ? CASE_REOPEN_SCENARIOS[case_id] : CASE_SCENARIOS[case_id];
+  const scenarioName = scenarioForCase(case_id, isSecond);
   const failCode = db.failNext;
   db.failNext = null;
 
@@ -473,7 +489,12 @@ export const mockResumeInvestigation = async (investigationId, { user, idempoten
 // 7. Domain — case overlay, audit, replies, rechecks, evidence
 // ═══════════════════════════════════════════════════════════════════
 // Lays the mock case state over a real CaseSummary. Untouched cases pass through.
+// Also records the case's store, which picks the scenario it plays.
 export const applyMockCaseSummary = (summary) => {
+  if (summary.store_id && db.caseStores.get(summary.case_id) !== summary.store_id) {
+    db.caseStores.set(summary.case_id, summary.store_id);
+    save();
+  }
   const cs = db.cases.get(summary.case_id);
   if (!cs) return summary;
   const active = runsOf(summary.case_id).find((r) => !FINAL.includes(r.status));

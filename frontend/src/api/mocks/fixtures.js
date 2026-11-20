@@ -728,9 +728,15 @@ export const SCENARIOS = {
   packing_reopen: PACKING_REOPEN_SCENARIO,
 };
 
-// Which scenario a case's first run plays, and which its second run (after a reopen) plays
+// Which scenario a store's first run plays, and which its second run (after a reopen) plays.
+// Keyed by store, not case: real case IDs come from the monitor in the order it
+// opens them, so CASE-0001 is not always STORE-A.
+export const STORE_SCENARIOS = { 'STORE-A': 'pos', 'STORE-B': 'packing' };
+export const STORE_REOPEN_SCENARIOS = { 'STORE-A': 'pos_reopen', 'STORE-B': 'packing_reopen' };
+
+// The case IDs the seeded demo usually opens. Only a fallback for a case the
+// mock hasn't seen from Domain yet (e.g. in unit tests).
 export const CASE_SCENARIOS = { 'CASE-0001': 'pos', 'CASE-0002': 'packing' };
-export const CASE_REOPEN_SCENARIOS = { 'CASE-0001': 'pos_reopen', 'CASE-0002': 'packing_reopen' };
 
 // What a run does once its checks are done: 'ask' | 'complete' | 'unsure'
 export const scenarioEnding = (scenarioName) => {
@@ -790,6 +796,7 @@ export const unsureUpdates = (scenarioName) => SCENARIOS[scenarioName].unsureUpd
 // Returns a fresh InvestigationView every call
 export const buildView = ({
   scenario: scenarioName,
+  case_id = null, // the real case ID; defaults to the scenario's demo ID
   investigation_id,
   status,
   nChecks,
@@ -812,7 +819,7 @@ export const buildView = ({
 
   return {
     investigation_id,
-    case_id: scenario.case_id,
+    case_id: case_id ?? scenario.case_id,
     store_id: scenario.store_id,
     status,
     started_by,
@@ -857,10 +864,10 @@ const pendingProposal = (fields) => ({
 });
 
 // Only the packing run asks a question
-export const buildQuestionProposal = ({ proposal_id = 'PROP-0002', investigation_id, created_at }) =>
+export const buildQuestionProposal = ({ proposal_id = 'PROP-0002', case_id = 'CASE-0002', investigation_id, created_at }) =>
   pendingProposal({
     proposal_id,
-    case_id: 'CASE-0002',
+    case_id,
     investigation_id,
     kind: 'merchant_question',
     content: {
@@ -873,12 +880,12 @@ export const buildQuestionProposal = ({ proposal_id = 'PROP-0002', investigation
   });
 
 // The action proposal Domain creates from a diagnosis' recommendation
-export const buildRecommendationProposal = (scenarioName, { proposal_id, investigation_id, created_at }) => {
+export const buildRecommendationProposal = (scenarioName, { proposal_id, case_id = null, investigation_id, created_at }) => {
   const s = SCENARIOS[scenarioName];
   const rec = s.result.recommendation;
   return pendingProposal({
     proposal_id,
-    case_id: s.case_id,
+    case_id: case_id ?? s.case_id,
     investigation_id,
     kind: rec.kind,
     content: {

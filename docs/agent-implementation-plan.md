@@ -698,7 +698,6 @@ The current SDK reads `LANGFUSE_BASE_URL`, so architecture.md's `LANGFUSE_HOST` 
 2. Clip dates to the store's data range rather than returning 422, and report the clipped window.
 3. A 409 `PROPOSAL_PENDING` should return the existing `proposal_id` and the `investigation_id` that created it, so the agent recovers only its own proposal.
 4. Catalog contents: include an analyst handoff that applies to every cause. The seed's golden labels (`pos`, `diagnosed`, `merchant`, `ask_merchant_fix_pos_modifier_mapping`) don't match the contracts' enums or the catalog IDs. B-05 needs them aligned.
-5. Validation 422s should carry `details.errors` (`loc`, `msg`), which the agent shows to the model. The shared handler in `shared/http.py` returns `details: null`.
 
 **Platform (A-01, A-02, A-03):**
 1. The agent's compose service should wait for Domain to be healthy and default `AGENT_EFFORT` to `medium`, and the root `.env.example` should list `ANTHROPIC_API_KEY`.

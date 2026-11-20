@@ -959,7 +959,7 @@ Every error uses one envelope, including FastAPI's validation errors:
 | 409  | `ALREADY_DECIDED`                    | Proposal already approved or rejected with a different decision                                                         |
 | 409  | `NOT_DISPATCHED`, `REPLY_EXISTS`     | Reply to an undispatched question, or a second reply                                                                    |
 | 409  | `RECHECK_ALREADY_RUN`                | The recheck already has a result                                                                                        |
-| 422  | `VALIDATION_ERROR`                   | Body or query fails validation, including an unknown `item_id`, modifier, `daypart`, or a date outside the store's data. `details` names the problem: `unknown_item_ids`, `unknown_modifiers`, `data_start` and `data_end`, or `errors` as `[{loc, msg}]`. |
+| 422  | `VALIDATION_ERROR`                   | Body or query fails validation, including an unknown `item_id`, modifier, `daypart`, or a date outside the store's data. `details` names the problem: `unknown_item_ids`, `unknown_modifiers`, or `data_start` and `data_end`. |
 | 422  | `INVALID_EVIDENCE`, `UNKNOWN_ACTION` | Proposal cites unresolvable evidence or an action outside the catalog                                                   |
 | 502  | `DISPATCH_FAILED`                    | Mock dispatch failed. The proposal stays `pending`.                                                                     |
 | 503  | `UPSTREAM_UNAVAILABLE`               | A called service or the model is unreachable                                                                            |

@@ -3,14 +3,14 @@
 import json
 import logging
 
-from app.domain.client import DomainError
-from app.domain.fixtures import FixtureDomainClient
-from app.errors import MODEL_REFUSED, RUN_TIMEOUT, UPSTREAM_UNAVAILABLE
-from app.llm.base import ModelError
-from app.llm.scripted_model import ScriptedReasonModel
-from app.logs import JsonFormatter
-from tests.conftest import FIXTURES, capture_state, make_settings, run_investigation
-from tests.scripts import (
+from agent.app.domain.client import DomainError
+from agent.app.domain.fixtures import FixtureDomainClient
+from agent.app.errors import MODEL_REFUSED, RUN_TIMEOUT, UPSTREAM_UNAVAILABLE
+from agent.app.llm.base import ModelError
+from agent.app.llm.scripted_model import ScriptedReasonModel
+from agent.app.logs import JsonFormatter
+from agent.tests.conftest import FIXTURES, capture_state, make_settings, run_investigation
+from agent.tests.scripts import (
     FULL,
     breakdown,
     check,

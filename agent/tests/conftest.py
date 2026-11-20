@@ -7,14 +7,14 @@ from typing import Any
 
 import pytest
 
-from app.config import Settings
-from app.domain.fixtures import FixtureDomainClient
-from app.graph.build import build_graph, run_config
-from app.graph.context import AgentContext
-from app.graph.state import initial_state
-from app.ids import CounterIdFactory
-from app.llm.base import ModelError
-from app.llm.scripted_model import ScriptedReasonModel
+from agent.app.config import Settings
+from agent.app.domain.fixtures import FixtureDomainClient
+from agent.app.graph.build import build_graph, run_config
+from agent.app.graph.context import AgentContext
+from agent.app.graph.state import initial_state
+from agent.app.ids import CounterIdFactory
+from agent.app.llm.base import ModelError
+from agent.app.llm.scripted_model import ScriptedReasonModel
 
 FIXTURES = Path(__file__).parent / "fixtures" / "domain"
 TEST_SECRET = "test-secret-0123456789-0123456789-abcd"

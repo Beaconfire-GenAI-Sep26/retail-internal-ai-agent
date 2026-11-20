@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
-from app.graph.rules import from_rate_tool, parse_date, sufficient
+from agent.app.graph.rules import from_rate_tool, parse_date, sufficient
 
 EVENT_TYPES_FOR_CAUSE: dict[str, frozenset[str]] = {
     "pos_modifier_mapping": frozenset({"menu_change", "pos_change"}),

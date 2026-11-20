@@ -9,10 +9,10 @@ import copy
 
 import pytest
 
-from app.graph.rules import evaluate_output
-from app.ids import CounterIdFactory
-from tests.conftest import capture_state
-from tests.scripts import (
+from agent.app.graph.rules import evaluate_output
+from agent.app.ids import CounterIdFactory
+from agent.tests.conftest import capture_state
+from agent.tests.scripts import (
     FULL,
     breakdown,
     check,
@@ -61,7 +61,7 @@ def run(state, raw, **kw):
 
 def resolved(turn, state):
     """Resolve @-placeholders the way the scripted model does."""
-    from app.llm.scripted_model import _resolve
+    from agent.app.llm.scripted_model import _resolve
 
     return _resolve(copy.deepcopy(turn), state)
 

@@ -4,12 +4,12 @@ from fastapi import APIRouter, Body, Depends, Header
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.deps import get_session
-from app.errors import ApiError
-from app.models import IdempotencyRecord
-from app.schemas import MonitorRunRequest, MonitorRunResponse
-from app.security import CurrentUser, require_analyst
-from app.services.monitor import MONITOR_LOCK_ID, run_monitor
+from domain.app.deps import get_session
+from domain.app.errors import ApiError
+from domain.app.models import IdempotencyRecord
+from domain.app.schemas import MonitorRunRequest, MonitorRunResponse
+from domain.app.security import CurrentUser, require_analyst
+from domain.app.services.monitor import MONITOR_LOCK_ID, run_monitor
 
 router = APIRouter(tags=["monitor"])
 ROUTE = "POST /monitor/run"

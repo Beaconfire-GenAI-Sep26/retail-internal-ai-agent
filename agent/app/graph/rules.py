@@ -14,11 +14,11 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.contracts.enums import DAYPARTS
-from app.graph.policy import policy_hits
-from app.ids import IdFactory
-from app.llm import schemas as w
-from app.tools.registry import RATE_TOOLS, canonical_key, scopes, signature, to_contract_request
+from agent.app.contracts.enums import DAYPARTS
+from agent.app.graph.policy import policy_hits
+from agent.app.ids import IdFactory
+from agent.app.llm import schemas as w
+from agent.app.tools.registry import RATE_TOOLS, canonical_key, scopes, signature, to_contract_request
 
 DATA_LIMIT_CAUSES = frozenset({"dasher_handoff"})
 EXPLORE_CAP = 3

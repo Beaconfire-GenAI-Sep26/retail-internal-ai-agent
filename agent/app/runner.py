@@ -8,22 +8,22 @@ import time
 from importlib.metadata import version
 from typing import Any
 
-from app.config import Settings
-from app.contracts.enums import TERMINAL_STATUSES
-from app.contracts.models import InvestigationStatusUpdate
-from app.domain.client import DomainClient, DomainError
-from app.errors import INTERNAL, RUN_TIMEOUT
-from app.graph.build import run_config
-from app.graph.context import AgentContext
-from app.graph.nodes.common import now_iso
-from app.graph.state import initial_state
-from app.ids import IdFactory
-from app.llm.base import ReasonModel
-from app.llm.schemas import schema_hash
-from app.logs import case_id_var, investigation_id_var, log_event, request_id_var
-from app.prompts.render import prompt_hash
-from app.store import InvestigationRow, InvestigationStore
-from app.tools.registry import REGISTRY_VERSION
+from agent.app.config import Settings
+from agent.app.contracts.enums import TERMINAL_STATUSES
+from agent.app.contracts.models import InvestigationStatusUpdate
+from agent.app.domain.client import DomainClient, DomainError
+from agent.app.errors import INTERNAL, RUN_TIMEOUT
+from agent.app.graph.build import run_config
+from agent.app.graph.context import AgentContext
+from agent.app.graph.nodes.common import now_iso
+from agent.app.graph.state import initial_state
+from agent.app.ids import IdFactory
+from agent.app.llm.base import ReasonModel
+from agent.app.llm.schemas import schema_hash
+from agent.app.logs import case_id_var, investigation_id_var, log_event, request_id_var
+from agent.app.prompts.render import prompt_hash
+from agent.app.store import InvestigationRow, InvestigationStore
+from agent.app.tools.registry import REGISTRY_VERSION
 
 logger = logging.getLogger("agent.runner")
 BACKSTOP_SECONDS = 30
@@ -76,7 +76,7 @@ class Runner:
         investigation_id_var.set(row.investigation_id)
         case_id_var.set(row.case_id)
         request_id_var.set(request_id)
-        domain = self.domain_client.bind(token=token, request_id=request_id, investigation_id=row.investigation_id)
+        domain = self.domain_client.bind(token=token, request_id=request_id, investigation_id=row.investigation_id, store_id=row.store_id, case_id=row.case_id)
         ctx = AgentContext(
             domain=domain,
             model=self.model,
@@ -158,7 +158,7 @@ class Runner:
         """Retry a status report that failed earlier, using the current analyst's token."""
         if not row.domain_sync_pending:
             return
-        domain = self.domain_client.bind(token=token, request_id=request_id, investigation_id=row.investigation_id)
+        domain = self.domain_client.bind(token=token, request_id=request_id, investigation_id=row.investigation_id, store_id=row.store_id, case_id=row.case_id)
         error_code = (row.error or {}).get("code") if row.status == "failed" else None
         try:
             await domain.report_investigation_status(

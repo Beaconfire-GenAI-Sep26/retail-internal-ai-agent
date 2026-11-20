@@ -2,8 +2,8 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Cancellation, MIClaim, OperationalEvent, Order
-from app.schemas import Evidence
+from domain.app.models import Cancellation, MIClaim, OperationalEvent, Order
+from domain.app.schemas import Evidence
 
 
 def _money(value) -> float:

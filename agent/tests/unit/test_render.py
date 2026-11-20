@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from app.prompts.render import esc, prompt_hash, render_prompt, system_prompt
-from tests.conftest import capture_state, make_settings
-from tests.scripts import store_a_turns
+from agent.app.prompts.render import esc, prompt_hash, render_prompt, system_prompt
+from agent.tests.conftest import capture_state, make_settings
+from agent.tests.scripts import store_a_turns
 
 SNAPSHOTS = Path(__file__).parent / "snapshots"
 

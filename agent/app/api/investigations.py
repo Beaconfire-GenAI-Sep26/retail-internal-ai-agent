@@ -10,9 +10,9 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from app.auth import Principal, get_principal
-from app.contracts.enums import TERMINAL_STATUSES
-from app.contracts.models import (
+from agent.app.auth import Principal, get_principal
+from agent.app.contracts.enums import TERMINAL_STATUSES
+from agent.app.contracts.models import (
     CheckSummary,
     ErrorInfo,
     Hypothesis,
@@ -21,11 +21,11 @@ from app.contracts.models import (
     InvestigationView,
     StartInvestigationRequest,
 )
-from app.domain.client import DomainError
-from app.errors import UNAUTHENTICATED, UPSTREAM_UNAVAILABLE, AppError
-from app.graph.nodes.common import now_iso
-from app.logs import request_id_var
-from app.store import ActiveInvestigationError, InvestigationRow
+from agent.app.domain.client import DomainError
+from agent.app.errors import UNAUTHENTICATED, UPSTREAM_UNAVAILABLE, AppError
+from agent.app.graph.nodes.common import now_iso
+from agent.app.logs import request_id_var
+from agent.app.store import ActiveInvestigationError, InvestigationRow
 
 router = APIRouter(tags=["investigations"])
 
@@ -96,6 +96,8 @@ async def start_investigation(
     request_id = request_id_var.get() or "unknown"
     if not principal.is_analyst:
         raise AppError(403, "FORBIDDEN", "Only an LOE analyst can start an investigation.")
+    if not getattr(services.runner.model, "configured", True):
+        raise AppError(503, UPSTREAM_UNAVAILABLE, "ANTHROPIC_API_KEY is not configured.")
     if principal.expires_at - time.time() < settings.agent_run_timeout_seconds:
         raise AppError(401, UNAUTHENTICATED, "The token expires before the investigation could finish. Log in again.")
     domain = services.domain_client.bind(token=principal.token, request_id=request_id, investigation_id=None)
@@ -137,7 +139,7 @@ async def start_investigation(
                            {"investigation_id": exc.existing.investigation_id}) from exc
 
     bound = services.domain_client.bind(token=principal.token, request_id=request_id,
-                                        investigation_id=row.investigation_id)
+                                        investigation_id=row.investigation_id, store_id=row.store_id, case_id=row.case_id)
     try:
         await bound.report_investigation_status(
             case.case_id, InvestigationStatusUpdate(investigation_id=row.investigation_id, status="running",

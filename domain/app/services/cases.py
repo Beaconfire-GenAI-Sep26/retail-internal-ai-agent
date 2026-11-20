@@ -5,12 +5,12 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.errors import ApiError
-from app.models import Case, CaseStatus, Store
-from app.schemas import CaseDetail, CaseSummary, DailyRate, StoreSummary
-from app.security import CurrentUser
-from app.services.store_data import INVESTIGATION_DAYS, load_context, load_window
-from app.settings import settings
+from domain.app.errors import ApiError
+from domain.app.models import Case, CaseStatus, Store
+from domain.app.schemas import CaseDetail, CaseSummary, DailyRate, StoreSummary
+from domain.app.security import CurrentUser
+from domain.app.services.store_data import INVESTIGATION_DAYS, load_context, load_window
+from domain.app.settings import settings
 
 
 def store_summary(store: Store) -> StoreSummary:

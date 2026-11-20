@@ -7,11 +7,11 @@ from typing import Any
 
 from langgraph.runtime import Runtime
 
-from app.domain.client import DomainError
-from app.graph.context import AgentContext
-from app.graph.finalize import build_result, decide
-from app.graph.state import InvestigationState
-from app.logs import log_event
+from agent.app.domain.client import DomainError
+from agent.app.graph.context import AgentContext
+from agent.app.graph.finalize import build_result, decide
+from agent.app.graph.state import InvestigationState
+from agent.app.logs import log_event
 
 logger = logging.getLogger("agent.finalize")
 

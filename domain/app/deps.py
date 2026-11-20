@@ -1,13 +1,11 @@
 """Shared FastAPI dependencies."""
 from collections.abc import Iterator
+from fastapi import Request
 
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
-
-
-def get_session() -> Iterator[Session]:
-    session = SessionLocal()
+def get_session(request: Request) -> Iterator[Session]:
+    session = request.app.state.session_factory()
     try:
         yield session
     finally:

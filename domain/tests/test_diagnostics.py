@@ -1,4 +1,4 @@
-from tests.conftest import auth
+from domain.tests.conftest import auth
 
 H = auth()
 FULL = {"start": "2026-10-05", "end": "2026-11-15"}

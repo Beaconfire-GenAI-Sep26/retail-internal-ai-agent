@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.graph.gate import evaluate_gate
-from app.graph.rules import can_rule_out, can_support
+from agent.app.graph.gate import evaluate_gate
+from agent.app.graph.rules import can_rule_out, can_support
 
 LEVELS = ("low", "medium", "high")
 

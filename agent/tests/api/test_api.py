@@ -8,13 +8,13 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
-from app.domain.fixtures import FixtureDomainClient
-from app.ids import CounterIdFactory
-from app.llm.base import ModelReply
-from app.llm.scripted_model import ScriptedReasonModel
-from app.main import create_app
-from tests.conftest import FIXTURES, TEST_SECRET, make_settings
-from tests.scripts import store_a_turns
+from agent.app.domain.fixtures import FixtureDomainClient
+from agent.app.ids import CounterIdFactory
+from agent.app.llm.base import ModelReply
+from agent.app.llm.scripted_model import ScriptedReasonModel
+from agent.app.main import create_app
+from agent.tests.conftest import FIXTURES, TEST_SECRET, make_settings
+from agent.tests.scripts import store_a_turns
 
 
 def token(role="loe_analyst", stores=("STORE-A", "STORE-B"), ttl=3600, sub="USR-001", secret=TEST_SECRET):

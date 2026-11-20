@@ -10,7 +10,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.logs import log_event, request_id_var
+from shared.security import APIError
+from agent.app.logs import log_event, request_id_var
 
 logger = logging.getLogger("agent.errors")
 
@@ -35,11 +36,11 @@ _HTTP_CODES = {
 }
 
 
-class AppError(Exception):
+class AppError(APIError):
     """An error returned to the caller in the contracts envelope."""
 
     def __init__(self, status: int, code: str, message: str, details: dict[str, Any] | None = None):
-        super().__init__(message)
+        super().__init__(status, code, message)
         self.status = status
         self.code = code
         self.message = message

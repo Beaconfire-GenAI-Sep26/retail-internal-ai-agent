@@ -20,7 +20,7 @@ from typing import Annotated, Any, Literal, Union
 import anthropic
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
-from app.contracts.enums import (
+from agent.app.contracts.enums import (
     CancellationCategory,
     CancellationGroupBy,
     CauseCategory,

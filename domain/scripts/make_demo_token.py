@@ -10,7 +10,7 @@ import time
 
 import jwt
 
-from app.settings import settings
+from domain.app.settings import settings
 
 ALL_STORES = [f"STORE-{c}" for c in "ABCDEFGHIJ"]
 

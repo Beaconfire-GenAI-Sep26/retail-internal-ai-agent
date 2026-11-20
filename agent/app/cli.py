@@ -21,15 +21,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from app.config import AGENT_ROOT, get_settings
-from app.domain.client import HttpDomainClient
-from app.domain.fixtures import FixtureDomainClient
-from app.graph.build import build_graph, run_config
-from app.graph.context import AgentContext
-from app.graph.state import initial_state
-from app.ids import UlidIdFactory
-from app.llm.base import ReasonModel
-from app.runner import run_config_record
+from agent.app.config import AGENT_ROOT, get_settings
+from shared.security import JWTSettings
+from agent.app.domain.client import HttpDomainClient
+from agent.app.domain.fixtures import FixtureDomainClient
+from agent.app.graph.build import build_graph, run_config
+from agent.app.graph.context import AgentContext
+from agent.app.graph.state import initial_state
+from agent.app.ids import UlidIdFactory
+from agent.app.llm.base import ReasonModel
+from agent.app.runner import run_config_record
 
 
 def _print_update(node: str, update: dict[str, Any]) -> None:
@@ -75,8 +76,8 @@ def _print_update(node: str, update: dict[str, Any]) -> None:
 
 def _dry_run_model(store_id: str) -> ReasonModel:
     try:
-        from app.llm.scripted_model import ScriptedReasonModel
-        from tests.scripts import store_a_turns, store_b_turns
+        from agent.app.llm.scripted_model import ScriptedReasonModel
+        from agent.tests.scripts import store_a_turns, store_b_turns
     except ImportError:
         sys.exit("--dry-run needs the tests package next to app/.")
     turns = {"STORE-A": store_a_turns, "STORE-B": store_b_turns}.get(store_id)
@@ -109,6 +110,7 @@ async def run(args: argparse.Namespace) -> int:
             print("--domain http needs --case and --token (an analyst JWT).")
             return 2
         client = HttpDomainClient(settings.domain_service_url, settings.internal_service_token,
+                                  jwt_settings=JWTSettings(settings.jwt_secret, settings.jwt_issuer),
                                   timeout=settings.domain_timeout_seconds, max_retries=settings.agent_max_retries)
         case_id, store_id = args.case, args.store or ""
 
@@ -118,7 +120,7 @@ async def run(args: argparse.Namespace) -> int:
         if not settings.anthropic_api_key:
             print("ANTHROPIC_API_KEY is empty. Copy agent/.env.example to agent/.env and set it, or use --dry-run.")
             return 2
-        from app.llm.anthropic_model import AnthropicReasonModel
+        from agent.app.llm.anthropic_model import AnthropicReasonModel
 
         model = AnthropicReasonModel(settings)
 

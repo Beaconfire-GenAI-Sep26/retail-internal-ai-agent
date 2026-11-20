@@ -3,8 +3,8 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from app.llm.schemas import parse_reason_output, reason_output_schema, schema_hash
-from tests.scripts import store_a_turns, store_b_turns
+from agent.app.llm.schemas import parse_reason_output, reason_output_schema, schema_hash
+from agent.tests.scripts import store_a_turns, store_b_turns
 
 
 def walk(node, path="$"):

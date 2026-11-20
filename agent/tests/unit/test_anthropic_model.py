@@ -6,11 +6,11 @@ import anthropic
 import httpx2
 import pytest
 
-from app.errors import INTERNAL, MODEL_REFUSED, MODEL_TRUNCATED
-from app.llm.anthropic_model import AnthropicReasonModel
-from app.llm.base import ModelError, RenderedPrompt
-from tests.conftest import make_settings
-from tests.scripts import store_a_turns
+from agent.app.errors import INTERNAL, MODEL_REFUSED, MODEL_TRUNCATED
+from agent.app.llm.anthropic_model import AnthropicReasonModel
+from agent.app.llm.base import ModelError, RenderedPrompt
+from agent.tests.conftest import make_settings
+from agent.tests.scripts import store_a_turns
 
 PROMPT = RenderedPrompt(system="S1 system", case_facts="U1 case", turn_state="U2 turn", control="C control")
 

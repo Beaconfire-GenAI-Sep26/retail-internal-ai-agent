@@ -58,10 +58,11 @@ Pending claims are counted, and every `ToolResult` reports how many of its claim
 
 | Header                        | Sent by         | Required                                                | Meaning                                                                        |
 | ----------------------------- | --------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `Authorization: Bearer <jwt>` | frontend, agent | Every route except login and health                     | User identity. The agent forwards the user's token unchanged.                  |
+| `Authorization: Bearer <jwt>` | frontend, agent | Every business route and `/me`; login, refresh, logout and health use their own rules | User identity. The agent forwards the user's token unchanged. |
 | `X-Request-ID`                | gateway, agent  | Set by the gateway if absent                            | Correlates logs and traces. Every response echoes it.                          |
 | `X-Investigation-ID`          | agent           | On agent-to-Domain calls                                | Links Domain logs and audit to the investigation                               |
-| `X-Service-Token`             | agent           | On `/internal/` routes                                  | Must equal `INTERNAL_SERVICE_TOKEN`                                            |
+| `X-Service-Token`             | agent           | On `/internal/` routes and `/evidence/resolve` | Must equal `INTERNAL_SERVICE_TOKEN` |
+| `X-Store-ID` | agent | On agent-to-Domain calls | Narrows the signed grants to one investigation store. Domain resolves resource ownership and rejects a mismatch. Never grants access. |
 | `Idempotency-Key`             | frontend        | On decision, reply, resume, monitor run and recheck run | A UUID per user action. A repeat returns the first result and changes nothing. |
 
 ## IDs
@@ -245,6 +246,10 @@ interface User {
   role: role;
   store_ids: string[]; // ["STORE-A", "STORE-B"]
 }
+
+// RefreshResponse has the same fields as LoginResponse. The refresh credential
+// itself is never returned in JSON; login/refresh set an HttpOnly cookie.
+type RefreshResponse = LoginResponse;
 ```
 
 ### Stores, cases and evidence
@@ -769,7 +774,18 @@ the token's `store_ids`.
 | --------------------------- | -------- | -------------- | -------------------------- | ------------------------------ |
 | `POST /login`               | anyone   | `LoginRequest` | 200 `LoginResponse`        | 401 `INVALID_CREDENTIALS`, 422 |
 | `GET /me`                   | any user | —              | 200 `User`                 | 401                            |
+| `POST /refresh` | refresh session | HttpOnly `refresh_token` cookie | 200 `RefreshResponse`, rotates cookie | 401 `UNAUTHENTICATED`, 403 cross-site request |
+| `POST /logout` | refresh session, or no session | HttpOnly `refresh_token` cookie | 204, revokes session family and clears cookie | 403 cross-site request |
 | `GET /health`, `GET /ready` | anyone   | —              | 200, or 503 when not ready | —                              |
+
+Refresh/logout do not require a valid access JWT; they work after it expires.
+Login/refresh responses set `Cache-Control: no-store`. The cookie is host-only,
+`HttpOnly`, `SameSite=Lax`, `Path=/auth`, and `Secure` except for explicitly configured
+localhost HTTP development. A refresh token is single-use; replay revokes its whole
+session family. Rotation preserves the original absolute refresh expiry. Every
+refresh re-reads the account's current role, active flag and store grants.
+Logout revokes refresh credentials; an already-issued access JWT remains valid
+until its short expiry. See [authentication.md](authentication.md) for integration.
 
 ### Agent Service
 

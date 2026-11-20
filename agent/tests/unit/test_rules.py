@@ -175,7 +175,7 @@ MATCHED_CASES = [
     ("G4b", out("x", NEXT, matched=[(POS, "if_true"), (MENU, "if_false")], updates=[upd(MENU, "inconclusive", "r")])),
     ("G18", out("x", conclude("HYP-NOPE", "2026-10-30", "high", "s", "fix_modifier_mapping", "r",
                               modifiers=["Extra sauce"]), matched=[(POS, "if_true"), (MENU, "if_false")])),
-    ("G18", out("x", conclude(POS, "2026-10-30", "high", "s", "large_order_bag_check", "r"),
+    ("G18", out("x", conclude(POS, "2026-10-30", "high", "s", "add_large_order_bag_check", "r"),
                 matched=[(POS, "if_true"), (MENU, "if_false")])),
     ("G18", out("x", conclude(POS, "2026-12-01", "high", "s", "fix_modifier_mapping", "r", modifiers=["Extra sauce"]),
                 matched=[(POS, "if_true"), (MENU, "if_false")])),

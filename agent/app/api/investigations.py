@@ -126,6 +126,13 @@ async def start_investigation(
             if case.status != "reopened" or prior is None or prior.case_id != case.case_id or already:
                 raise AppError(409, "REOPEN_NOT_ALLOWED",
                                "reopen_of is set, but this case isn't reopened or was already reopened once.")
+        # Domain allows one pending proposal per case: a new run couldn't save its recommendation, and its failed
+        # report would move the case back to open. An active run still answers INVESTIGATION_ACTIVE below.
+        pending = next((p for p in case.proposals if p.status == "pending"), None)
+        if pending is not None and store.active_for_case(case.case_id) is None:
+            raise AppError(409, "PROPOSAL_PENDING",
+                           f"Case {case.case_id} has a pending proposal, {pending.proposal_id}. Decide it first.",
+                           {"proposal_id": pending.proposal_id})
         now = now_iso()
         row = InvestigationRow(
             investigation_id=services.ids.new("INV"),

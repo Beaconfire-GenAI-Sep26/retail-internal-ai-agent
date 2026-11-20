@@ -11,7 +11,8 @@ With --domain http the agent calls the Domain Service at DOMAIN_SERVICE_URL and 
 every call, so it sees exactly what that user can see. The token must be an analyst's JWT issued by
 Auth; for local work, `python -m domain.scripts.make_demo_token` prints one. The store comes from the
 case. Once Domain has its /internal/ routes, an http run also saves a real proposal and reports the
-investigation status, even with --dry-run.
+investigation status, even with --dry-run. Like POST /investigations, it refuses a case that already has
+a pending proposal.
 
 Needs ANTHROPIC_API_KEY in agent/.env unless --dry-run. Prints each step as it happens, then the
 check sequence, the outcome, fixture misses and cache reads per turn, and saves a JSON report
@@ -151,6 +152,12 @@ async def run(args: argparse.Namespace) -> int:
             return 2
         if not principal.can_see(case.store_id):
             print(f"The token has no grant for {case.store_id}.")
+            await client.aclose()
+            return 2
+        # Same rule as POST /investigations: Domain allows one pending proposal per case.
+        pending = next((p for p in case.proposals if p.status == "pending"), None)
+        if pending is not None:
+            print(f"Case {case.case_id} has a pending proposal, {pending.proposal_id}. Decide it first.")
             await client.aclose()
             return 2
         case_id, store_id = case.case_id, case.store_id

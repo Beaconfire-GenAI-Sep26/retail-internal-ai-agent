@@ -215,7 +215,7 @@ ITEM-A-012 | Mango Pudding | dessert | none
 <data kind="catalog">
 action_id | kind | owner_team | applies_to | recheck days | title
 fix_modifier_mapping | handoff | pos_team | pos_modifier_mapping | 14 | Fix the POS modifier mapping so paid modifiers print on kitchen tickets
-large_order_bag_check | intervention | merchant | packing | 14 | Add a bag-count check before handoff for large orders
+add_large_order_bag_check | intervention | merchant | packing | 14 | Add a bag-count check before handoff for large orders
 review_menu_change | handoff | menu_team | menu_change | 14 | Review the recent menu change with the merchant
 update_item_availability | intervention | merchant | inventory | 14 | Mark out-of-stock items unavailable sooner
 review_dasher_handoff | handoff | dasher_ops | dasher_handoff | 14 | Review Dasher pickup and handoff at this store

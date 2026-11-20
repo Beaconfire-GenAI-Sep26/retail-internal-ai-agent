@@ -791,7 +791,7 @@ until its short expiry. See [authentication.md](authentication.md) for integrati
 
 | Method and path                                  | Who             | Request                       | Response                                      | Errors                                                                          |
 | ------------------------------------------------ | --------------- | ----------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------- |
-| `POST /investigations`                           | analyst         | `StartInvestigationRequest`   | 202 `InvestigationView` with status `running` | 403, 404 `CASE_NOT_FOUND`, 409 `INVESTIGATION_ACTIVE`, 409 `REOPEN_NOT_ALLOWED` |
+| `POST /investigations`                           | analyst         | `StartInvestigationRequest`   | 202 `InvestigationView` with status `running` | 403, 404 `CASE_NOT_FOUND`, 409 `INVESTIGATION_ACTIVE`, 409 `PROPOSAL_PENDING`, 409 `REOPEN_NOT_ALLOWED` |
 | `GET /investigations/{investigation_id}`         | viewer, analyst | —                             | 200 `InvestigationView`                       | 403, 404                                                                        |
 | `GET /investigations?case_id=`                   | viewer, analyst | —                             | 200 `InvestigationView[]`, newest first       | 403                                                                             |
 | `POST /investigations/{investigation_id}/resume` | analyst         | empty body, `Idempotency-Key` | 202 `InvestigationView`                       | 403, 404, 409 `INVESTIGATION_FINISHED`                                          |

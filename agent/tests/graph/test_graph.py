@@ -50,7 +50,7 @@ async def test_store_a_and_store_b_take_distinct_routes_to_their_causes():
 async def test_the_diagnosis_carries_the_catalog_action_and_the_tested_target():
     b, domain = await run_investigation("STORE-B", ScriptedReasonModel(store_b_turns()), settings=make_settings())
     rec = b["result"]["recommendation"]
-    assert rec["action_id"] == "large_order_bag_check" and rec["owner_team"] == "merchant"
+    assert rec["action_id"] == "add_large_order_bag_check" and rec["owner_team"] == "merchant"
     assert rec["target"] == {"item_id": [], "modifiers": [], "daypart": ["dinner"], "item_count_min": 5}
     assert b["result"]["confidence"] == "medium"  # dasher_handoff stays inconclusive
     proposal = domain.proposals["PROP-0001"]

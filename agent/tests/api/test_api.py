@@ -147,6 +147,20 @@ def test_a_second_run_on_an_active_case_conflicts():
         assert second.json()["error"]["details"]["investigation_id"] == first.json()["investigation_id"]
 
 
+def test_a_pending_proposal_must_be_decided_before_a_new_run():
+    domain = FixtureDomainClient(FIXTURES)
+    analyst = token()
+    with make_client(domain=domain) as client:
+        first = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(analyst)).json()
+        assert wait_for(client, first["investigation_id"], analyst)["pending_proposal_id"] == "PROP-0001"
+        again = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(analyst))
+        assert again.status_code == 409
+        assert again.json()["error"]["code"] == "PROPOSAL_PENDING"
+        assert again.json()["error"]["details"]["proposal_id"] == "PROP-0001"
+        assert len(client.get("/investigations", params={"case_id": "CASE-0001"}, headers=auth(analyst)).json()) == 1
+    assert [u["status"] for u in domain.status_updates] == ["running", "completed"]  # nothing reported for the refusal
+
+
 def test_reopen_needs_a_reopened_case():
     with make_client() as client:
         resp = client.post("/investigations", json={"case_id": "CASE-0001", "reopen_of": "INV-T0001"},
@@ -246,6 +260,7 @@ def test_a_new_investigation_drops_an_older_runs_unsent_status_report():
         store, runner = client.app.state.store, client.app.state.runner
         wait_until(lambda: not runner.flush_tasks)
         assert store.get(first["investigation_id"]).domain_sync_pending is True
+        domain.proposals["PROP-0001"].status = "rejected"  # the analyst decides it before starting again
         second = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(analyst))
         assert second.status_code == 202
         # The newer run owns the case status now, so the older report is never sent late.

@@ -88,9 +88,9 @@ Once the case's store is known, the scoped client adds `X-Store-ID` and `X-Inves
 
 While Domain has no catalog, proposals or status route, the agent uses the bundled catalog, finishes a
 diagnosis without saving a proposal and skips the status report. Once Domain has its `/internal/` routes,
-every run over HTTP, `--dry-run` included, saves a real pending proposal and reports its status. A pending
-proposal from an earlier investigation makes the next diagnosis on that case fail with 409 `PROPOSAL_PENDING`
-(the agent only recovers a proposal its own investigation created), so decide or reject it first, or reseed
+every run over HTTP, `--dry-run` included, saves a real pending proposal and reports its status. While a case
+has a pending proposal, `POST /investigations` refuses a new run with 409 `PROPOSAL_PENDING`
+(`details.proposal_id`) and the CLI stops before it starts, so decide or reject the proposal first, or reseed
 Domain. The live suite rejects the proposals it saves.
 
 The live suite runs the tools, the evidence check, the scripted STORE-A and STORE-B investigations and the API

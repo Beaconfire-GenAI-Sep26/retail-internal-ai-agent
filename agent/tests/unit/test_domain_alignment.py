@@ -69,7 +69,7 @@ def test_the_bundled_catalog_has_the_agreed_ids_and_a_handoff_for_every_cause():
     catalog = load_bundled_catalog()
     ids = [entry.action_id for entry in catalog]
     assert len(ids) == len(set(ids))
-    assert {"fix_modifier_mapping", "large_order_bag_check", "analyst_review"} <= set(ids)
+    assert {"fix_modifier_mapping", "add_large_order_bag_check", "analyst_review"} <= set(ids)
     handoff = next(entry for entry in catalog if entry.action_id == "analyst_review")
     assert handoff.kind == "handoff" and set(handoff.applies_to) == set(CAUSE_CATEGORIES)
 

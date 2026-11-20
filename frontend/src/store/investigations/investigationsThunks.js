@@ -9,7 +9,8 @@
 // ═══════════════════════════════════════════════════════════════════
 import { createAsyncThunk } from '@reduxjs/toolkit';
 import api from '../../api/axios';
-import { getErrorCode, getErrorMessage } from '../../api/errors';
+import { getErrorCode, getErrorDetails, getErrorMessage } from '../../api/errors';
+import { ensureFreshToken } from '../auth/freshToken';
 import { USE_MOCKS } from '../../api/mockAuth';
 import {
   mockListInvestigations,
@@ -61,21 +62,54 @@ export const fetchLatestInvestigation = createAsyncThunk(
 //   Known gap (d03 plan, "需要确认"): a failed second run leaves the case 'open',
 //   so "Start again" sends null. The mock still treats it as the second run.
 // → 202 InvestigationView with status 'running'; polling takes over from there.
+//
+// Before the request: a token with < 25 min left is refreshed (store/auth/freshToken.js).
+// Refusals (ui-workflow.md v0.3 "When a call is refused"):
+//   409 INVESTIGATION_ACTIVE  not an error: someone (or another tab) already
+//                             started one → show that run instead; it polls if running
+//   409 REOPEN_NOT_ALLOWED    the button was out of date → reload the case
 export const startInvestigation = createAsyncThunk(
   'investigations/start',
   async ({ caseId, reopenOf = null }, { getState, dispatch, rejectWithValue }) => {
     const body = { case_id: caseId, reopen_of: reopenOf };
+    const user = getState().auth.user;
+
+    try {
+      await ensureFreshToken({ getState, dispatch });
+    } catch {
+      return rejectWithValue('Your session expired. Please sign in again.');
+    }
 
     try {
       const view = USE_MOCKS
-        ? await mockStartInvestigation(body, { user: getState().auth.user })
+        ? await mockStartInvestigation(body, { user })
         : (await api.post('/agent/investigations', body)).data;
 
       // The case moves to 'investigating' → reload it so the header badge updates
       dispatch(fetchCase(caseId));
       return view;
     } catch (err) {
-      // e.g. 409 INVESTIGATION_ACTIVE — errors.js already has the wording
+      const code = getErrorCode(err);
+
+      // Already running or paused: load that run and show it as if just started
+      const activeId = getErrorDetails(err).investigation_id;
+      if (code === 'INVESTIGATION_ACTIVE' && activeId) {
+        try {
+          const active = USE_MOCKS
+            ? await mockGetInvestigation(activeId, { user })
+            : (await api.get(`/agent/investigations/${encodeURIComponent(activeId)}`)).data;
+          dispatch(fetchCase(caseId));
+          return active;
+        } catch {
+          // fall through to the message below
+        }
+      }
+
+      if (code === 'REOPEN_NOT_ALLOWED') {
+        dispatch(fetchCase(caseId));
+        return rejectWithValue("This case can't start another investigation. The page was out of date and has been refreshed.");
+      }
+
       return rejectWithValue(getErrorMessage(err, 'Could not start the investigation'));
     }
   },

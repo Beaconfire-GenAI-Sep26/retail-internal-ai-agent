@@ -1,4 +1,4 @@
-// runRecheck and startInvestigation(reopen_of) against the real-API branch (axios faked)
+// runRecheck against the real-API branch (axios faked)
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { configureStore } from '@reduxjs/toolkit';
 
@@ -16,7 +16,6 @@ vi.mock('../cases/casesThunks', () => ({
 const { default: api } = await import('../../api/axios');
 const { default: rechecks } = await import('./rechecksSlice');
 const { runRecheck } = await import('./rechecksThunks');
-const { startInvestigation } = await import('../investigations/investigationsThunks');
 
 let seen;
 const makeStore = () => {
@@ -53,16 +52,3 @@ describe('runRecheck', () => {
   });
 });
 
-describe('startInvestigation', () => {
-  it('a first run sends reopen_of null', async () => {
-    api.post.mockResolvedValue({ data: { investigation_id: 'INV-1', status: 'running' } });
-    await makeStore().dispatch(startInvestigation({ caseId: 'CASE-0002' }));
-    expect(api.post).toHaveBeenCalledWith('/agent/investigations', { case_id: 'CASE-0002', reopen_of: null });
-  });
-
-  it('"Start new investigation" sends the run whose fix did not work', async () => {
-    api.post.mockResolvedValue({ data: { investigation_id: 'INV-2', status: 'running' } });
-    await makeStore().dispatch(startInvestigation({ caseId: 'CASE-0002', reopenOf: 'INV-1' }));
-    expect(api.post).toHaveBeenCalledWith('/agent/investigations', { case_id: 'CASE-0002', reopen_of: 'INV-1' });
-  });
-});

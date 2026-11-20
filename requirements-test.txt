@@ -1,6 +1,7 @@
 -r auth/requirements.txt
 -r domain/requirements.txt
 httpx==0.28.1
+httpx2>=2.16.2,<3
 pytest>=8,<10
 # B-02 graph/API checks share the same environment as the cross-service suite.
 anthropic>=1,<2

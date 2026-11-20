@@ -38,7 +38,7 @@ and the [workflow plan](../docs/agent-implementation-plan.md).
 
 A-03 initializes optional Langfuse v4 tracing as `app.state.tracing`, instruments
 the scoped Domain client and emits correlated JSON logs. The B-02 runner and
-Claude adapter use the hooks in [observability](../docs/observability.md). Run the
+Claude adapter are connected to the hooks in [observability](../docs/observability.md). Run the
 read-only graph probe from the repository root without credentials:
 
 ```powershell
@@ -47,7 +47,7 @@ uv run --project agent python -m agent.app.trace_poc --offline
 
 For a real Claude/Langfuse run, set the keys in root `.env` and replace `--offline`
 with `--env-file .env` **before** `python`. The guide covers live trace readback,
-synthetic versus real Domain tools, redaction and the remaining B-02 dependency.
+synthetic versus real Domain tools, redaction and production graph tracing.
 
 ## Commands
 
@@ -56,7 +56,7 @@ Run these from the repository root unless the row says `agent/`.
 | What | Command |
 |---|---|
 | Tests (no network, no API key), from `agent/` | `uv run pytest` |
-| Tests against a running Domain, from `agent/` | `AGENT_IT_DOMAIN_URL=â€¦ AGENT_IT_JWT_SECRET=â€¦ uv run pytest -m live_domain` (see below) |
+| Tests against a running Domain, from `agent/` | `AGENT_IT_DOMAIN_URL=… AGENT_IT_JWT_SECRET=… uv run pytest -m live_domain` (see below) |
 | The API, answering Domain calls from fixtures | `AGENT_DOMAIN_MODE=fixtures uv run --project agent uvicorn agent.app.main:app --reload` |
 | One investigation in the terminal, real Claude calls | `uv run --project agent python -m agent.app.cli --store STORE-A` |
 | The same, with scripted turns and no API key | `uv run --project agent python -m agent.app.cli --store STORE-A --dry-run` |

@@ -17,6 +17,8 @@ from agent.app.config import Settings
 from agent.app.errors import INTERNAL, MODEL_REFUSED, MODEL_TRUNCATED, UPSTREAM_UNAVAILABLE
 from agent.app.llm.base import ModelError, ModelReply, RenderedPrompt
 from agent.app.llm.schemas import output_config_format
+from agent.app.tracing import Tracing
+from shared.observability import StaticPrompt
 
 BETAS = ["server-side-fallback-2026-07-01"]
 MAX_TOKENS = 32000
@@ -35,8 +37,9 @@ def usage_dict(usage: Any) -> dict[str, int]:
 class AnthropicReasonModel:
     name = "anthropic"
 
-    def __init__(self, settings: Settings, *, client: anthropic.AsyncAnthropic | None = None):
+    def __init__(self, settings: Settings, *, client: anthropic.AsyncAnthropic | None = None, tracing=None):
         self.settings = settings
+        self.tracing = tracing if tracing is not None else Tracing()
         self.client = client or anthropic.AsyncAnthropic(
             api_key=settings.anthropic_api_key or None,
             max_retries=settings.agent_max_retries,
@@ -61,8 +64,15 @@ class AnthropicReasonModel:
     async def _call(self, params: dict[str, Any]) -> tuple[Any, int]:
         started = time.monotonic()
         try:
-            async with self.client.beta.messages.stream(**params) as stream:
-                message = await stream.get_final_message()
+            with self.tracing.observation("reason.model", as_type="generation", model=params["model"],
+                    input={"prompt_template": StaticPrompt("store_investigation_reason_v1"),
+                           "request": params}) as generation:
+                async with self.client.beta.messages.stream(**params) as stream:
+                    message = await stream.get_final_message()
+                usage = usage_dict(message.usage)
+                generation.update(model=message.model, output=message.model_dump(mode="json"),
+                    usage_details={"input" if key == "input_tokens" else "output" if key == "output_tokens" else key: value
+                                   for key, value in usage.items()})
         except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as exc:
             raise ModelError(INTERNAL, "The Claude API rejected the credentials. Check ANTHROPIC_API_KEY in agent/.env.") from exc
         except anthropic.BadRequestError as exc:

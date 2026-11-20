@@ -27,7 +27,7 @@ use their own requirements files.
 | **auth** (FastAPI) | Accounts, roles, store grants, refresh sessions, `auth` schema | Login, current user, refresh and logout | Postgres | Issue a token with more stores than the user's grants. |
 | **agent** (FastAPI + LangGraph) | Investigations, graph checkpoints, `agent` schema | Start, status and resume of investigations | Domain, Claude API, Langfuse | Write business data, dispatch, read the `domain` schema, or store a JWT in a checkpoint |
 | **domain** (FastAPI + SQLAlchemy) | All business data, `domain` schema | Cases, evidence, diagnostics, proposals, decisions, replies, rechecks, audit | Postgres | Dispatch anything that is unapproved, stale or a duplicate |
-| **postgres** | Storage | Internal only | â€” | Let a service role reach another service's schema |
+| **postgres** | Storage | Internal only | — | Let a service role reach another service's schema |
 
 ## How the services connect
 
@@ -141,7 +141,6 @@ is committed.
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | empty | agent | Langfuse Cloud keys |
 | `LANGFUSE_BASE_URL` | `https://cloud.langfuse.com` | agent | Langfuse v4 endpoint; legacy `LANGFUSE_HOST` is a fallback |
 | `LANGFUSE_TRACING_ENABLED` | `true` | agent | Export only when enabled and both keys exist; logs remain active |
-
 | `AGENT_RUN_TIMEOUT_SECONDS` | `1200` | agent | Wall-clock limit per investigation. A run past it fails with `RUN_TIMEOUT`. A token that expires sooner is refused at start. |
 | `AGENT_MAX_QUESTIONS` | `0` | agent | Merchant questions per run. `0` until merchant questions are on, then `2`. |
 | `AGENT_MAX_REASON_CALLS` | empty | agent | Optional cap on reasoning turns. Empty means `2 * AGENT_MAX_STEPS + 4`. |

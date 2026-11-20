@@ -13,6 +13,7 @@ from uuid import uuid4
 from time import time
 
 import httpx
+import httpx2
 from anthropic import AsyncAnthropic
 from langgraph.graph import END, START, StateGraph
 
@@ -111,7 +112,7 @@ def fixture_transport(*, case_id="CASE-0001", store_id="STORE-A", tool_error=Fal
 
 
 def scripted_model_transport(*, usage=None):
-    return httpx.MockTransport(lambda request: httpx.Response(200, json={
+    return httpx2.MockTransport(lambda request: httpx2.Response(200, json={
         "id": "msg_offline_probe", "type": "message", "role": "assistant",
         "model": "offline-scripted", "content": [{"type": "text", "text": '{"tool":"claim_breakdown"}'}],
         "stop_reason": "end_turn", "stop_sequence": None,
@@ -160,7 +161,7 @@ async def run(args):
                                           tool_error=args.inject_tool_error)
         async with httpx.AsyncClient(base_url=os.getenv("DOMAIN_SERVICE_URL", "http://domain:8000").rstrip("/") + "/",
                                      transport=transport, timeout=15) as http:
-            model_http = httpx.AsyncClient(transport=scripted_model_transport()) if args.offline else None
+            model_http = httpx2.AsyncClient(transport=scripted_model_transport()) if args.offline else None
             async with AsyncAnthropic(api_key="offline-probe" if args.offline else os.environ["ANTHROPIC_API_KEY"],
                                       http_client=model_http, max_retries=0, timeout=90) as model:
                 request_id = uuid4().hex

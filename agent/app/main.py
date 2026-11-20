@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 import re
 from starlette.concurrency import run_in_threadpool
 
@@ -31,7 +30,7 @@ from agent.app.runner import Runner
 from agent.app.store import InvestigationStore
 
 
-def make_domain_client(settings: Settings) -> DomainClient:
+def make_domain_client(settings: Settings, *, tracing=None) -> DomainClient:
     if settings.agent_domain_mode == "fixtures":
         return FixtureDomainClient(settings.agent_fixtures_dir)
     return HttpDomainClient(
@@ -40,10 +39,11 @@ def make_domain_client(settings: Settings) -> DomainClient:
         timeout=settings.domain_timeout_seconds,
         max_retries=settings.agent_max_retries,
         jwt_settings=JWTSettings(settings.jwt_secret, settings.jwt_issuer),
+        tracing=tracing,
     )
 
 
-def make_model(settings: Settings) -> ReasonModel:
+def make_model(settings: Settings, *, tracing=None) -> ReasonModel:
     from agent.app.llm.anthropic_model import AnthropicReasonModel
 
     if not settings.anthropic_api_key:
@@ -54,7 +54,7 @@ def make_model(settings: Settings) -> ReasonModel:
                 from agent.app.llm.base import ModelError
                 raise ModelError("UPSTREAM_UNAVAILABLE", "ANTHROPIC_API_KEY is not configured.")
         return UnconfiguredModel()
-    return AnthropicReasonModel(settings)
+    return AnthropicReasonModel(settings, tracing=tracing)
 
 
 def create_app(
@@ -80,22 +80,21 @@ def create_app(
                 configure_logging(runtime_settings.log_level)
             if runtime_settings.agent_checkpointer != "memory":
                 raise RuntimeError("Postgres checkpoints are not implemented; use AGENT_CHECKPOINTER=memory.")
-            domain = domain_client or make_domain_client(runtime_settings)
-            reason_model = model or make_model(runtime_settings)
+            domain = domain_client or make_domain_client(runtime_settings, tracing=app.state.tracing)
+            reason_model = model or make_model(runtime_settings, tracing=app.state.tracing)
             graph = build_graph(InMemorySaver())
             app.state.domain_client = domain
             app.state.graph = graph
             app.state.store = InvestigationStore()
             app.state.ids = ids or UlidIdFactory()
             app.state.runner = Runner(graph=graph, store=app.state.store, settings=runtime_settings,
-                domain_client=domain, model=reason_model, ids=app.state.ids)
+                domain_client=domain, model=reason_model, ids=app.state.ids, tracing=app.state.tracing)
         else:
             app.state.domain_http = domain_http or httpx.AsyncClient(
                 base_url=runtime_settings.domain_service_url.rstrip("/")+"/", timeout=15)
         try:
             yield
         finally:
-            await run_in_threadpool(app.state.tracing.shutdown)
             if workflow:
                 await app.state.runner.shutdown()
                 await domain.aclose()
@@ -104,6 +103,7 @@ def create_app(
                     await client.close()
             elif domain_http is None:
                 await app.state.domain_http.aclose()
+            await run_in_threadpool(app.state.tracing.shutdown)
 
     app = FastAPI(title="Retail Agent Service", version="0.2.0", lifespan=lifespan)
     install_error_handlers(app)

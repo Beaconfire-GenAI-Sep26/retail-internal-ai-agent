@@ -24,6 +24,7 @@ from agent.app.logs import case_id_var, investigation_id_var, log_event, request
 from agent.app.prompts.render import prompt_hash
 from agent.app.store import InvestigationRow, InvestigationStore
 from agent.app.tools.registry import REGISTRY_VERSION
+from agent.app.tracing import Tracing
 
 logger = logging.getLogger("agent.runner")
 BACKSTOP_SECONDS = 30
@@ -57,6 +58,7 @@ class Runner:
         domain_client: DomainClient,
         model: ReasonModel,
         ids: IdFactory,
+        tracing: Tracing | None = None,
     ):
         self.graph = graph
         self.store = store
@@ -64,6 +66,7 @@ class Runner:
         self.domain_client = domain_client
         self.model = model
         self.ids = ids
+        self.tracing = tracing if tracing is not None else Tracing()
         self.tasks: dict[str, asyncio.Task[None]] = {}
         self.flush_tasks: dict[str, asyncio.Task[None]] = {}
         self._last_flush: dict[str, float] = {}
@@ -103,7 +106,8 @@ class Runner:
         log_event(logger, logging.INFO, "investigation started", store_id=row.store_id)
         try:
             await asyncio.wait_for(
-                self.graph.ainvoke(state, config, context=ctx, durability="sync"),
+                self.tracing.ainvoke(self.graph, state, config=config, context=ctx, durability="sync",
+                    request_id=request_id, case_id=row.case_id, investigation_id=row.investigation_id),
                 timeout=self.settings.agent_run_timeout_seconds + BACKSTOP_SECONDS,
             )
         except TimeoutError:

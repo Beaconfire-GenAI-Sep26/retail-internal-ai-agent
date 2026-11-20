@@ -5,9 +5,9 @@ from __future__ import annotations
 import contextvars
 import json
 import logging
-import sys
-from datetime import UTC, datetime
 from typing import Any
+
+from shared.observability import JSONFormatter, configure_logging as configure_shared_logging
 
 request_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("request_id", default=None)
 case_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("case_id", default=None)
@@ -22,36 +22,22 @@ _CONTEXT_FIELDS = (
 )
 
 
-class JsonFormatter(logging.Formatter):
+class JsonFormatter(JSONFormatter):
+    """Keep the Agent formatter API while applying the shared redaction policy."""
+
     def format(self, record: logging.LogRecord) -> str:
-        payload: dict[str, Any] = {
-            "ts": datetime.fromtimestamp(record.created, UTC).isoformat().replace("+00:00", "Z"),
-            "level": record.levelname.lower(),
-            "logger": record.name,
-            "msg": record.getMessage(),
-        }
-        for key, var in _CONTEXT_FIELDS:
-            value = var.get()
-            if value:
-                payload[key] = value
-        fields = getattr(record, "fields", None)
-        if isinstance(fields, dict):
-            payload.update(fields)
-        if record.exc_info:
-            payload["exc"] = self.formatException(record.exc_info)
-        return json.dumps(payload, default=str)
+        payload = json.loads(super().format(record))
+        payload["level"] = payload["level"].lower()
+        return json.dumps(payload)
 
 
 def configure_logging(level: str = "info") -> None:
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(JsonFormatter())
-    root = logging.getLogger()
-    root.handlers[:] = [handler]
-    root.setLevel(level.upper())
-    for noisy in ("httpx", "httpcore", "httpx2", "anthropic"):
-        logging.getLogger(noisy).setLevel(logging.WARNING)
+    configure_shared_logging("agent")
+    logging.getLogger().setLevel(level.upper())
 
 
 def log_event(logger: logging.Logger, level: int, msg: str, **fields: Any) -> None:
     """Log one structured line. Never pass tokens or customer text here."""
-    logger.log(level, msg, extra={"fields": fields})
+    context = {key: var.get() for key, var in _CONTEXT_FIELDS if var.get() is not None}
+    logger.log(level, msg, extra={"fields": {"event": msg.replace(" ", "_"), **fields},
+                                 "context": context})

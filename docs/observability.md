@@ -106,14 +106,15 @@ result = await app.state.tracing.ainvoke(
 ```
 
 This adds a fresh redacting Langfuse callback without replacing existing
-callbacks. B-02's start handler must pass `tracing=app.state.tracing` when binding
-its new `DomainClient`; the existing resume authorization path already does so.
+callbacks. The merged B-02/B-03 API passes `app.state.tracing` to its Runner,
+HTTP Domain client and Claude adapter. Each background run uses this wrapper;
+scoped Domain calls and streamed Claude generations share its trace.
 Use `tracing.model_call(client, prompt_template=StaticPrompt(STATIC_TEMPLATE),
-...)` for `messages.create`. For B-02's streaming adapter, wrap the streaming
+...)` for `messages.create`. The streaming adapter wraps the streaming
 call and final-message read in `tracing.observation("reason.model",
-as_type="generation", model=..., input=...)`, then update the observation with
+as_type="generation", model=..., input=...)`, then updates the observation with
 the final model, redacted output and `usage_details={"input": ..., "output": ...}`
-plus cache counters. Record every retry as a separate generation. The callback
+plus cache counters. Each retry is recorded as a separate generation. The callback
 cannot see calls made directly through the Anthropic SDK.
 
 Guard/gate rejections can use `tracing.observation("guard.rejected", ...)` with
@@ -122,9 +123,13 @@ persist credentials, add business endpoints, decide proposals or dispatch.
 
 ## POC and acceptance verification
 
-This checkout currently has A-01/A-02's scaffold; B-02 investigation handlers,
-the production graph and C-02 case/diagnostic routes are still pending. The
-read-only A-03 probe supplies a runnable **real LangGraph** with `load_case →
+This branch includes the production investigation graph, real Domain diagnostics,
+proposals and analyst UI from main, SCRUM-20 and SCRUM-22. The Agent uses the
+shared redacting JSON formatter, and flushes tracing after stopping background
+runs. The offline regression suite verifies production graph spans, streaming
+usage counters and trace propagation through the typed Domain client.
+
+The read-only A-03 probe remains a smaller **real LangGraph** with `load_case →
 reason → run_check → finalize`. A model chooses an allowlisted diagnostic;
 execution uses the existing scoped Domain client. It finishes `unsure`, because
 one check cannot satisfy the production conclude gate. It writes no business
@@ -163,8 +168,8 @@ inspect the failed trace. Offline output explicitly says `offline=true` and
 
 Before closing A-03, retain a live trace URL and a matching JSON log sample;
 confirm node nesting/timing, prompt template, model, usage, tool arguments/results,
-safe errors where applicable, and the shared case/request IDs. Once B-02 lands,
-repeat on its production graph using the hooks above.
+safe errors where applicable, and the shared case/request IDs. Repeat on the
+production graph to verify live ingestion for the merged workflow.
 
 Automated checks use the **installed Langfuse SDK, graph callback, LangGraph,
 Anthropic SDK and an in-memory OpenTelemetry exporter** to inspect parentage,

@@ -45,7 +45,8 @@ def install_http(app, authorize, *, service="application"):
     configure_logging(service)
     @app.middleware("http")
     async def security_boundary(request, call_next):
-        request.state.request_id = correlation_id(request.headers.get("X-Request-ID"))
+        request.state.request_id = correlation_id(
+            getattr(request.state, "request_id", None) or request.headers.get("X-Request-ID"))
         started = perf_counter()
         # Correlation headers carry no authority; resource scope is still checked below.
         with context_scope(service=service, request_id=request.state.request_id,

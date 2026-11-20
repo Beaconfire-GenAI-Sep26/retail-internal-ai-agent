@@ -117,12 +117,14 @@ class HttpDomainClient:
         backoff_seconds: float = 0.5,
         transport: httpx.AsyncBaseTransport | None = None,
         jwt_settings: JWTSettings | None = None,
+        tracing=None,
     ):
         self._client = httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=timeout, transport=transport)
         self._service_token = service_token
         self._jwt_settings = jwt_settings or JWTSettings.from_env()
         self._max_retries = max_retries
         self._backoff = backoff_seconds
+        self._tracing = tracing
 
     def bind(self, *, token: str, request_id: str, investigation_id: str | None, store_id: str | None = None,
              case_id: str | None = None, max_retries: int | None = None) -> DomainPort:
@@ -163,7 +165,7 @@ class _BoundHttpDomain:
                     scoped = ScopedDomainClient(owner._client, access_token=self._token,
                         settings=owner._jwt_settings, store_id=self._store_id, case_id=self._case_id,
                         investigation_id=self._investigation_id or "", request_id=self._request_id,
-                        service_token=owner._service_token)
+                        service_token=owner._service_token, tracing=owner._tracing)
                     return await scoped.request(method, path, json=body, params=params)
                 # Before ownership is resolved, the only allowed operation is a
                 # case lookup with the user's JWT. Every other call needs scope.

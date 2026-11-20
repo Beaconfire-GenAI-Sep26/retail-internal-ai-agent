@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import httpx
+import httpx2
 import pytest
 from anthropic import AsyncAnthropic
 from fastapi import FastAPI, Request
@@ -162,7 +163,7 @@ def test_real_graph_model_and_tools_share_sdk_trace(sdk_tracing, settings, ident
     async def run():
         async with httpx.AsyncClient(base_url="http://domain/", transport=fixture_transport()) as http:
             async with AsyncAnthropic(api_key="offline", max_retries=0,
-                    http_client=httpx.AsyncClient(transport=scripted_model_transport(usage={
+                    http_client=httpx2.AsyncClient(transport=scripted_model_transport(usage={
                         "input_tokens": 40, "output_tokens": 10,
                         "cache_read_input_tokens": 5, "cache_creation_input_tokens": 20}))) as model:
                 domain = DomainClient(http, access_token=identities(), settings=settings, store_id="STORE-A",
@@ -295,3 +296,84 @@ def test_agent_lifespan_flushes_injected_tracing(settings):
         assert client.get("/agent/health").status_code == 200
     assert called == ["shutdown"]
     asyncio.run(http.aclose())
+
+
+def test_merged_api_exports_the_production_graph_and_keeps_redacting_logs(
+        sdk_tracing, settings, identities, json_logs):
+    from agent.app.domain.fixtures import FixtureDomainClient
+    from agent.app.ids import CounterIdFactory
+    from agent.app.llm.scripted_model import ScriptedReasonModel
+    from agent.app.main import create_app
+    from agent.tests.api.test_api import wait_for
+    from agent.tests.conftest import FIXTURES, make_settings
+    from agent.tests.scripts import store_a_turns
+
+    tracing, exporter = sdk_tracing
+    app = create_app(make_settings(jwt_secret=settings.secret),
+        domain_client=FixtureDomainClient(FIXTURES), model=ScriptedReasonModel(store_a_turns()),
+        ids=CounterIdFactory(), tracing=tracing)
+    analyst = identities()
+    with TestClient(app) as client:
+        response = client.post('/investigations', json={'case_id': 'CASE-0001'},
+            headers={'Authorization': 'Bearer ' + analyst, 'X-Request-ID': 'invalid request id'})
+        assert response.status_code == 202, response.text
+        rid = response.headers['X-Request-ID']
+        assert rid and rid != 'invalid request id'
+        investigation_id = response.json()['investigation_id']
+        assert wait_for(client, investigation_id, analyst)['status'] == 'completed'
+        try:
+            raise RuntimeError('Jane Doe; Bearer private-token')
+        except RuntimeError:
+            logging.getLogger('agent.runner').exception('unexpected private error')
+        tracing.flush()
+        spans = exporter.get_finished_spans()
+        assert {'investigation', 'load_case', 'reason', 'run_check', 'finalize',
+                'submit_recommendation', 'report_status'} <= {span.name for span in spans}
+        assert len({span.context.trace_id for span in spans}) == 1
+        root = next(span for span in spans if span.name == 'investigation')
+        lines = json_logs()
+        started = next(line for line in lines if line['event'] == 'investigation.started')
+        assert started['request_id'] == rid and started['investigation_id'] == investigation_id
+        assert started['trace_id'] == format(root.context.trace_id, '032x')
+        exported = str([dict(span.attributes) for span in spans]) + json.dumps(lines)
+        assert all(private not in exported for private in (analyst, 'Jane Doe', 'private-token'))
+
+
+def test_merged_streaming_model_and_typed_domain_client_share_the_trace(sdk_tracing, settings, identities):
+    from agent.app.domain.client import HttpDomainClient
+    from agent.tests.unit.test_anthropic_model import PROMPT, model_with, sse
+
+    tracing, exporter = sdk_tracing
+    model = model_with([(200, sse('{}'))], [])
+    model.tracing = tracing
+    seen = []
+    transport = fixture_transport()
+
+    async def respond(request):
+        seen.append(request)
+        return await transport.handle_async_request(request)
+
+    async def run():
+        domain = HttpDomainClient('http://domain', 'service-test', jwt_settings=settings,
+            transport=httpx.MockTransport(respond), max_retries=0, tracing=tracing)
+        try:
+            with tracing.investigation(request_id='merged-stream', case_id='CASE-0001', investigation_id='INV-MERGED'):
+                await model.reason(PROMPT, {})
+                bound = domain.bind(token=identities(), request_id='merged-stream',
+                    investigation_id='INV-MERGED', store_id='STORE-A', case_id='CASE-0001')
+                await bound.claim_breakdown('STORE-A', {'filter': {'start': '2026-10-05', 'end': '2026-11-15'},
+                                                       'group_by': 'daypart'})
+        finally:
+            await model.client.close()
+            await domain.aclose()
+
+    asyncio.run(run())
+    tracing.flush()
+    spans = exporter.get_finished_spans()
+    assert {'investigation', 'reason.model', 'domain.claim-breakdown'} <= {span.name for span in spans}
+    assert len({span.context.trace_id for span in spans}) == 1
+    generation = next(span for span in spans if span.name == 'reason.model')
+    usage = json.loads(generation.attributes['langfuse.observation.usage_details'])
+    assert usage['input'] == 120 and usage['output'] == 345 and usage['cache_read_input_tokens'] == 900
+    assert seen[0].headers['X-Trace-ID'] == format(generation.context.trace_id, '032x')
+    assert 'S1 system' not in str([dict(span.attributes) for span in spans])

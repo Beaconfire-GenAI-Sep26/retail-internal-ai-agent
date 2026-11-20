@@ -43,7 +43,7 @@ def create_app(engine=None, settings=None, service_token=None, *, business_route
     async def authorize(request):
         await request.app.state.access.authorize(request)
 
-    install_http(app, authorize)
+    install_http(app, authorize, service="domain")
 
     @app.exception_handler(SQLAlchemyError)
     async def database_error(request, exc):

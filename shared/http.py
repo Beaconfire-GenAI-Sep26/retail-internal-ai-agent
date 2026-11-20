@@ -1,6 +1,6 @@
 import logging
 import json
-from uuid import uuid4
+from time import perf_counter
 
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
@@ -8,8 +8,9 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from shared.security import APIError
+from shared.observability import (bind_context, configure_logging, context_scope,
+                                  correlation_id, log_event, safe_id)
 
-logger = logging.getLogger(__name__)
 PUBLIC_PATHS = {"/health", "/ready", "/docs", "/docs/oauth2-redirect", "/openapi.json", "/redoc"}
 
 
@@ -39,24 +40,38 @@ def error_response(request: Request, error: APIError) -> JSONResponse:
     }})
 
 
-def install_http(app, authorize):
+def install_http(app, authorize, *, service="application"):
     """Authenticate before routing; new business routes are protected by default."""
+    configure_logging(service)
     @app.middleware("http")
     async def security_boundary(request, call_next):
-        request_id = getattr(request.state, "request_id", None) or request.headers.get("X-Request-ID", "")
-        request.state.request_id = request_id if 0 < len(request_id) <= 128 else uuid4().hex
-        try:
-            if service_path(request) not in PUBLIC_PATHS:
-                await authorize(request)
-            response = await call_next(request)
-        except APIError as exc:
-            response = error_response(request, exc)
-        except Exception:
-            # Do not log bodies, Authorization headers or refresh cookies.
-            logger.error("Unhandled service error request_id=%s", request.state.request_id)
-            response = error_response(request, APIError(500, "INTERNAL", "Internal service error."))
-        response.headers["X-Request-ID"] = request.state.request_id
-        return response
+        request.state.request_id = correlation_id(
+            getattr(request.state, "request_id", None) or request.headers.get("X-Request-ID"))
+        started = perf_counter()
+        # Correlation headers carry no authority; resource scope is still checked below.
+        with context_scope(service=service, request_id=request.state.request_id,
+                           case_id=safe_id(request.headers.get("X-Case-ID"), "case_id"),
+                           investigation_id=safe_id(request.headers.get("X-Investigation-ID"), "investigation_id"),
+                           trace_id=safe_id(request.headers.get("X-Trace-ID"), "trace_id")):
+            try:
+                if service_path(request) not in PUBLIC_PATHS:
+                    await authorize(request)
+                bind_context(case_id=getattr(request.state, "case_id", None),
+                             investigation_id=getattr(request.state, "investigation_id", None))
+                response = await call_next(request)
+            except APIError as exc:
+                response = error_response(request, exc)
+            except Exception as exc:
+                log_event("http.unhandled_error", level=logging.ERROR, error_type=type(exc).__name__)
+                response = error_response(request, APIError(500, "INTERNAL", "Internal service error."))
+            # Use the route template only; never log query strings or unknown paths.
+            route = request.scope.get("route")
+            log_event("http.request", method=request.method, route=getattr(route, "path", "unmatched"),
+                      status_code=response.status_code, duration_ms=round((perf_counter() - started) * 1000, 2),
+                      case_id=getattr(request.state, "case_id", None) or safe_id(request.headers.get("X-Case-ID"), "case_id"),
+                      investigation_id=getattr(request.state, "investigation_id", None) or safe_id(request.headers.get("X-Investigation-ID"), "investigation_id"))
+            response.headers["X-Request-ID"] = request.state.request_id
+            return response
 
     @app.exception_handler(APIError)
     async def api_error(request, exc):

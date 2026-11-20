@@ -626,7 +626,7 @@ sequenceDiagram
 **Startup reconcile (Postgres mode):**
 - For each `running` row, read `aget_state`.
 - A terminal state syncs the row. Anything else becomes `failed AGENT_RESTARTED`.
-- In memory mode, nothing survives a restart. A graceful stop still reports each cancelled run to Domain as `failed AGENT_RESTARTED`. If that report fails, nothing resends it.
+- In memory mode, nothing survives a restart. A graceful stop still reports each cancelled run to Domain as `failed AGENT_RESTARTED`.
 
 **Persistence (M2):**
 - `AsyncPostgresSaver` (`langgraph.checkpoint.postgres.aio`) on a psycopg `AsyncConnectionPool` with `kwargs={"autocommit": True, "row_factory": dict_row}`.
@@ -671,9 +671,16 @@ flowchart TB
 - **Model calls:** `start_as_current_observation(as_type="generation", model=…, input=…)`, then `.update(output=…, usage_details=…)`.
 - **Tools and guard:** tool calls are spans. Rejections and `blocked_action` are events.
 
-Scrubbing happens when data enters state, so traced state is clean. Without keys, tracing is a no-op. `flush()` runs on shutdown.
-The current SDK reads `LANGFUSE_BASE_URL`, so architecture.md's `LANGFUSE_HOST` becomes `LANGFUSE_BASE_URL`. JSON logs carry `request_id`,
-`case_id` and `investigation_id`.
+A-03 now supplies these hooks in `agent/app/tracing.py`, with shared JSON logs in
+`shared/observability.py`. The callback and explicit observations export redacted
+projections without mutating graph state. Model message content and untrusted
+prose are withheld; only source-controlled `StaticPrompt` text is retained.
+Without keys, tracing is a no-op. Flush/shutdown runs during Agent lifespan cleanup.
+`LANGFUSE_BASE_URL` takes precedence over the legacy `LANGFUSE_HOST` alias.
+JSON logs carry `request_id`, `case_id`, `investigation_id` and the active `trace_id`.
+The B-02 runner must call `app.state.tracing.ainvoke` per run/resume and instrument
+its direct Claude adapter; see [the integration guide](observability.md#hooks-for-the-b-02-workflow).
+The A-03 read-only probe validates these hooks independently while B-02 is pending.
 
 ## Doc updates and open items
 

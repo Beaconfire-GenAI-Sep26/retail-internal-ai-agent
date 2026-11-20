@@ -84,6 +84,10 @@ cannot access the evaluation schema. Investigation execution and proposal,
 decision and dispatch workflows remain with their respective business tickets;
 the authentication and authorization boundaries are installed now.
 
+A-03 provides correlated JSON logs, optional redacted Langfuse tracing, and a
+read-only LangGraph trace probe. See [observability](docs/observability.md) for
+setup, B-02 integration hooks and the live acceptance checklist.
+
 ## Verify and develop
 
 Run from this repository directory with Python 3.12. Use the virtual

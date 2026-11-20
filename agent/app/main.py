@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import uuid
 import re
 from starlette.concurrency import run_in_threadpool
 
 from shared.http import install_http, service_path, json_object
+from shared.observability import bind_context, correlation_id
+from agent.app.tracing import Tracing
 from shared.security import APIError, JWTSettings, authenticate, require_analyst, require_store
 from agent.app.domain_client import DomainClient as ScopedDomainClient, domain_request
 from contextlib import asynccontextmanager
@@ -29,7 +30,7 @@ from agent.app.runner import Runner
 from agent.app.store import InvestigationStore
 
 
-def make_domain_client(settings: Settings) -> DomainClient:
+def make_domain_client(settings: Settings, *, tracing=None) -> DomainClient:
     if settings.agent_domain_mode == "fixtures":
         return FixtureDomainClient(settings.agent_fixtures_dir)
     return HttpDomainClient(
@@ -38,10 +39,11 @@ def make_domain_client(settings: Settings) -> DomainClient:
         timeout=settings.domain_timeout_seconds,
         max_retries=settings.agent_max_retries,
         jwt_settings=JWTSettings(settings.jwt_secret, settings.jwt_issuer),
+        tracing=tracing,
     )
 
 
-def make_model(settings: Settings) -> ReasonModel:
+def make_model(settings: Settings, *, tracing=None) -> ReasonModel:
     from agent.app.llm.anthropic_model import AnthropicReasonModel
 
     if not settings.anthropic_api_key:
@@ -52,12 +54,12 @@ def make_model(settings: Settings) -> ReasonModel:
                 from agent.app.llm.base import ModelError
                 raise ModelError("UPSTREAM_UNAVAILABLE", "ANTHROPIC_API_KEY is not configured.")
         return UnconfiguredModel()
-    return AnthropicReasonModel(settings)
+    return AnthropicReasonModel(settings, tracing=tracing)
 
 
 def create_app(
     settings=None, domain_http=None, investigation_lookup=None, service_token=None,
-    *, domain_client=None, model=None, ids=None, configure_logs=True,
+    *, domain_client=None, model=None, ids=None, configure_logs=True, tracing=None,
 ) -> FastAPI:
     # Keep the A-02 injectable boundary for policy tests/extensions while the
     # default app runs the actual B-02 graph and investigation API.
@@ -70,6 +72,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app):
         app.state.jwt = jwt_override or JWTSettings(runtime_settings.jwt_secret, runtime_settings.jwt_issuer)
+        app.state.tracing = tracing if tracing is not None else Tracing.from_env()
         app.state.settings = runtime_settings
         app.state.service_token = service_token or runtime_settings.internal_service_token
         if workflow:
@@ -77,15 +80,15 @@ def create_app(
                 configure_logging(runtime_settings.log_level)
             if runtime_settings.agent_checkpointer != "memory":
                 raise RuntimeError("Postgres checkpoints are not implemented; use AGENT_CHECKPOINTER=memory.")
-            domain = domain_client or make_domain_client(runtime_settings)
-            reason_model = model or make_model(runtime_settings)
+            domain = domain_client or make_domain_client(runtime_settings, tracing=app.state.tracing)
+            reason_model = model or make_model(runtime_settings, tracing=app.state.tracing)
             graph = build_graph(InMemorySaver())
             app.state.domain_client = domain
             app.state.graph = graph
             app.state.store = InvestigationStore()
             app.state.ids = ids or UlidIdFactory()
             app.state.runner = Runner(graph=graph, store=app.state.store, settings=runtime_settings,
-                domain_client=domain, model=reason_model, ids=app.state.ids)
+                domain_client=domain, model=reason_model, ids=app.state.ids, tracing=app.state.tracing)
         else:
             app.state.domain_http = domain_http or httpx.AsyncClient(
                 base_url=runtime_settings.domain_service_url.rstrip("/")+"/", timeout=15)
@@ -100,6 +103,7 @@ def create_app(
                     await client.close()
             elif domain_http is None:
                 await app.state.domain_http.aclose()
+            await run_in_threadpool(app.state.tracing.shutdown)
 
     app = FastAPI(title="Retail Agent Service", version="0.2.0", lifespan=lifespan)
     install_error_handlers(app)
@@ -134,8 +138,13 @@ def create_app(
             raise APIError(403, "FORBIDDEN", "Operation has no access policy.")
 
         # Domain resolves the authoritative case -> store mapping using the same JWT.
+        request.state.case_id = case_id
+        request.state.investigation_id = investigation_id
+        bind_context(case_id=case_id, investigation_id=investigation_id)
         case = await domain_request(app.state.domain_http, "GET", f"/cases/{case_id}", headers={
             "Authorization": f"Bearer {request.state.access_token}", "X-Request-ID": request.state.request_id,
+            "X-Case-ID": case_id,
+            **({"X-Investigation-ID": investigation_id} if investigation_id else {}),
         })
         store_id = case["store_id"]
         require_store(user, store_id, hide=method == "GET")
@@ -148,7 +157,8 @@ def create_app(
             request.state.domain_client = ScopedDomainClient(app.state.domain_http,
                 access_token=request.state.access_token, settings=app.state.jwt,
                 store_id=store_id, case_id=case_id, investigation_id=investigation_id,
-                request_id=request.state.request_id, service_token=app.state.service_token)
+                request_id=request.state.request_id, service_token=app.state.service_token,
+                tracing=app.state.tracing)
 
 
     async def authorize(request):
@@ -183,12 +193,11 @@ def create_app(
         request.state.case_id, request.state.store_id = row.case_id, row.store_id
         request.state.investigation_id = row.investigation_id
 
-    install_http(app, authorize)
+    install_http(app, authorize, service="agent")
 
     @app.middleware("http")
     async def request_id(request, call_next):
-        rid = request.headers.get("X-Request-ID", "")
-        rid = rid if 0 < len(rid) <= 128 else uuid.uuid4().hex
+        rid = correlation_id(request.headers.get("X-Request-ID"))
         request.state.request_id = rid
         token = request_id_var.set(rid)
         try:

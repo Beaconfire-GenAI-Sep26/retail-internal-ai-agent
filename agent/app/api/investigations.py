@@ -201,6 +201,9 @@ async def get_investigation(
     row = services.store.get(investigation_id)
     if row is None or not principal.can_see(row.store_id):
         raise AppError(404, "NOT_FOUND", f"Investigation {investigation_id} was not found.")
+    # Only an analyst's request may retry the status write (an /internal/ call made with that analyst's JWT).
+    if principal.is_analyst and row.domain_sync_pending and row.status in TERMINAL_STATUSES:
+        services.runner.schedule_flush(row, token=principal.token, request_id=request_id_var.get() or "unknown")
     _resend_status_report(services, principal, row)
     return await build_view(request, row)
 

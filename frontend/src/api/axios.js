@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { sessionRefreshed, credentialsCleared } from '../store/auth/authSlice';
 import { selectToken } from '../store/auth/authSelectors';
+import { prepareRequest, recordResponse } from './observability';
 
 let store;
 export const injectStore = (value) => { store = value; };
@@ -14,7 +15,7 @@ api.interceptors.request.use((config) => {
   const token = store ? selectToken(store.getState()) : null;
   // Explicit credentials (if supplied) must not be overwritten by a stale token.
   if (token && !config.headers.Authorization) config.headers.Authorization = `Bearer ${token}`;
-  return config;
+  return prepareRequest(config);
 });
 
 let refreshPromise = null;
@@ -33,12 +34,19 @@ export const invalidateSession = () => {
 export const refreshSession = () => {
   if (!refreshPromise) {
     const started = generation;
-    const pending = axios.post(`${api.defaults.baseURL}/auth/refresh`, null, {
+    const config = prepareRequest({
+      url: '/auth/refresh',
       withCredentials: true,
-    }).then(({ data }) => {
+    });
+    const pending = axios.post(`${api.defaults.baseURL}/auth/refresh`, null, config).then((response) => {
+      recordResponse(config, response);
+      const { data } = response;
       if (started !== generation) throw new Error('Session changed during refresh');
       store?.dispatch(sessionRefreshed({ token: data.access_token, user: data.user, expiresAt: data.expires_at }));
       return data;
+    }, (error) => {
+      recordResponse(config, error.response);
+      throw error;
     }).finally(() => {
       if (refreshPromise === pending) refreshPromise = null;
     });
@@ -48,9 +56,10 @@ export const refreshSession = () => {
 };
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => { recordResponse(response.config, response); return response; },
   async (error) => {
     const original = error.config;
+    recordResponse(original, error.response);
     const authEndpoint = /^\/?auth\/(login|refresh|logout)(?:\?|$)/.test(original?.url ?? '');
     if (!original || error.response?.status !== 401 || authEndpoint || !store) {
       return Promise.reject(error);

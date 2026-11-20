@@ -124,6 +124,23 @@ route outside Domain's policy gets 403.
 Any other error on these calls is handled as usual. When the routes exist, the agent uses them with no
 configuration change, as long as Domain and the agent share `INTERNAL_SERVICE_TOKEN`.
 
+### Routes Domain doesn't have
+
+The catalog route, the proposals route and the status route can be missing from a Domain build. Domain's access
+policy already allows them, so once a call passes authorization and finds no handler, Domain answers with its
+generic 404: code `NOT_FOUND`, the message exactly "Not Found" and empty or null `details`. The agent treats only
+that answer as a missing route. A 404 for a missing resource, such as `CASE_NOT_FOUND`, never matches, and a
+route outside Domain's policy gets 403.
+
+| Call | When the route is missing |
+|---|---|
+| `GET /catalog/actions` | `load_case` uses the bundled catalog (`app/data/catalog.json`) and sets `run_config.catalog_source` to `bundled`. |
+| `POST /internal/cases/{case_id}/proposals` | The diagnosis still completes. `proposal_id` stays null and `evidence_gaps` says the recommendation wasn't saved as a proposal. |
+| `PUT /internal/cases/{case_id}/investigation` | The status isn't reported and isn't retried. |
+
+Any other error on these calls is handled as usual. When the routes exist, the agent uses them with no
+configuration change, as long as Domain and the agent share `INTERNAL_SERVICE_TOKEN`.
+
 ## How `reason` works
 
 Each turn, the model receives:

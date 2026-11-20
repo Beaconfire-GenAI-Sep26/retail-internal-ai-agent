@@ -5,6 +5,7 @@ import {
   formatRate,
   formatRateWindow,
   formatDateTime,
+  formatDateTimeShort,
   formatDay,
   formatDayRange,
   formatTarget,
@@ -51,6 +52,10 @@ describe('formatDateTime', () => {
 
   it('missing time → a dash', () => {
     expect(formatDateTime(null, 'America/Chicago')).toBe('—');
+  });
+
+  it('short form for the sidebar: no year, no zone', () => {
+    expect(formatDateTimeShort('2026-11-16T15:00:00Z', 'America/Chicago')).toBe('Nov 16, 9:00 AM');
   });
 });
 

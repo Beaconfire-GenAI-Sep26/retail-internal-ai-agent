@@ -7,6 +7,7 @@
 //   evidence        (D-03) cached evidence records + the drawer     store/evidence/
 //   proposals       (D-03) proposals by ID + their edit / decision  store/proposals/
 //   rechecks        (D-05) "run recheck" requests                   store/rechecks/
+//   audit           (D-05) the open case's activity log             store/audit/
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -19,6 +20,7 @@ import investigationsReducer from './investigations/investigationsSlice';
 import evidenceReducer from './evidence/evidenceSlice';
 import proposalsReducer from './proposals/proposalsSlice';
 import rechecksReducer from './rechecks/rechecksSlice';
+import auditReducer from './audit/auditSlice';
 import { injectStore } from '../api/axios';
 
 
@@ -35,6 +37,7 @@ const store = configureStore({
     evidence: evidenceReducer,
     proposals: proposalsReducer,
     rechecks: rechecksReducer,
+    audit: auditReducer,
   },
 });
 

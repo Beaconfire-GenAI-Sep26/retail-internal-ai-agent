@@ -99,6 +99,16 @@ export const formatDateTime = (iso, timeZone) => {
     .replace(/ /g, ' ');
 };
 
+// Short date and time for narrow places (the audit sidebar). No year, no zone name:
+// the full value goes in a tooltip.
+// "2026-11-16T15:00:00Z", "America/Chicago" → "Nov 16, 9:00 AM"
+export const formatDateTimeShort = (iso, timeZone) => {
+  if (!iso) return '—';
+  return new Date(iso)
+    .toLocaleString('en-US', { timeZone, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    .replace(/ /g, ' ');
+};
+
 // Timestamp → the store-local date as "YYYY-MM-DD", the same format as
 // CaseDetail.daily_rates[].date, so the two can be compared as strings.
 // 'en-CA' is used only because it writes dates as YYYY-MM-DD.

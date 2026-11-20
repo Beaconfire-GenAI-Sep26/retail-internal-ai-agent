@@ -4,7 +4,8 @@ FastAPI service with JWT/store access control, SQLAlchemy models, migrations and
 repeatable synthetic data for 10 stores (Oct 5 - Nov 15, 2026). The entry point is
 `domain.app.main:app`; Compose builds this directory together with `shared/`.
 
-The app now mounts C-02's case, evidence, monitor and diagnostic routers behind
+The app mounts C-02's case, evidence, monitor and diagnostic routers and C-03's
+proposal, catalog and internal routers behind
 the shared JWT/default-deny boundary. ORM sessions use the app's configured
 engine, and query principals inherit its narrowed store grants. Cross-service
 tests and the graph run from the repository root with qualified package imports.
@@ -19,7 +20,10 @@ Run all commands below in Bash on macOS from the repository root.
 | --- | --- |
 | `app/main.py`, `app/access.py` | API entry point, health/readiness, store/menu reads and default-deny authorization |
 | `app/db.py` | Administrative engine/session using the same shared configuration as the API |
-| `app/models.py` | 9 tables: 8 in schema `domain`, answer key in schema `eval` |
+| `app/models.py` | 15 tables: 14 in schema `domain`, answer key in schema `eval` |
+| `app/routers/`, `app/services/` | C-02 cases, monitor, diagnostics, evidence; C-03 proposals, decisions, mock dispatch, audit |
+| `app/catalog.py` | Action catalog (same IDs as the agent's `catalog.json` fixture) |
+| `scripts/make_demo_token.py` | Prints a local demo JWT |
 | `alembic.ini`, `migrations/` | Alembic migrations; the version table lives in schema `domain` |
 | `scripts/reset_and_seed.py` | Drops both schemas, runs `alembic upgrade head`, then loads seed data (fixed seed 24) |
 | `scripts/check_seed.py` | Row counts, integrity checks and M&I rate per store |
@@ -33,11 +37,38 @@ docker compose up --build domain
 Compose uses `domain_svc`, restricted to the `domain` schema. Auth/Agent share
 the JWT verification code in `shared/`; Domain independently verifies forwarded
 tokens and resolves case/proposal ownership before authorizing a request.
-The existing C-02/C-03 business handlers remain separate implementation work.
 
 Direct development uses `uvicorn domain.app.main:app --root-path /domain` from the repository root
 with `JWT_SECRET`, `INTERNAL_SERVICE_TOKEN` and the Domain database environment
 configured. The root `.env` is loaded by Compose, not automatically by Python.
+
+### Local demo without the Auth service
+
+From the repository root:
+
+```bash
+export JWT_SECRET="change-me-32-bytes-min-local-only"   # must match the Auth service
+export INTERNAL_SERVICE_TOKEN="change-me-internal"     # must match the Agent service
+uvicorn domain.app.main:app --reload --port 8003
+```
+
+Open http://localhost:8003/docs. Print a token signed with the same `JWT_SECRET` and paste it into
+**Authorize** (`loe_analyst`, all 10 stores, valid 12 hours):
+
+```bash
+python -m domain.scripts.make_demo_token
+```
+
+## Tests
+
+Tests need a separate seeded database whose name starts with `retail_merge_test_`:
+
+```bash
+export DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/retail_merge_test_domain"
+export DOMAIN_TEST_DATABASE_URL="$DATABASE_URL"
+python -m domain.scripts.reset_and_seed
+python -m pytest -q domain/tests
+```
 
 ## Migrate and seed
 
@@ -100,6 +131,110 @@ Never give the running Domain API the administrator's credentials.
 1. Edit `domain/app/models.py`.
 2. Run `alembic -c domain/alembic.ini revision --autogenerate -m "describe the change"` and review `domain/migrations/versions/`.
 3. Run `alembic -c domain/alembic.ini upgrade head`, then commit the model change and migration together.
+
+## Cases, monitor and diagnostic tools (C-02)
+
+### Endpoints in C-02
+
+| Method and path | Who | Notes |
+| --- | --- | --- |
+| `GET /cases?status=&store_id=` | viewer, analyst | Permitted stores only, newest first |
+| `GET /cases/{case_id}` | viewer, analyst | Daily rates for the 42 days ending on the trigger window. Other stores' cases are 404 |
+| `POST /monitor/run` | analyst | Body `{"as_of": "2026-11-15"}` or empty; `Idempotency-Key` header required |
+| `GET /stores/{id}`, `GET /stores/{id}/menu` | any user | 403 `STORE_NOT_PERMITTED` outside the token's stores |
+| `GET /stores/{id}/overview?start=&end=` | any user | store_overview |
+| `GET /stores/{id}/diagnostics/events?start=&end=&event_type=` | any user | event_log |
+| `POST /stores/{id}/diagnostics/claim-breakdown` | any user | claim_breakdown |
+| `POST /stores/{id}/diagnostics/compare-periods` | any user | compare_periods |
+| `POST /stores/{id}/diagnostics/evidence-sample` | any user | sample_evidence |
+| `POST /stores/{id}/diagnostics/cancellation-breakdown` | any user | cancellation_breakdown |
+| `GET /stores/{id}/diagnostics/fraud-signals?start=&end=` | any user | fraud_signals |
+| `GET /evidence/{evidence_id}` | any user | Evidence lookup |
+| `POST /evidence/resolve` | agent only | Checks cited IDs. Needs `X-Service-Token` + user JWT; a browser call gets 403 `SERVICE_TOKEN_INVALID` |
+
+Without `start`/`end`, a tool uses the 42 days ending on the store's last day of data.
+Merchant replies, running rechecks and reopening come in C-04.
+
+### Monitor rule
+
+For each store in the caller's grants, with `as_of` as the last day (default: the last day of data):
+
+- Window: the 7 days ending on `as_of`. Baseline: the 28 days before the window. Dates are store local.
+- Rate = store-attributable claims (`store_fault` + `pending`) / delivered orders.
+- Skipped when the store already has a case that is not `closed` (`open_case_exists`) or the window
+  has fewer than `MONITOR_MIN_ORDERS` delivered orders (`low_volume`).
+- Opens a case with status `open` when the rate is above `MONITOR_GOAL_RATE` (`over_goal`), or when it is
+  at least `MONITOR_SPIKE_RATIO` x the baseline and at least `MONITOR_MIN_RISE` above it (`spike_vs_baseline`).
+  Otherwise the store is listed with `below_threshold`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `MONITOR_GOAL_RATE` | 0.05 | 7-day rate above this opens a case |
+| `MONITOR_SPIKE_RATIO` | 1.5 | ...or this multiple of the baseline |
+| `MONITOR_MIN_RISE` | 0.03 | ...and at least 3 points above it |
+| `MONITOR_MIN_ORDERS` | 100 | Minimum delivered orders in the 7-day window |
+| `MIN_GROUP_ORDERS` | 30 | Groups with fewer eligible orders get a null rate |
+| `FRAUD_MIN_PENDING_CLAIMS` | 4 | fraud_signals flags a customer_ref at this many pending claims |
+| `JWT_SECRET`, `JWT_ISSUER` | local value, `mi-auth` | Must match the Auth service |
+| `ROOT_PATH` | empty | `/domain` behind the gateway |
+| `INTERNAL_SERVICE_TOKEN` | required | Read by `app/main.py`. Agent sends it as `X-Service-Token` on `/internal/` routes and `/evidence/resolve`. Must match the Agent service |
+| `MOCK_DISPATCH_FAIL` | `false` | Demo switch: `true` makes every mock send fail with 502 `DISPATCH_FAILED` |
+
+On seed 24 with `as_of` 2026-11-15 the monitor opens cases for STORE-A and STORE-B only. STORE-I is
+`low_volume` and STORE-J (one-day spike) is `below_threshold`.
+
+### Diagnostic rules worth knowing
+
+- A claim belongs to the day its order was placed (store local), so a rate's numerator is always part of its denominator.
+- Claims with no `item_id` are grouped as `item_id=unknown`, which has no order denominator (rate `null`).
+- Claims with no `modifier_detail` are left out of modifier groups; the result's `notes` give the count.
+- `evidence_ids` follow the order in agent-graph.md and stop at 200.
+
+## Decisions, mock dispatch and audit (C-03)
+
+### Endpoints in C-03
+
+| Method and path | Who | Notes |
+| --- | --- | --- |
+| `POST /internal/cases/{case_id}/proposals` | agent | Creates `pending` version 1. 409 `PROPOSAL_PENDING`, 422 `INVALID_EVIDENCE` / `UNKNOWN_ACTION` |
+| `PUT /internal/cases/{case_id}/investigation` | agent | Reports `investigation_status`; Domain sets `case_status` |
+| `GET /proposals/{proposal_id}` | any user | Current version and, once approved, the dispatch |
+| `POST /proposals/{proposal_id}/versions` | analyst | Edit while pending: adds the next version (201). Same text adds nothing (200) |
+| `POST /proposals/{proposal_id}/decision` | analyst | `{"version", "decision", "note"}` + `Idempotency-Key`. 409 `STALE_VERSION` / `ALREADY_DECIDED`, 502 `DISPATCH_FAILED` |
+| `GET /cases/{case_id}/audit` | any user | Every action on the case, oldest first |
+| `GET /cases/{case_id}/rechecks` | any user | Planned rechecks (C-04 runs them) |
+| `GET /catalog/actions` | any user | The action catalog |
+
+### Rules
+
+- One pending proposal per case. An edit adds a version and keeps the old ones (`proposal_versions`).
+- A decision must name the current version, otherwise 409 `STALE_VERSION`.
+- Approve, in one transaction: decision, mock dispatch (`dispatches`, one per proposal), case status,
+  audit rows, and for an intervention or handoff a `scheduled` recheck.
+- Reject: decision, case status, audit. Never a dispatch.
+- Retries: the same `Idempotency-Key` returns the stored result. The same decision with a new key
+  returns the existing proposal. A double click can't dispatch twice (row lock + unique `proposal_id`).
+- Mock send failure: everything is rolled back except a `dispatch.failed` audit row; the proposal stays pending.
+- Other stores: a GET of their case or proposal returns 404; a write (edit, decision) returns 403 `STORE_NOT_PERMITTED`.
+- Internal routes (`/internal/...`) are agent only. `app/access.py` checks: a valid `X-Service-Token`
+  (else 403 `SERVICE_TOKEN_INVALID`), an analyst user JWT, `X-Investigation-ID`, and `X-Store-ID` equal to
+  the case's store and inside the JWT's stores (else 403 `STORE_NOT_PERMITTED`).
+- 409 `PROPOSAL_PENDING` carries the pending `proposal_id` in `details`.
+- Catalog IDs match the agent's fixture; `analyst_review` applies to every cause.
+
+| Event | `case_status` |
+| --- | --- |
+| Proposal created | `awaiting_decision` |
+| Question approved / rejected | `awaiting_merchant` / `investigating` |
+| Action approved / rejected | `action_dispatched` / `analyst_review` |
+| Investigation `running` / `unsure` / `failed` | `investigating` / `analyst_review` / `open` + `last_error` |
+
+The recheck's `before` window is the target's rate over the last `recheck_after_days` days of the case
+window (store local). `scheduled_for` is the dispatch time plus `recheck_after_days`.
+
+Audit actions: `case.opened`, `proposal.created`, `proposal.edited`, `proposal.approved`,
+`proposal.rejected`, `dispatch.sent`, `dispatch.failed`, `recheck.scheduled`, `investigation.<status>`.
+Actors are a user ID, `svc_agent` or `svc_monitor`.
 
 ## Seeded scenarios
 

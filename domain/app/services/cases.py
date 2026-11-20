@@ -10,6 +10,7 @@ from domain.app.models import Case, CaseStatus, Store
 from domain.app.schemas import CaseDetail, CaseSummary, DailyRate, StoreSummary
 from domain.app.security import CurrentUser
 from domain.app.services.store_data import INVESTIGATION_DAYS, load_context, load_window
+from domain.app.services.proposals import case_proposals, case_rechecks
 from domain.app.settings import settings
 
 
@@ -35,10 +36,9 @@ def case_summary(case: Case, store: Store) -> CaseSummary:
         goal_rate=float(case.goal_rate),
         opened_at=case.opened_at,
         updated_at=case.updated_at,
-        # Columns added by later tickets: C-03 (investigation, last_error), C-04 (reopen_count).
-        active_investigation_id=None,
-        reopen_count=0,
-        last_error=None,
+        active_investigation_id=case.active_investigation_id,
+        reopen_count=0,  # C-04
+        last_error=case.last_error,
     )
 
 
@@ -84,7 +84,7 @@ def get_case(session: Session, user: CurrentUser, case_id: str) -> CaseDetail:
         **case_summary(case, store).model_dump(),
         store=store_summary(store),
         daily_rates=daily,
-        investigation_ids=[],  # C-03
-        proposals=[],  # C-03
-        rechecks=[],  # C-04
+        investigation_ids=list(reversed(case.investigation_ids)),  # newest first
+        proposals=case_proposals(session, case.case_id),
+        rechecks=case_rechecks(session, case.case_id),
     )

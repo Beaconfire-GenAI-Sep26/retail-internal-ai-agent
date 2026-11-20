@@ -4,7 +4,16 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from domain.app.models import CancellationCategory, CaseStatus, Daypart, ErrorCategory, ReviewLabel
+from domain.app.models import (
+    CancellationCategory,
+    CaseStatus,
+    Daypart,
+    ErrorCategory,
+    ProposalKind,
+    ProposalStatus,
+    RecheckStatus,
+    ReviewLabel,
+)
 
 Weekday = Annotated[int, Field(ge=0, le=6, description="0 = Monday, store local time")]
 IdList = Annotated[list[str], Field(max_length=200)]
@@ -124,6 +133,96 @@ class EvidenceResolveRequest(Strict):
 
 
 # ---------------------------------------------------------------------------
+# Proposals and decisions (C-03)
+# ---------------------------------------------------------------------------
+OwnerTeam = Literal["merchant", "pos_team", "menu_team", "dasher_ops", "fraud_review", "analyst"]
+CauseCategory = Literal[
+    "pos_modifier_mapping", "menu_change", "packing", "inventory", "dasher_handoff", "fraud_cluster", "other"
+]
+InvestigationStatus = Literal["running", "awaiting_approval", "awaiting_merchant", "completed", "unsure", "failed"]
+
+
+class Target(Strict):
+    """Which orders an action is about. Empty lists mean "any". Names match C-01 columns."""
+
+    item_id: IdList = Field(default_factory=list)
+    modifiers: IdList = Field(default_factory=list)
+    daypart: list[Daypart] = Field(default_factory=list)
+    item_count_min: int | None = Field(default=None, ge=1)
+
+
+class MerchantQuestionContent(Strict):
+    question_text: str = Field(min_length=1, max_length=2000)
+    why_asked: str = Field(min_length=1, max_length=2000)
+
+
+class ActionContent(Strict):
+    action_id: str
+    owner_team: OwnerTeam
+    title: str = Field(min_length=1, max_length=200)
+    instructions: str = Field(min_length=1, max_length=4000)
+    rationale: str = Field(min_length=1, max_length=4000)
+    target: Target
+    recheck_after_days: int = Field(ge=1, le=28)
+
+
+ProposalContent = MerchantQuestionContent | ActionContent
+
+_QUESTION_EXAMPLE = {
+    "question_text": "Did the store change how Extra sauce is set up in the POS around Oct 30?",
+    "why_asked": "Claims on orders with Extra sauce rose from Oct 30, and the menu change log has no detail.",
+}
+_ACTION_EXAMPLE = {
+    "action_id": "fix_modifier_mapping",
+    "owner_team": "pos_team",
+    "title": "Fix the Extra sauce modifier mapping",
+    "instructions": "Check that Extra sauce on the POS maps to the right kitchen ticket line.",
+    "rationale": "The claim rise starts with the Oct 30 menu change and is limited to orders with Extra sauce.",
+    "target": {"item_id": [], "modifiers": ["Extra sauce"], "daypart": [], "item_count_min": None},
+    "recheck_after_days": 14,
+}
+
+
+class ProposalCreate(Strict):
+    """Internal route, agent only."""
+
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [{
+        "investigation_id": "INV-01JD3K9Q8F2M", "kind": "handoff", "content": _ACTION_EXAMPLE,
+        "evidence_ids": ["EV-EVT-000001"]}]})
+
+    investigation_id: str = Field(min_length=1, max_length=40)
+    kind: ProposalKind
+    content: ProposalContent
+    evidence_ids: IdList = Field(default_factory=list)
+
+
+class ProposalEdit(Strict):
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [{"content": _QUESTION_EXAMPLE}]})
+
+    content: ProposalContent
+
+
+class DecisionRequest(Strict):
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [
+        {"version": 1, "decision": "approve", "note": None}]})
+
+    version: int = Field(ge=1)
+    decision: Literal["approve", "reject"]
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class InvestigationStatusUpdate(Strict):
+    """Internal route, agent only."""
+
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [
+        {"investigation_id": "INV-01JD3K9Q8F2M", "status": "running", "error_code": None}]})
+
+    investigation_id: str = Field(min_length=1, max_length=40)
+    status: InvestigationStatus
+    error_code: str | None = Field(default=None, max_length=200)
+
+
+# ---------------------------------------------------------------------------
 # Responses
 # ---------------------------------------------------------------------------
 class Metric(BaseModel):
@@ -207,12 +306,79 @@ class DailyRate(BaseModel):
     eligible_orders: int
 
 
+class Dispatch(BaseModel):
+    dispatch_id: str
+    status: Literal["dispatched", "failed"]
+    channel: Literal["mock_merchant", "mock_team_queue"]
+    owner_team: OwnerTeam
+    dispatched_at: datetime
+
+
+class Proposal(BaseModel):
+    proposal_id: str
+    case_id: str
+    investigation_id: str
+    kind: ProposalKind
+    version: int  # the current version
+    status: ProposalStatus
+    content: ProposalContent  # the current version's content
+    evidence_ids: list[str]
+    created_at: datetime
+    decided_by: str | None
+    decided_at: datetime | None
+    decision_note: str | None
+    dispatch: Dispatch | None
+
+
+class RateWindow(BaseModel):
+    start: date
+    end: date
+    claims: int
+    eligible_orders: int
+    rate: float | None
+
+
+class Recheck(BaseModel):
+    recheck_id: str
+    case_id: str
+    proposal_id: str
+    scheduled_for: datetime
+    status: RecheckStatus
+    target: Target
+    before: RateWindow
+    after: RateWindow | None
+    control: RateWindow | None
+    data_sufficient: bool | None
+    ran_at: datetime | None
+
+
+class AuditEntryOut(BaseModel):
+    audit_id: str
+    case_id: str
+    actor_id: str
+    actor_role: Literal["viewer", "loe_analyst", "service"]
+    action: str
+    proposal_id: str | None
+    version: int | None
+    request_id: str
+    at: datetime
+
+
+class ActionCatalogEntry(BaseModel):
+    action_id: str
+    kind: Literal["intervention", "handoff"]
+    owner_team: OwnerTeam
+    title: str
+    applies_to: list[CauseCategory]
+    default_recheck_days: int
+
+
 class CaseDetail(CaseSummary):
     store: StoreSummary
     daily_rates: list[DailyRate]
-    investigation_ids: list[str]
-    proposals: list[dict[str, Any]]
-    rechecks: list[dict[str, Any]]
+    investigation_ids: list[str]  # newest first
+    proposals: list[Proposal]  # newest first
+    rechecks: list[Recheck]
 
 
 class SkippedStore(BaseModel):

@@ -21,6 +21,7 @@ from domain.app.errors import ApiError
 from domain.app.models import Case, CaseStatus, Store
 from domain.app.schemas import MonitorRunResponse, SkippedStore
 from domain.app.security import CurrentUser
+from domain.app.services.audit import SVC_MONITOR, write_audit
 from domain.app.services.store_data import load_context, load_window
 from domain.app.settings import settings
 
@@ -83,7 +84,7 @@ def next_case_id(session: Session) -> str:
     return f"CASE-{n:04d}"
 
 
-def run_monitor(session: Session, user: CurrentUser, as_of: date | None) -> MonitorRunResponse:
+def run_monitor(session: Session, user: CurrentUser, as_of: date | None, rid: str = "") -> MonitorRunResponse:
     """Evaluate the stores in the user's grants and open cases. The caller commits."""
     session.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": MONITOR_LOCK_ID})
     stores = session.scalars(
@@ -140,6 +141,8 @@ def run_monitor(session: Session, user: CurrentUser, as_of: date | None) -> Moni
         )
         session.add(case)
         session.flush()  # so next_case_id sees it
+        write_audit(session, case_id=case.case_id, action="case.opened", request_id=rid, service=SVC_MONITOR,
+                    user=user, details={"trigger_rule": rule, "as_of": str(as_of)})
         opened.append(case.case_id)
     return MonitorRunResponse(
         run_id=_run_id(), as_of=as_of, evaluated_store_ids=evaluated, opened_case_ids=opened, skipped=skipped

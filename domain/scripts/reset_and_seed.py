@@ -601,10 +601,10 @@ def main() -> None:
 
     golden = [
         GoldenScenario(
-            scenario_id="GS-01", store_id="STORE-A", split="dev", cause_category="pos",
+            scenario_id="GS-01", store_id="STORE-A", split="dev", cause_category="pos_modifier_mapping",
             true_cause="pos_modifier_not_mapped", cause_started_at=local(chi, A_CAUSE_DATE, 10),
-            expected_outcome="diagnosed", expected_owner="merchant",
-            expected_action="ask_merchant_fix_pos_modifier_mapping",
+            expected_outcome="diagnosis", expected_owner="pos_team",
+            expected_action="fix_modifier_mapping",
             key_evidence=["claims concentrated on modifier_detail 'Extra sauce' after Oct 30",
                           "Oct 30 menu_change adding the Extra sauce modifier"],
             distractors=["Oct 20 store downtime", "Oct 24-26 out-of-stock cancellations",
@@ -615,8 +615,8 @@ def main() -> None:
         GoldenScenario(
             scenario_id="GS-02", store_id="STORE-B", split="dev", cause_category="packing",
             true_cause="dinner_multi_bag_packing", cause_started_at=local(chi, B_CAUSE_DATE, 16),
-            expected_outcome="diagnosed", expected_owner="merchant",
-            expected_action="ask_merchant_add_dinner_bag_check",
+            expected_outcome="diagnosis", expected_owner="merchant",
+            expected_action="add_large_order_bag_check",
             key_evidence=["missing_item claims concentrated in dinner orders with 5+ items after Nov 3",
                           "customer comments mention a whole bag missing",
                           "lunch and small orders stay normal"],

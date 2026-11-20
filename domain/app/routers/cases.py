@@ -3,9 +3,10 @@ from sqlalchemy.orm import Session
 
 from domain.app.deps import get_session
 from domain.app.models import CaseStatus
-from domain.app.schemas import CaseDetail, CaseSummary
+from domain.app.schemas import AuditEntryOut, CaseDetail, CaseSummary, Recheck
 from domain.app.security import CurrentUser, current_user
-from domain.app.services import cases
+from domain.app.services import cases, proposals
+from domain.app.services.audit import list_audit
 
 router = APIRouter(tags=["cases"])
 
@@ -25,3 +26,17 @@ def list_cases(
 def get_case(case_id: str, user: CurrentUser = Depends(current_user), session: Session = Depends(get_session)):
     """One case with its store and daily rates for the 42 days ending on the trigger window's last day."""
     return cases.get_case(session, user, case_id)
+
+
+@router.get("/cases/{case_id}/audit", response_model=list[AuditEntryOut])
+def get_audit(case_id: str, user: CurrentUser = Depends(current_user), session: Session = Depends(get_session)):
+    """Every recorded action on the case, oldest first."""
+    proposals.visible_case(session, user, case_id)
+    return list_audit(session, case_id)
+
+
+@router.get("/cases/{case_id}/rechecks", response_model=list[Recheck])
+def get_rechecks(case_id: str, user: CurrentUser = Depends(current_user), session: Session = Depends(get_session)):
+    """Planned and finished rechecks, earliest first. C-03 schedules them; C-04 runs them."""
+    proposals.visible_case(session, user, case_id)
+    return proposals.case_rechecks(session, case_id)

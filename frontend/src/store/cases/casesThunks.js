@@ -62,3 +62,30 @@ export const fetchCase = createAsyncThunk(
     }
   },
 );
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 4. runMonitor — POST /domain/monitor/run (analyst only)
+// ═══════════════════════════════════════════════════════════════════
+// Demo trigger for the fixed-rule monitor: checks every store in the token and
+// opens a case for each one over the threshold. The seed has no cases, so this
+// is how the queue gets its first rows.
+// → MonitorRunResponse { run_id, as_of, evaluated_store_ids, opened_case_ids,
+//   skipped: [{ store_id, reason }] }
+// No body: as_of defaults to the last day of data.
+// One Idempotency-Key per click (contracts.md). The backend also never opens a
+// second case for a store that already has one, so clicking again is safe.
+// The caller reloads the queue afterwards (it knows the current filters).
+export const runMonitor = createAsyncThunk(
+  'cases/runMonitor',
+  async (_, { rejectWithValue }) => {
+    try {
+      const { data } = await api.post('/domain/monitor/run', null, {
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+      });
+      return data;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err, 'Could not run the monitor'));
+    }
+  },
+);

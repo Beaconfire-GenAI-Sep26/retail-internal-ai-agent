@@ -10,7 +10,7 @@
   "default_recheck_days": 14
  },
  {
-  "action_id": "add_large_order_bag_check",
+  "action_id": "large_order_bag_check",
   "kind": "intervention",
   "owner_team": "merchant",
   "title": "Add a bag-count check before handoff for large orders",

@@ -611,7 +611,7 @@ interface InvestigationResult {
   challenge_check_ids: string[];
   unverified_reply_claims: string[];
   recommendation: Recommendation | null;
-  proposal_id: string | null;
+  proposal_id: string | null; // null for `unsure`, and when Domain has no proposals route (evidence_gaps says so)
 }
 
 interface Recommendation {
@@ -823,7 +823,7 @@ read-only and never change data.
 | `GET /stores/{store_id}/diagnostics/fraud-signals?start=&end=`      | viewer, analyst, agent | —                                                       | 200 `ToolResult`                                                                        | 403, 422                                                               |
 | `GET /catalog/actions`                                              | any user, agent        | —                                                       | 200 `ActionCatalogEntry[]`                                                              | 401                                                                    |
 | `GET /evidence/{evidence_id}`                                       | viewer, analyst, agent | —                                                       | 200 `Evidence`                                                                          | 403, 404                                                               |
-| `POST /evidence/resolve`                                            | agent                  | `EvidenceResolveRequest`                                | 200 `EvidenceResolveResponse`                                                           | 403                                                                    |
+| `POST /evidence/resolve`                                            | agent                  | `EvidenceResolveRequest`, at most 200 IDs               | 200 `EvidenceResolveResponse`                                                           | 403, 422                                                               |
 | `GET /proposals/{proposal_id}`                                      | viewer, analyst, agent | —                                                       | 200 `Proposal`                                                                          | 403, 404                                                               |
 | `POST /proposals/{proposal_id}/versions`                            | analyst                | `ProposalEdit`                                          | 201 `Proposal` with the next version                                                    | 403, 409 `ALREADY_DECIDED`                                             |
 | `POST /proposals/{proposal_id}/decision`                            | analyst                | `DecisionRequest`, `Idempotency-Key`                    | 200 `Proposal`, with `dispatch` set on approve                                          | 403, 409 `STALE_VERSION`, 409 `ALREADY_DECIDED`, 502 `DISPATCH_FAILED` |
@@ -838,7 +838,8 @@ approved `intervention` or `handoff` also schedules a recheck for `dispatched_at
 
 ### Domain Service, internal only
 
-Unreachable through the gateway. Requires `X-Service-Token` and the forwarded user JWT.
+Unreachable through the gateway. Requires `X-Service-Token`, the forwarded user JWT with the `loe_analyst`
+role, `X-Investigation-ID`, and an `X-Store-ID` that is in the JWT's grants and owns the case.
 
 | Method and path                               | Who   | Request                     | Response                                    | Errors                                                                    |
 | --------------------------------------------- | ----- | --------------------------- | ------------------------------------------- | ------------------------------------------------------------------------- |
@@ -857,6 +858,7 @@ Group STORE-A's claims by modifier:
 POST /domain/stores/STORE-A/diagnostics/claim-breakdown
 Authorization: Bearer eyJ...
 X-Investigation-ID: INV-01JD3K9Q8F2M
+X-Store-ID: STORE-A
 Content-Type: application/json
 
 { "filter": { "start": "2026-10-05", "end": "2026-11-15" }, "group_by": "modifier" }
@@ -956,7 +958,7 @@ Every error uses one envelope, including FastAPI's validation errors:
 | 409  | `ALREADY_DECIDED`                    | Proposal already approved or rejected with a different decision                                                         |
 | 409  | `NOT_DISPATCHED`, `REPLY_EXISTS`     | Reply to an undispatched question, or a second reply                                                                    |
 | 409  | `RECHECK_ALREADY_RUN`                | The recheck already has a result                                                                                        |
-| 422  | `VALIDATION_ERROR`                   | Body or query fails validation, including an unknown `item_id`, modifier, `daypart`, or a date outside the store's data |
+| 422  | `VALIDATION_ERROR`                   | Body or query fails validation, including an unknown `item_id`, modifier, `daypart`, or a date outside the store's data. `details` names the problem: `unknown_item_ids`, `unknown_modifiers`, `data_start` and `data_end`, or `errors` as `[{loc, msg}]`. |
 | 422  | `INVALID_EVIDENCE`, `UNKNOWN_ACTION` | Proposal cites unresolvable evidence or an action outside the catalog                                                   |
 | 502  | `DISPATCH_FAILED`                    | Mock dispatch failed. The proposal stays `pending`.                                                                     |
 | 503  | `UPSTREAM_UNAVAILABLE`               | A called service or the model is unreachable                                                                            |

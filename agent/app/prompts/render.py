@@ -24,6 +24,23 @@ from agent.app.tools.registry import describe_request, render_tool_catalog
 TEXT_CAP = 300
 SHOWN_EVIDENCE_IDS = 20
 SHOWN_HYPOTHESIS_IDS = 10
+# An item_id or modifier group counts the claims that name the value over the orders that contain it.
+NAMING_GROUP_PREFIXES = ("item_id=", "modifier=")
+
+
+def _count(k: int, noun: str) -> str:
+    return f"{k} {noun}" + ("" if k == 1 else "s")
+
+
+def _naming_fraction(name: str | None, n: int, d: int) -> str | None:
+    """The fraction of an item_id or modifier group in words, for the claim breakdown metrics."""
+    if name == "claim_rate":
+        return f"{_count(n, 'claim')} naming it / {_count(d, 'order')} containing it"
+    if name == "claim_share":
+        return f"{n} of {_count(d, 'claim')} name it"
+    if name == "order_share":
+        return f"{n} of {_count(d, 'order')} contain it"
+    return None
 
 
 @lru_cache
@@ -141,9 +158,59 @@ def _metric_line(m: dict[str, Any]) -> str:
     else:
         shown = f"{value:.4f} ({pct(value)})"
     frac = ""
-    if m.get("numerator") is not None and m.get("denominator") is not None:
-        frac = f" = {int(m['numerator'])}/{int(m['denominator'])}"
+    num, den = m.get("numerator"), m.get("denominator")
+    if num is not None and den is not None:
+        naming = str(m.get("group") or "").startswith(NAMING_GROUP_PREFIXES)
+        words = _naming_fraction(m.get("name"), int(num), int(den)) if naming else None
+        frac = " = " + (words or f"{int(num)}/{int(den)}")
     return f"  {esc(m.get('name'))} {esc(m.get('group') or '-')}: {shown}{frac}"
+
+
+def _named(scope: dict[str, Any] | None) -> tuple[str, str]:
+    """The item_id and modifier values a claim scope names, and the pronoun for them; ("", "") for none."""
+    if not scope:
+        return "", ""
+    parts, count = [], 0
+    for key, label in (("item_id", "item_id"), ("modifiers", "modifier")):
+        values = [esc(v) for v in scope.get(key) or []]
+        if values:
+            parts.append(f"{label} {' or '.join(values)}")
+            count += len(values)
+    return " and ".join(parts), ("it" if count == 1 else "them")
+
+
+def count_notes(tool: str, request: dict[str, Any]) -> list[str]:
+    """What a claim result counts when an item or modifier narrows it.
+
+    Domain counts the claims that name the value over the orders that contain it, so a count here is
+    never every claim on those orders.
+    """
+    notes: list[str] = []
+    if tool == "claim_breakdown":
+        group_by = request.get("group_by")
+        if group_by in ("item_id", "modifier"):
+            what = "item" if group_by == "item_id" else "modifier"
+            notes.append(
+                f"each {group_by} group counts the claims that name that {what}, over the orders that contain it, "
+                "not every claim on those orders"
+            )
+        named, pronoun = _named(request.get("filter"))
+        if named:
+            notes.append(f"only claims that name {named} count, over the orders that contain {pronoun}")
+    elif tool == "compare_periods":
+        named, pronoun = _named(request.get("target"))
+        if named:
+            notes.append(f"the target counts the claims that name {named}, over the orders that contain {pronoun}")
+            if request.get("control") is None:
+                notes.append("the control counts every claim on the store's other orders")
+        named, pronoun = _named(request.get("control"))
+        if named:
+            notes.append(f"the control counts the claims that name {named}, over the orders that contain {pronoun}")
+    elif tool == "sample_evidence" and request.get("evidence_type") == "claim":
+        named, _ = _named(request.get("filter"))
+        if named:
+            notes.append(f"only claims that name {named} are sampled")
+    return notes
 
 
 def _record_line(e: dict[str, Any]) -> str:
@@ -189,6 +256,9 @@ def render_checks(state: dict[str, Any]) -> list[str]:
         result = c.get("result", {})
         kind = "load_case" if c.get("source") == "load_case" else c.get("kind")
         parts = [c["check_id"], kind, esc(describe_request(c["tool"], c["request"]), 600)]
+        counts = count_notes(c["tool"], c["request"])
+        if counts:
+            parts.append("counts: " + "; ".join(counts))
         if c.get("discriminates"):
             parts.append("discriminates " + ", ".join(c["discriminates"]))
         if c.get("challenges"):
@@ -236,6 +306,7 @@ def render_latest(state: dict[str, Any]) -> list[str]:
     kind = "load_case" if latest.get("source") == "load_case" else latest.get("kind")
     lines = [f'<latest_result check="{latest["check_id"]}" tool="{latest["tool"]}" kind="{kind}">']
     lines.append("request: " + esc(describe_request(latest["tool"], latest["request"]), 800))
+    lines.extend(f"counts: {note}" for note in count_notes(latest["tool"], latest["request"]))
     if latest.get("purpose"):
         lines.append(f"purpose: {esc(latest['purpose'])}")
     for e in latest.get("expectations", []):

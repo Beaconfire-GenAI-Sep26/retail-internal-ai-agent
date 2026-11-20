@@ -2,9 +2,13 @@
 
 Rules from the structured-outputs docs shape it:
 - Every field is required and non-nullable. "Nothing" is "" for text, [] for lists, 0 for numbers.
-- Exactly two unions: `next_action` (3 variants) and `CheckPlanWire.request` (8 variants).
+- One union: `next_action` (3 variants).
+- The tool request is a JSON object written as a string (`CheckPlanWire.request`). The API compiles the
+  schema into a grammar, and the 8 per-tool request shapes make that grammar too large to compile, so the
+  request is checked here instead: the string is decoded and validated against the request models below,
+  picked by `tool` (and `evidence_type` for samples). A bad request is a SCHEMA rejection with the errors.
 - No numeric or length constraints. The guard checks bounds.
-- Single-value tags (`type`, `tool`, `evidence_type`) are sent as one-value enums. The SDK's
+- Single-value tags (`type`, `evidence_type` in the schema) are sent as one-value enums. The SDK's
   `transform_schema` drops `const`, which would leave the tags unconstrained.
 - Enum values are lowercased before validation.
 """
@@ -18,7 +22,16 @@ from functools import lru_cache
 from typing import Annotated, Any, Literal, Union
 
 import anthropic
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Discriminator,
+    Field,
+    Tag,
+    WithJsonSchema,
+    field_validator,
+)
 
 from agent.app.contracts.enums import (
     CancellationCategory,
@@ -91,37 +104,33 @@ ITEM_MAX = "Maximum orders.item_count; 0 for none"
 LABELS = '[] means the default ["store_fault", "pending"]'
 
 
+# The request models below are validated in code, not by the API's grammar, so a constraint the model
+# leaves out of the request takes its "no constraint" default.
+
+
 class ClaimScopeWire(WireModel):
-    item_id: list[str] = Field(description=ITEM_IDS)
-    modifiers: list[str] = Field(description=MODIFIERS)
-    daypart: list[LDaypart]
-    weekday: list[int] = Field(description=WEEKDAYS)
-    item_count_min: int = Field(description=ITEM_MIN)
-    item_count_max: int = Field(description=ITEM_MAX)
-    error_category: list[LErrorCategory]
-    review_label: list[LReviewLabel] = Field(description=LABELS)
+    item_id: list[str] = Field(default_factory=list, description=ITEM_IDS)
+    modifiers: list[str] = Field(default_factory=list, description=MODIFIERS)
+    daypart: list[LDaypart] = Field(default_factory=list)
+    weekday: list[int] = Field(default_factory=list, description=WEEKDAYS)
+    item_count_min: int = Field(default=0, description=ITEM_MIN)
+    item_count_max: int = Field(default=0, description=ITEM_MAX)
+    error_category: list[LErrorCategory] = Field(default_factory=list)
+    review_label: list[LReviewLabel] = Field(default_factory=list, description=LABELS)
 
 
-class ClaimFilterWire(WireModel):
+class ClaimFilterWire(ClaimScopeWire):
     start: str = Field(description=DATE)
     end: str = Field(description=DATE + ", inclusive")
-    item_id: list[str] = Field(description=ITEM_IDS)
-    modifiers: list[str] = Field(description=MODIFIERS)
-    daypart: list[LDaypart]
-    weekday: list[int] = Field(description=WEEKDAYS)
-    item_count_min: int = Field(description=ITEM_MIN)
-    item_count_max: int = Field(description=ITEM_MAX)
-    error_category: list[LErrorCategory]
-    review_label: list[LReviewLabel] = Field(description=LABELS)
 
 
 class CancellationFilterWire(WireModel):
     start: str = Field(description=DATE)
     end: str = Field(description=DATE + ", inclusive")
-    item_id: list[str]
-    daypart: list[LDaypart]
-    weekday: list[int] = Field(description="0 = Monday, store-local; [] for any")
-    cancellation_category: list[LCancellationCategory]
+    item_id: list[str] = Field(default_factory=list)
+    daypart: list[LDaypart] = Field(default_factory=list)
+    weekday: list[int] = Field(default_factory=list, description="0 = Monday, store-local; [] for any")
+    cancellation_category: list[LCancellationCategory] = Field(default_factory=list)
 
 
 class StoreOverviewRequestWire(WireModel):
@@ -134,7 +143,7 @@ class EventLogRequestWire(WireModel):
     tool: Annotated[Literal["event_log"], BeforeValidator(_lower)]
     start: str = Field(description=DATE)
     end: str = Field(description=DATE)
-    event_type: list[LEventType] = Field(description="[] for all types")
+    event_type: list[LEventType] = Field(default_factory=list, description="[] for all types")
 
 
 class ClaimBreakdownRequestWire(WireModel):
@@ -150,9 +159,10 @@ class ComparePeriodsRequestWire(WireModel):
     days_after: int = Field(description="1 to 28")
     target: ClaimScopeWire
     control_mode: Annotated[Literal["rest_of_store", "scope"], BeforeValidator(_lower)] = Field(
-        description="rest_of_store: every order outside the target. scope: the control below."
+        default="rest_of_store", description="rest_of_store: every order outside the target. scope: the control below."
     )
-    control: ClaimScopeWire = Field(description="Used only when control_mode is scope; else all empty")
+    control: ClaimScopeWire = Field(default_factory=ClaimScopeWire,
+                                    description="Used only when control_mode is scope; else all empty")
 
 
 class ClaimSampleRequestWire(WireModel):
@@ -181,16 +191,43 @@ class FraudSignalsRequestWire(WireModel):
     end: str = Field(description=DATE)
 
 
-ToolRequestWire = Union[
-    StoreOverviewRequestWire,
-    EventLogRequestWire,
-    ClaimBreakdownRequestWire,
-    ComparePeriodsRequestWire,
-    ClaimSampleRequestWire,
-    CancellationSampleRequestWire,
-    CancellationBreakdownRequestWire,
-    FraudSignalsRequestWire,
+def _request_tag(value: Any) -> str | None:
+    """Which request model applies: the tool, plus the evidence_type for samples."""
+    if isinstance(value, dict):
+        tool = str(value.get("tool", "")).strip().lower()
+        kind = str(value.get("evidence_type", "")).strip().lower()
+    else:
+        tool, kind = getattr(value, "tool", ""), getattr(value, "evidence_type", "")
+    if tool == "sample_evidence":
+        return f"sample_evidence:{kind}"
+    return tool or None
+
+
+ToolRequestWire = Annotated[
+    Union[
+        Annotated[StoreOverviewRequestWire, Tag("store_overview")],
+        Annotated[EventLogRequestWire, Tag("event_log")],
+        Annotated[ClaimBreakdownRequestWire, Tag("claim_breakdown")],
+        Annotated[ComparePeriodsRequestWire, Tag("compare_periods")],
+        Annotated[ClaimSampleRequestWire, Tag("sample_evidence:claim")],
+        Annotated[CancellationSampleRequestWire, Tag("sample_evidence:cancellation")],
+        Annotated[CancellationBreakdownRequestWire, Tag("cancellation_breakdown")],
+        Annotated[FraudSignalsRequestWire, Tag("fraud_signals")],
+    ],
+    Discriminator(
+        _request_tag,
+        custom_error_type="unknown_tool",
+        custom_error_message="tool must be one of store_overview, event_log, claim_breakdown, compare_periods, "
+        "sample_evidence (with evidence_type claim or cancellation), cancellation_breakdown, fraud_signals",
+    ),
 ]
+
+REQUEST_JSON_SCHEMA = {
+    "type": "string",
+    "description": "The tool request: one JSON object written as a string, with the field names shown "
+    "under Tools, for example "
+    '{"tool": "claim_breakdown", "filter": {"start": "<start>", "end": "<end>"}, "group_by": "<group_by>"}',
+}
 
 
 class CheckPlanWire(WireModel):
@@ -199,7 +236,20 @@ class CheckPlanWire(WireModel):
     discriminates: list[str] = Field(description="Hypotheses this check separates. " + HYP_REF)
     expectations: list[ExpectationWire] = Field(description="One per hypothesis in discriminates")
     challenges: str = Field(description='For a challenge: the hypothesis it targets. Otherwise ""')
-    request: ToolRequestWire
+    request: Annotated[ToolRequestWire, WithJsonSchema(REQUEST_JSON_SCHEMA)]
+
+    @field_validator("request", mode="before")
+    @classmethod
+    def _decode_request(cls, value: Any) -> Any:
+        """The model sends the request as a JSON string; scripted turns and tests may pass the object."""
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except ValueError as exc:
+                raise ValueError(f"request is not valid JSON ({exc})") from None
+            if not isinstance(value, dict):
+                raise ValueError("request must be a JSON object written as a string")
+        return value
 
 
 class CheckAction(WireModel):

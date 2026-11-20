@@ -1,9 +1,17 @@
 """Run one investigation from the command line, without the API (the live smoke run).
 
-  uv run python -m app.cli --store STORE-A
-  uv run python -m app.cli --store STORE-B --effort low --max-steps 10
-  uv run python -m app.cli --store STORE-A --dry-run      # scripted turns, no API key needed
-  uv run python -m app.cli --case CASE-0001 --domain http --token <jwt>
+Run from the repository root:
+
+  uv run --project agent python -m agent.app.cli --store STORE-A
+  uv run --project agent python -m agent.app.cli --store STORE-B --effort low --max-steps 10
+  uv run --project agent python -m agent.app.cli --store STORE-A --dry-run   # scripted turns, no API key
+  uv run --project agent python -m agent.app.cli --case CASE-0001 --domain http --token <jwt> [--dry-run]
+
+With --domain http the agent calls the Domain Service at DOMAIN_SERVICE_URL and forwards --token on
+every call, so it sees exactly what that user can see. The token must be an analyst's JWT issued by
+Auth; for local work, `python -m domain.scripts.make_demo_token` prints one. The store comes from the
+case. Once Domain has its /internal/ routes, an http run also saves a real proposal and reports the
+investigation status, even with --dry-run.
 
 Needs ANTHROPIC_API_KEY in agent/.env unless --dry-run. Prints each step as it happens, then the
 check sequence, the outcome, fixture misses and cache reads per turn, and saves a JSON report
@@ -21,10 +29,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from agent.app.config import AGENT_ROOT, get_settings
 from shared.security import JWTSettings
-from agent.app.domain.client import HttpDomainClient
+from agent.app.auth import verify_token
+from agent.app.config import AGENT_ROOT, get_settings
+from agent.app.domain.client import DomainError, HttpDomainClient
 from agent.app.domain.fixtures import FixtureDomainClient
+from agent.app.errors import AppError
 from agent.app.graph.build import build_graph, run_config
 from agent.app.graph.context import AgentContext
 from agent.app.graph.state import initial_state
@@ -41,6 +51,12 @@ def _print_update(node: str, update: dict[str, Any]) -> None:
         detail = action.get("type", "?")
         if detail == "check":
             req = action.get("plan", {}).get("request", {})
+            if isinstance(req, str):  # the model sends the request as a JSON string
+                try:
+                    req = json.loads(req)
+                except ValueError:
+                    req = {}
+            req = req if isinstance(req, dict) else {}
             detail += f" {action.get('plan', {}).get('kind')} {req.get('tool')} {req.get('group_by', '')}".rstrip()
         if update.get("error"):
             detail = f"error {update['error']['code']}: {update['error']['message']}"
@@ -97,6 +113,9 @@ async def run(args: argparse.Namespace) -> int:
         overrides["agent_max_steps"] = args.max_steps
     settings = settings.model_copy(update=overrides)
 
+    ids = UlidIdFactory()
+    investigation_id = ids.new("INV")
+    user_id = "cli"
     if args.domain == "fixtures":
         client: Any = FixtureDomainClient(settings.agent_fixtures_dir)
         if args.case:
@@ -105,14 +124,36 @@ async def run(args: argparse.Namespace) -> int:
         else:
             store_id = args.store
             case_id = client.case_for_store(store_id).case_id
+        domain = client.bind(token="fixtures", request_id="cli", investigation_id=investigation_id)
     else:
         if not (args.case and args.token):
             print("--domain http needs --case and --token (an analyst JWT).")
             return 2
+        # Same rule as POST /investigations: only an analyst's own token can start an investigation.
+        try:
+            principal = verify_token(args.token, settings)
+        except AppError as exc:
+            print(f"The token was refused: {exc.message}")
+            return 2
+        if not principal.is_analyst:
+            print("--token must be an analyst's JWT (role loe_analyst).")
+            return 2
+        user_id = principal.user_id
         client = HttpDomainClient(settings.domain_service_url, settings.internal_service_token,
                                   jwt_settings=JWTSettings(settings.jwt_secret, settings.jwt_issuer),
                                   timeout=settings.domain_timeout_seconds, max_retries=settings.agent_max_retries)
-        case_id, store_id = args.case, args.store or ""
+        domain = client.bind(token=args.token, request_id="cli", investigation_id=investigation_id)
+        try:
+            case = await domain.get_case(args.case)
+        except DomainError as exc:
+            print(f"Domain returned {exc.status} {exc.code} for {args.case}: {exc.message}")
+            await client.aclose()
+            return 2
+        if not principal.can_see(case.store_id):
+            print(f"The token has no grant for {case.store_id}.")
+            await client.aclose()
+            return 2
+        case_id, store_id = case.case_id, case.store_id
 
     if args.dry_run:
         model = _dry_run_model(store_id)
@@ -124,15 +165,10 @@ async def run(args: argparse.Namespace) -> int:
 
         model = AnthropicReasonModel(settings)
 
-    ids = UlidIdFactory()
-    investigation_id = ids.new("INV")
-    domain = client.bind(token=args.token or "fixtures", request_id="cli", investigation_id=investigation_id)
-    if args.domain == "http":
-        store_id = (await domain.get_case(case_id)).store_id
     graph = build_graph()
-    ctx = AgentContext(domain=domain, model=model, ids=ids, settings=settings, user_id="cli", request_id="cli",
+    ctx = AgentContext(domain=domain, model=model, ids=ids, settings=settings, user_id=user_id, request_id="cli",
                        deadline=time.monotonic() + settings.agent_run_timeout_seconds)
-    state = initial_state(investigation_id=investigation_id, case_id=case_id, store_id=store_id, started_by="cli",
+    state = initial_state(investigation_id=investigation_id, case_id=case_id, store_id=store_id, started_by=user_id,
                           started_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), reopen_of=None,
                           run_config=run_config_record(settings, model))
     config = run_config(investigation_id, settings.recursion_limit)
@@ -183,10 +219,10 @@ async def run(args: argparse.Namespace) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run one investigation without the API.")
-    parser.add_argument("--store", default="STORE-A")
+    parser.add_argument("--store", default="STORE-A", help="Fixtures mode only; http mode takes it from the case")
     parser.add_argument("--case")
     parser.add_argument("--domain", choices=["fixtures", "http"], default="fixtures")
-    parser.add_argument("--token", help="Analyst JWT, for --domain http")
+    parser.add_argument("--token", help="An analyst's JWT, forwarded to Domain, for --domain http")
     parser.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
     parser.add_argument("--speed", choices=["standard", "fast"])
     parser.add_argument("--max-steps", type=int)

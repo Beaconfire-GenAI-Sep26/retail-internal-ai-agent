@@ -166,6 +166,6 @@ def store_b_turns() -> list[dict[str, Any]]:
             conclude(PACK, "2026-11-03", "high",
                      "Since Nov 3, dinner orders with 5 or more items ran a claim rate near 39%, against about 1% "
                      "for the rest of the store, and it persisted after the promotion ended.",
-                     "add_large_order_bag_check", "Missing items concentrate on large dinner orders.",
+                     "large_order_bag_check", "Missing items concentrate on large dinner orders.",
                      daypart=["dinner"], item_count_min=5)),
     ]

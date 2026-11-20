@@ -87,6 +87,63 @@ async def test_a_retry_can_succeed(port):
     assert route.call_count == 2
 
 
+def _envelope(code: str, message: str, details: dict | None = None) -> dict:
+    return {"error": {"code": code, "message": message, "details": details or {}, "request_id": "r"}}
+
+
+@respx.mock
+@pytest.mark.parametrize(("status", "body", "missing"), [
+    (404, _envelope("NOT_FOUND", "Not Found"), True),                 # Domain has no such route
+    (404, {"error": {"code": "NOT_FOUND", "message": "Not Found", "details": None, "request_id": "r"}}, True),
+    (404, _envelope("CASE_NOT_FOUND", "Case CASE-0009 was not found."), False),
+    (404, _envelope("NOT_FOUND", "Store STORE-Z was not found."), False),
+    (404, None, False),                                                # not Domain's envelope, e.g. a proxy page
+])
+async def test_route_missing_is_only_the_generic_unknown_route_envelope(port, status, body, missing):
+    response = httpx.Response(status, json=body) if body else httpx.Response(status, text="<html>404</html>")
+    respx.get(f"{BASE}/catalog/actions").mock(return_value=response)
+    with pytest.raises(DomainError) as info:
+        await port.get_catalog()
+    assert info.value.route_missing is missing
+    assert (info.value.method, info.value.path) == ("GET", "/catalog/actions")
+
+
+@respx.mock
+async def test_resolve_sends_at_most_200_ids_per_request_and_merges_the_answers(port):
+    ids = [f"EV-CLM-{n:06d}" for n in range(250)]
+    answers = [
+        httpx.Response(200, json={"valid": ids[:199], "invalid": [{"evidence_id": ids[199], "reason": "other_store"}]}),
+        httpx.Response(200, json={"valid": ids[200:249], "invalid": []}),  # ids[249] is not mentioned
+    ]
+    route = respx.post(f"{BASE}/evidence/resolve").mock(side_effect=answers)
+    result = await port.resolve_evidence("STORE-A", ids + ids[:5])  # repeats are sent once
+    sent = [httpx.Response(200, content=c.request.content).json()["evidence_ids"] for c in route.calls]
+    assert [len(chunk) for chunk in sent] == [200, 50]
+    assert len(result.valid) == 248
+    assert {i["evidence_id"]: i["reason"] for i in result.invalid} == {ids[199]: "other_store", ids[249]: "not_returned"}
+    assert route.calls.last.request.headers["X-Service-Token"] == "svc-token"
+    assert route.calls.last.request.headers["X-Store-ID"] == "STORE-A"
+
+
+@respx.mock
+async def test_resolve_with_no_ids_makes_no_call(port):
+    route = respx.post(f"{BASE}/evidence/resolve")
+    assert (await port.resolve_evidence("STORE-A", [])).valid == []
+    assert route.call_count == 0
+
+
+@respx.mock
+async def test_a_binding_can_make_a_single_attempt():
+    client = HttpDomainClient(BASE, "svc-token", max_retries=2, backoff_seconds=0, jwt_settings=JWT_SETTINGS)
+    once = client.bind(token=USER_TOKEN, request_id="req-1", investigation_id="INV-1", store_id="STORE-A",
+                       case_id="CASE-0001", max_retries=0)
+    route = respx.put(f"{BASE}/internal/cases/CASE-0001/investigation").mock(return_value=httpx.Response(503))
+    with pytest.raises(DomainError) as info:
+        await once.report_investigation_status(
+            "CASE-0001", InvestigationStatusUpdate(investigation_id="INV-1", status="failed", error_code="INTERNAL"))
+    assert info.value.unavailable and route.call_count == 1
+
+
 @respx.mock
 async def test_conflict_details_reach_the_caller(port):
     respx.post(f"{BASE}/internal/cases/CASE-0001/proposals").mock(return_value=httpx.Response(

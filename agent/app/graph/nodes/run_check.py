@@ -9,7 +9,15 @@ from langgraph.runtime import Runtime
 from agent.app.contracts.models import ToolResult, Window
 from agent.app.domain.client import DomainError
 from agent.app.graph.context import AgentContext
-from agent.app.graph.nodes.common import domain_error, ledger_entries, make_record, scrub_result, timeout_error
+from agent.app.graph.nodes.common import (
+    compact_details,
+    domain_error,
+    ledger_entries,
+    make_record,
+    normalize_result,
+    scrub_result,
+    timeout_error,
+)
 from agent.app.graph.state import InvestigationState
 from agent.app.tools.registry import call_tool
 
@@ -18,13 +26,15 @@ def _rejected_result(tool: str, store_id: str, request: dict[str, Any], exc: Dom
     flt = request.get("filter", request)
     start = flt.get("start", request.get("split_date", ""))
     end = flt.get("end", request.get("split_date", ""))
+    # Domain's message for a 422 can be generic ("The request is not valid."); the reasons are in details.
+    details = compact_details(exc.details)
     return ToolResult(
         tool=tool,
         store_id=store_id,
         window=Window(start=start, end=end),
         data_sufficient=False,
         headline=f"Domain rejected the request ({exc.code}).",
-        notes=[exc.message],
+        notes=[exc.message, *([f"Details: {details}"] if details else [])],
     )
 
 
@@ -36,7 +46,7 @@ async def run_check(state: InvestigationState, runtime: Runtime[AgentContext]) -
     store_id = state["store_id"]
     rejected = False
     try:
-        result = await call_tool(ctx.domain, store_id, plan["tool"], plan["request"])
+        result = normalize_result(plan["tool"], await call_tool(ctx.domain, store_id, plan["tool"], plan["request"]))
     except DomainError as exc:
         if not exc.rejected:
             return {"error": domain_error(exc, f"run_check {plan['tool']}")}

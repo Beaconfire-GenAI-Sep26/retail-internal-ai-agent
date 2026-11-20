@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.deps import get_session
-from app.errors import ApiError
-from app.schemas import Evidence, EvidenceResolveRequest, EvidenceResolveResponse, InvalidEvidence
-from app.security import CurrentUser, check_store, current_user
-from app.services.evidence import load_evidence
+from domain.app.deps import get_session
+from domain.app.errors import ApiError
+from domain.app.schemas import Evidence, EvidenceResolveRequest, EvidenceResolveResponse, InvalidEvidence
+from domain.app.security import CurrentUser, check_store, current_user
+from domain.app.services.evidence import load_evidence
 
 router = APIRouter(prefix="/evidence", tags=["evidence"])
 

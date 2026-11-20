@@ -6,12 +6,12 @@ from typing import Any
 
 from langgraph.runtime import Runtime
 
-from app.contracts.models import ActionContent, ProposalCreate
-from app.domain.client import DomainError
-from app.graph.context import AgentContext
-from app.graph.finalize import action_content
-from app.graph.nodes.common import domain_error
-from app.graph.state import InvestigationState
+from agent.app.contracts.models import ActionContent, ProposalCreate
+from agent.app.domain.client import DomainError
+from agent.app.graph.context import AgentContext
+from agent.app.graph.finalize import action_content
+from agent.app.graph.nodes.common import domain_error
+from agent.app.graph.state import InvestigationState
 
 
 async def submit_recommendation(state: InvestigationState, runtime: Runtime[AgentContext]) -> dict[str, Any]:

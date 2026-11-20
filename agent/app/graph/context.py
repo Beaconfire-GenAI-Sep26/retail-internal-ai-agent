@@ -5,10 +5,10 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
-from app.config import Settings
-from app.domain.client import DomainPort
-from app.ids import IdFactory
-from app.llm.base import ReasonModel
+from agent.app.config import Settings
+from agent.app.domain.client import DomainPort
+from agent.app.ids import IdFactory
+from agent.app.llm.base import ReasonModel
 
 
 @dataclass

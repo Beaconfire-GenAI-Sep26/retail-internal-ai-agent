@@ -6,16 +6,19 @@ React app for LOE analysts to sign in, follow M&I cases, review agent diagnoses 
 
 ## Run locally
 
-Requires Node 20.19+ (the Docker image uses Node 24).
+Requires Node 20.19+ (the Docker image uses Node 24). Run these Bash commands
+on macOS from the repository root:
 
 ```bash
 cd frontend
-cp .env.example .env    # mock login is on by default
-npm install
+if [ ! -f .env ]; then
+  cp .env.example .env    # real auth by default; gateway at localhost:18080
+fi
+npm ci
 npm run dev             # http://localhost:5173
 ```
 
-Other commands: `npm run build` (output in `dist/`), `npm run lint`, `npm run preview`.
+Other commands: `npm test`, `npm run build` (output in `dist/`), `npm run lint`, `npm run preview`.
 
 ## Environment variables
 
@@ -23,8 +26,8 @@ Vite bakes `VITE_*` values into the JavaScript at build time, so changing one ne
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `VITE_API_URL` | empty | Base URL for API calls. Empty means same origin: requests go to `/auth`, `/agent` and `/domain` on the API Gateway. For local dev against a running gateway, set it to that address, for example `http://localhost`. |
-| `VITE_USE_MOCKS` | `true` in `.env.example`, `false` in Docker | `true` uses the demo accounts in `src/api/mockAuth.js` instead of the Auth Service. Set it to `false` once A-02 is running. |
+| `VITE_API_URL` | empty | Same-origin API paths. In local Vite development the dev server proxies them to `http://localhost:18080`, preserving cookie and Origin behavior. |
+| `VITE_USE_MOCKS` | `false` | Set `true` explicitly for standalone UI development using mock accounts. |
 
 ## Mock accounts
 
@@ -36,6 +39,8 @@ Used only when `VITE_USE_MOCKS=true`. Store IDs match the Domain seed (C-01).
 | `viewer` | `Password123!` | Viewer (read only) | STORE-A |
 
 ## Docker
+
+Run from the repository root:
 
 ```bash
 docker build -t retail-frontend ./frontend
@@ -59,16 +64,16 @@ Anonymous visitors are sent to `/login` and returned to the page they asked for 
 
 ## Auth contract the frontend expects
 
-To be confirmed against the B-01 contracts and A-02:
+Implemented by A-02; see [the shared contract](../docs/contracts.md#auth-service).
 
 | Endpoint | Request | Response |
 | --- | --- | --- |
-| `POST /auth/login` | `{ username, password }` | `{ access_token, token_type }`, or 401 |
-| `GET /auth/me` | Bearer token | `{ id, username, display_name, role, store_ids }`, where `role` is `analyst` or `viewer` |
-| `POST /auth/refresh` | HttpOnly refresh cookie | `{ access_token }`, or 401 |
+| `POST /auth/login` | `{ username, password }` | `{ access_token, token_type, expires_at, user }`, sets refresh cookie; or 401 |
+| `GET /auth/me` | Bearer token | `{ user_id, display_name, role, store_ids }`, where `role` is `loe_analyst` or `viewer` |
+| `POST /auth/refresh` | HttpOnly refresh cookie | Same payload as login; rotates cookie; or 401 |
 | `POST /auth/logout` | HttpOnly refresh cookie | 204 |
 
-The access token is kept in memory (Redux) only. On a page load the app calls `/auth/refresh` to restore the session. On a 401 from any other call it refreshes once and retries; if the refresh fails, it returns to `/login`.
+The access token is kept in memory (Redux) only. On a page load the app calls `/auth/refresh` to restore the session. Concurrent 401s share one refresh and retry once; if refresh fails, AuthGuard returns to `/login`. Login/logout failures and 403s never trigger refresh. Login and refresh both provide the complete user profile, including current store grants.
 
 ## Folder structure
 

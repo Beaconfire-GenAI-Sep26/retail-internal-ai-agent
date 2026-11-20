@@ -1,6 +1,6 @@
 [project]
 name = "retail-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "Agent Service: the LangGraph investigation for store-level M&I cases"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -8,13 +8,12 @@ dependencies = [
     "anthropic>=1,<2",
     "fastapi==0.164.0",
     "httpx>=0.28.1",
-    "langfuse>=5.2.0",
     "langgraph>=1,<2",
     "langgraph-checkpoint-postgres>=3.2.1",
     "psycopg[binary,pool]>=3.3.9",
     "pydantic>=2.14.3",
     "pydantic-settings>=2.16.3",
-    "pyjwt>=2.15.1",
+    "PyJWT==2.10.1",
     "python-ulid>=4.2.0",
     "uvicorn==0.54.0",
 ]
@@ -23,7 +22,7 @@ dependencies = [
 package = false
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = [".."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

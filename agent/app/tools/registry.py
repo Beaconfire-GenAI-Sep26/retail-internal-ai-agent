@@ -10,7 +10,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from app.contracts.enums import (
+from agent.app.contracts.enums import (
     CANCELLATION_CATEGORIES,
     DAYPARTS,
     DEFAULT_REVIEW_LABELS,
@@ -18,11 +18,11 @@ from app.contracts.enums import (
     EVENT_TYPES,
     REVIEW_LABELS,
 )
-from app.contracts.models import ToolResult
-from app.llm import schemas as w
+from agent.app.contracts.models import ToolResult
+from agent.app.llm import schemas as w
 
 if TYPE_CHECKING:
-    from app.domain.client import DomainPort
+    from agent.app.domain.client import DomainPort
 
 REGISTRY_VERSION = "2026-11-18.1"
 MIN_GROUP_ORDERS_TEXT = "MIN_GROUP_ORDERS (30 by default)"

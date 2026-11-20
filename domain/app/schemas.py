@@ -4,7 +4,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models import CancellationCategory, CaseStatus, Daypart, ErrorCategory, ReviewLabel
+from domain.app.models import CancellationCategory, CaseStatus, Daypart, ErrorCategory, ReviewLabel
 
 Weekday = Annotated[int, Field(ge=0, le=6, description="0 = Monday, store local time")]
 IdList = Annotated[list[str], Field(max_length=200)]

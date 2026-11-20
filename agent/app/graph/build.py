@@ -8,9 +8,9 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 
-from app.graph import nodes
-from app.graph.context import AgentContext
-from app.graph.state import InvestigationState
+from agent.app.graph import nodes
+from agent.app.graph.context import AgentContext
+from agent.app.graph.state import InvestigationState
 
 
 def route_after_load(state: dict[str, Any]) -> str:

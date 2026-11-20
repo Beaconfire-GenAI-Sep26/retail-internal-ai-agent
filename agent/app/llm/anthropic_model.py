@@ -13,10 +13,10 @@ from typing import Any
 
 import anthropic
 
-from app.config import Settings
-from app.errors import INTERNAL, MODEL_REFUSED, MODEL_TRUNCATED, UPSTREAM_UNAVAILABLE
-from app.llm.base import ModelError, ModelReply, RenderedPrompt
-from app.llm.schemas import output_config_format
+from agent.app.config import Settings
+from agent.app.errors import INTERNAL, MODEL_REFUSED, MODEL_TRUNCATED, UPSTREAM_UNAVAILABLE
+from agent.app.llm.base import ModelError, ModelReply, RenderedPrompt
+from agent.app.llm.schemas import output_config_format
 
 BETAS = ["server-side-fallback-2026-07-01"]
 MAX_TOKENS = 32000

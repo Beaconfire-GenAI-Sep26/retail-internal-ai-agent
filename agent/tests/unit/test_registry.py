@@ -1,6 +1,6 @@
-from app.llm import schemas as w
-from app.tools.registry import TOOLS, canonical_key, render_tool_catalog, signature, to_contract_request
-from tests.scripts import breakdown, compare, cxl_filter, scope
+from agent.app.llm import schemas as w
+from agent.app.tools.registry import TOOLS, canonical_key, render_tool_catalog, signature, to_contract_request
+from agent.tests.scripts import breakdown, compare, cxl_filter, scope
 
 
 def convert(request: dict):

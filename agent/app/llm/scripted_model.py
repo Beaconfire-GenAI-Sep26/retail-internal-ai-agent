@@ -14,8 +14,8 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from app.errors import INTERNAL
-from app.llm.base import ModelError, ModelReply, RenderedPrompt
+from agent.app.errors import INTERNAL
+from agent.app.llm.base import ModelError, ModelReply, RenderedPrompt
 
 Turn = dict[str, Any] | Callable[[dict[str, Any]], dict[str, Any]] | Exception
 

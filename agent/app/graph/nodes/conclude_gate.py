@@ -7,11 +7,11 @@ from typing import Any
 
 from langgraph.runtime import Runtime
 
-from app.graph.context import AgentContext
-from app.graph.gate import evaluate_gate
-from app.graph.nodes.common import timeout_error
-from app.graph.state import InvestigationState
-from app.logs import log_event
+from agent.app.graph.context import AgentContext
+from agent.app.graph.gate import evaluate_gate
+from agent.app.graph.nodes.common import timeout_error
+from agent.app.graph.state import InvestigationState
+from agent.app.logs import log_event
 
 logger = logging.getLogger("agent.gate")
 GATE_CAP = 2

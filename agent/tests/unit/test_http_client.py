@@ -4,8 +4,14 @@ import httpx
 import pytest
 import respx
 
-from app.contracts.models import InvestigationStatusUpdate
-from app.domain.client import DomainError, HttpDomainClient
+from agent.app.contracts.models import InvestigationStatusUpdate
+from agent.app.domain.client import DomainError, HttpDomainClient
+
+from shared.security import JWTSettings, User, issue_token
+from agent.tests.conftest import TEST_SECRET
+
+JWT_SETTINGS = JWTSettings(TEST_SECRET)
+USER_TOKEN = issue_token(User(user_id="USR-001", display_name="Test", role="loe_analyst", store_ids=["STORE-A"]), JWT_SETTINGS)["access_token"]
 
 BASE = "http://domain:8000"
 TOOL_RESULT = {"tool": "claim_breakdown", "store_id": "STORE-A", "window": {"start": "2026-10-05", "end": "2026-11-15"},
@@ -15,8 +21,8 @@ TOOL_RESULT = {"tool": "claim_breakdown", "store_id": "STORE-A", "window": {"sta
 
 @pytest.fixture
 def port():
-    client = HttpDomainClient(BASE, "svc-token", max_retries=2, backoff_seconds=0)
-    return client.bind(token="user-jwt", request_id="req-1", investigation_id="INV-1")
+    client = HttpDomainClient(BASE, "svc-token", max_retries=2, backoff_seconds=0, jwt_settings=JWT_SETTINGS)
+    return client.bind(token=USER_TOKEN, request_id="req-1", investigation_id="INV-1", store_id="STORE-A", case_id="CASE-0001")
 
 
 @respx.mock
@@ -27,7 +33,7 @@ async def test_diagnostics_forward_the_user_token_without_the_service_token(port
     result = await port.claim_breakdown("STORE-A", body)
     assert result.eligible_orders == 2598
     sent = route.calls.last.request
-    assert sent.headers["Authorization"] == "Bearer user-jwt"
+    assert sent.headers["Authorization"] == "Bearer " + USER_TOKEN
     assert sent.headers["X-Request-ID"] == "req-1"
     assert sent.headers["X-Investigation-ID"] == "INV-1"
     assert "X-Service-Token" not in sent.headers
@@ -41,7 +47,7 @@ async def test_internal_routes_add_the_service_token(port):
         "CASE-0001", InvestigationStatusUpdate(investigation_id="INV-1", status="completed", error_code=None))
     sent = route.calls.last.request
     assert sent.headers["X-Service-Token"] == "svc-token"
-    assert sent.headers["Authorization"] == "Bearer user-jwt"
+    assert sent.headers["Authorization"] == "Bearer " + USER_TOKEN
 
 
 @respx.mock
@@ -85,7 +91,7 @@ async def test_a_retry_can_succeed(port):
 async def test_conflict_details_reach_the_caller(port):
     respx.post(f"{BASE}/internal/cases/CASE-0001/proposals").mock(return_value=httpx.Response(
         409, json={"error": {"code": "PROPOSAL_PENDING", "message": "pending", "details": {"proposal_id": "PROP-0007"}}}))
-    from app.contracts.models import ActionContent, ProposalCreate, Target
+    from agent.app.contracts.models import ActionContent, ProposalCreate, Target
 
     body = ProposalCreate(investigation_id="INV-1", kind="handoff", evidence_ids=[],
                           content=ActionContent(action_id="a", owner_team="pos_team", title="t", instructions="i",

@@ -16,7 +16,7 @@ vi.mock('../cases/casesThunks', () => ({
 
 const { default: api, refreshSession } = await import('../../api/axios');
 const { default: investigations } = await import('./investigationsSlice');
-const { startInvestigation } = await import('./investigationsThunks');
+const { startInvestigation, fetchInvestigation, fetchLatestInvestigation } = await import('./investigationsThunks');
 
 const inMinutes = (n) => new Date(Date.now() + n * 60 * 1000).toISOString();
 let seen;
@@ -95,5 +95,36 @@ describe('startInvestigation — refusals', () => {
     const result = await makeStore().dispatch(startInvestigation({ caseId: 'CASE-0001', reopenOf: 'INV-1' }));
     expect(seen).toContain('test/fetchCase');
     expect(result.payload).toMatch(/out of date/);
+  });
+});
+
+describe('fetchInvestigation — the agent lost the run', () => {
+  const running = { investigation_id: 'INV-1', case_id: 'CASE-0001', status: 'running' };
+  const openWithRun = async () => {
+    const store = makeStore();
+    api.get.mockResolvedValueOnce({ data: [running] });
+    await store.dispatch(fetchLatestInvestigation('CASE-0001'));
+    return store;
+  };
+
+  it('404 drops the run (polling stops), reloads the case and remembers the lost ID', async () => {
+    const store = await openWithRun();
+    api.get.mockRejectedValueOnce(httpError(404, 'NOT_FOUND'));
+    await store.dispatch(fetchInvestigation('INV-1'));
+    const s = store.getState().investigations;
+    expect(s.current).toBeNull();
+    expect(s.lostRunId).toBe('INV-1');
+    expect(s.pollError).toBeNull();
+    expect(seen).toContain('test/fetchCase');
+  });
+
+  it('other errors keep the run and keep retrying', async () => {
+    const store = await openWithRun();
+    api.get.mockRejectedValueOnce(httpError(503, 'UPSTREAM_UNAVAILABLE'));
+    await store.dispatch(fetchInvestigation('INV-1'));
+    const s = store.getState().investigations;
+    expect(s.current?.investigation_id).toBe('INV-1');
+    expect(s.lostRunId).toBeNull();
+    expect(s.pollError).toBeTruthy();
   });
 });

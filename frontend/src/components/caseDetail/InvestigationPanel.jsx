@@ -22,6 +22,7 @@ import {
   selectInvestigationLoadStatus,
   selectInvestigationLoadError,
   selectPollError,
+  selectLostRunId,
 } from '../../store/investigations/investigationsSelectors';
 import { selectCaseDetail } from '../../store/cases/casesSelectors';
 import usePollInvestigation from '../../hooks/usePollInvestigation';
@@ -86,6 +87,7 @@ const InvestigationPanel = ({ caseId }) => {
   const loadStatus = useSelector(selectInvestigationLoadStatus);
   const loadError = useSelector(selectInvestigationLoadError);
   const pollError = useSelector(selectPollError);
+  const lostRunId = useSelector(selectLostRunId);
 
   // ── 3b. Poll while running — stops by itself on any other status ──
   usePollInvestigation(investigation?.investigation_id, investigation?.status);
@@ -125,7 +127,13 @@ const InvestigationPanel = ({ caseId }) => {
       {view.showPrevious && <PreviousInvestigation investigation={investigation} />}
 
       {/* ── Part 1: Start (box 4) and/or progress (box 5) ── */}
-      {view.step === '1' && (
+      {/* A poll got 404: the agent restarted while this page was open */}
+      {view.step === '1' && lostRunId && (
+        <p className='error' role='alert'>
+          The agent restarted and lost {lostRunId} before it finished. Start the investigation again.
+        </p>
+      )}
+      {view.step === '1' && !lostRunId && (
         <p className='muted'>The agent checks this store's data and looks for the cause of the spike.</p>
       )}
       {view.step === 'no_run' && (

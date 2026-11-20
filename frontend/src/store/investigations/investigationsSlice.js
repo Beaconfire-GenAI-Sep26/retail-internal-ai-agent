@@ -34,6 +34,7 @@ const initialState = {
   // fetchInvestigation — the 2 s poll
   polling: false, // a poll request is in flight (see the thunk's `condition`)
   pollError: null, // last poll failed; polling keeps trying
+  lostRunId: null, // a poll got 404: the agent restarted and lost this run
 
   // resumeInvestigation — after a question decision or a merchant reply (D-05)
   resumeStatus: 'idle', // 'idle' | 'loading' | 'failed'
@@ -78,6 +79,7 @@ const investigationsSlice = createSlice({
       })
       .addCase(startInvestigation.fulfilled, (state, action) => {
         state.startStatus = 'succeeded';
+        state.lostRunId = null;
         state.current = action.payload;
       })
       .addCase(startInvestigation.rejected, (state, action) => {
@@ -99,6 +101,15 @@ const investigationsSlice = createSlice({
       })
       .addCase(fetchInvestigation.rejected, (state, action) => {
         state.polling = false;
+        // The run is gone (agent restarted): drop it, which stops the poll
+        if (action.payload?.lost) {
+          if (action.meta.arg === state.current?.investigation_id) {
+            state.lostRunId = action.meta.arg;
+            state.current = null;
+          }
+          state.pollError = null;
+          return;
+        }
         state.pollError = action.payload ?? 'Could not refresh the investigation';
       })
 

@@ -110,6 +110,9 @@ const RunRecheck = ({ recheck, caseId }) => {
     settle(runRecheck.fulfilled.match(result) ? null : result.payload);
   };
 
+  // No recheck route on the real backend until C-04: mock mode only
+  if (!USE_MOCKS) return null;
+
   return (
     <div className='recheck-run'>
       {USE_MOCKS && (

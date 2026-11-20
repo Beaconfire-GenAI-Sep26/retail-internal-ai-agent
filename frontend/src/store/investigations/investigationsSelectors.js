@@ -20,6 +20,8 @@ export const selectInvestigationLoadError = (state) => state.investigations.load
 export const selectStartStatus = (state) => state.investigations.startStatus;
 export const selectStartError = (state) => state.investigations.startError;
 export const selectPollError = (state) => state.investigations.pollError;
+// A poll got 404 (the agent restarted): the lost run's ID, or null
+export const selectLostRunId = (state) => state.investigations.lostRunId;
 // resumeInvestigation (D-05): 'idle' | 'loading' | 'failed', and { message, code, noResponse }
 export const selectResumeStatus = (state) => state.investigations.resumeStatus;
 export const selectResumeError = (state) => state.investigations.resumeError;

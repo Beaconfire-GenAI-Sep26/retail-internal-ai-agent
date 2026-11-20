@@ -40,13 +40,14 @@ flowchart LR
   G -->|"/"| F["Frontend container"]
   AG -->|"read-only diagnostics<br/>+ proposal draft (internal)"| D
   AG -->|"model calls"| C["Claude API"]
-  AG -->|"redacted traces"| L["Langfuse Cloud"]
+  AG -.->|"redacted traces"| L["Langfuse Cloud"]
   A --> PA[("auth schema")]
-  AG --> PG[("agent schema<br/>checkpoints")]
+  AG -.-> PG[("agent schema<br/>checkpoints")]
   D --> PD[("domain schema")]
 ```
 
-Calls only go in the directions shown. The Domain Service never calls the Agent Service. When the agent
+Calls only go in the directions shown. Dashed links aren't built yet: checkpoints stay in memory, and Langfuse
+tracing isn't wired in. The Domain Service never calls the Agent Service. When the agent
 needs to continue after an analyst decision or a merchant reply, the frontend calls the agent's resume
 endpoint, and the agent then reads the new state from the Domain Service.
 

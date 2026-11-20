@@ -92,6 +92,16 @@ async def build_view(request: Request, row: InvestigationRow) -> InvestigationVi
     )
 
 
+def _resend_status_report(services: Any, principal: Principal, row: InvestigationRow) -> None:
+    """Resend a finished run's failed status report in the background, so the case doesn't stay investigating.
+
+    Only an analyst's request may: the report is an /internal/ write made with that analyst's JWT. The runner
+    makes one attempt at most every FLUSH_INTERVAL_SECONDS per investigation.
+    """
+    if principal.is_analyst and row.domain_sync_pending and row.status in TERMINAL_STATUSES:
+        services.runner.schedule_flush(row, token=principal.token, request_id=request_id_var.get() or "unknown")
+
+
 def _not_found(case_id: str) -> AppError:
     return AppError(404, "CASE_NOT_FOUND", f"Case {case_id} was not found.")
 
@@ -165,7 +175,9 @@ async def start_investigation(
             if older.investigation_id != row.investigation_id and older.domain_sync_pending:
                 store.update(older.investigation_id, domain_sync_pending=False)
 
-    # Best effort and a single attempt, so a slow or missing status route never delays the 202.
+    # Best effort: one attempt, no retries. It is awaited before the run starts, so it can't land after the run's
+    # final report, which means a slow Domain delays the 202 by up to one timeout (domain_timeout_seconds, 10 s).
+    # A failure marks the row pending until the run's final report supersedes it.
     bound = services.domain_client.bind(token=principal.token, request_id=request_id,
                                         investigation_id=row.investigation_id, store_id=row.store_id,
                                         case_id=row.case_id, max_retries=0)
@@ -192,6 +204,7 @@ async def get_investigation(
     # Only an analyst's request may retry the status write (an /internal/ call made with that analyst's JWT).
     if principal.is_analyst and row.domain_sync_pending and row.status in TERMINAL_STATUSES:
         services.runner.schedule_flush(row, token=principal.token, request_id=request_id_var.get() or "unknown")
+    _resend_status_report(services, principal, row)
     return await build_view(request, row)
 
 
@@ -203,4 +216,7 @@ async def list_investigations(
 ) -> list[InvestigationView]:
     services = _services(request)
     rows = [r for r in services.store.list(case_id=case_id) if principal.can_see(r.store_id)]
+    # The case page lists runs instead of reading a finished one by ID, so a list resends failed reports too.
+    for row in rows:
+        _resend_status_report(services, principal, row)
     return [await build_view(request, r) for r in rows]

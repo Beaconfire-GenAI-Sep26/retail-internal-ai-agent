@@ -87,7 +87,7 @@ until then, `guard` rejects every question.
 
 | Node                     | Model call | Does                                                                                                                                                                                                                                                                                                                    | Next                                                 |
 | ------------------------ | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `load_case`              | No         | Reads the case, the store, and the store overview for the window. Reads the store's menu from `GET /stores/{store_id}/menu` and fills `known_items` and `known_modifiers`. Adds the overview's evidence IDs to `retrieved_evidence_ids` and passes the overview to `reason` as the first finding. Records claims excluded with `review_label` of `fraud` or `not_store_fault`. Also calls `fraud_signals` for the window, sets `suspect_cluster` when it flags any `customer_ref`, and adds its evidence IDs. Reads the action catalog, or uses the bundled copy when Domain has no catalog route (see [Routes Domain doesn't have](#routes-domain-doesnt-have)). The window is the 42 days ending on the case's `window_end`, kept inside the first and last of the case's `daily_rates`. None of these calls counts toward the step limit. For a reopened case, loads the prior run's hypotheses and rulings, and adds the failed recheck as evidence against the cause that was acted on. | `reason`                                             |
+| `load_case`              | No         | Reads the case, the store, and the store overview for the window. Reads the store's menu from `GET /stores/{store_id}/menu` and fills `known_items` and `known_modifiers`. Adds the overview's evidence IDs to `retrieved_evidence_ids` and passes the overview to `reason` as the first finding. Records claims excluded with `review_label` of `fraud` or `not_store_fault`. Also calls `fraud_signals` for the window, sets `suspect_cluster` when it flags any `customer_ref`, and adds its evidence IDs. Reads the action catalog, or uses the bundled copy when Domain has no catalog route (see [Routes Domain doesn't have](#routes-domain-doesnt-have)). The window is the 42 days ending on the case's `window_end`, kept inside the first and last of the case's `daily_rates`. None of these calls counts toward the step limit. A run with `reopen_of` loads nothing from the earlier run yet; its rulings and the failed recheck arrive with reopening in M3. | `reason`                                             |
 | `reason`                 | Yes        | Assesses the latest finding, updates every hypothesis it bears on, and picks one next action with a full plan. Returns a `ReasonOutput`.                                                                                                                                                                                | `guard`                                              |
 | `guard`                  | No         | Applies the rules in [Guards](#guards) to every output: check, question and conclusion. A rejected output goes back to `reason` with the rule IDs attached, at most twice in a row. An accepted check with no steps left ends the run.                                                                                    | `run_check`, `conclude_gate`, `reason` or `finalize` |
 | `run_check`              | No         | Calls one allowlisted read-only tool with validated arguments. Stores the plan, the result, and the evidence IDs in `retrieved_evidence_ids`.                                                                                                                                                                           | `reason`                                             |
@@ -98,11 +98,31 @@ until then, `guard` rejects every question.
 | `finalize`               | No         | Writes the `InvestigationResult` from state and the conclusion, using the [truth table](#how-finalize-decides). Cited IDs must be in `retrieved_evidence_ids` and pass Domain's resolve check, and the action, owner and recheck days come from the catalog.                                                          | `submit_recommendation` or `report_status`           |
 | `submit_recommendation`  | No         | Creates the `intervention` or `handoff` proposal through Domain's internal route. On 409 `PROPOSAL_PENDING` it recovers the proposal this investigation created. Approval is then tracked on the proposal, not the graph.                                                                                              | `report_status`                                      |
 | `fail`                   | No         | Records an operational error as status `failed` with `error.code`, and writes a structured log line.                                                                                                                                                                                                                    | `report_status`                                      |
-| `report_status`          | No         | Reports `completed`, `unsure` or `failed` to Domain with `PUT /internal/cases/{case_id}/investigation`. The call is idempotent. If it fails, an analyst's next read of the investigation retries it in the background: one attempt at most every 30 seconds, with that analyst's JWT. A viewer's read never retries it. | end                                                  |
+| `report_status`          | No         | Reports `completed`, `unsure` or `failed` to Domain with `PUT /internal/cases/{case_id}/investigation`. The call is idempotent. If it fails, an analyst's next read or list of the investigation retries it in the background: one attempt at most every 30 seconds, with that analyst's JWT. A viewer's request never retries it. | end                                                  |
 
 The model never calls write endpoints. Proposals are created only by the deterministic `draft_question`
-and `submit_recommendation` nodes, after validation. Every terminal path passes through `report_status`,
-so a case never stays `investigating`.
+and `submit_recommendation` nodes, after validation. Every terminal path reports its status: through
+`report_status`, or from the runner when a run times out, crashes or is stopped by a shutdown. If that report
+fails, an analyst's next read or list of the run resends it, and a newer run on the case supersedes it. Until
+then, an `unsure` or `failed` run can leave the case `investigating`. A report still unsent when the agent
+stops is lost with the in-memory index, and the case stays that way until an analyst starts a new run.
+
+### Routes Domain doesn't have
+
+The catalog route, the proposals route and the status route can be missing from a Domain build. Domain's access
+policy already allows them, so once a call passes authorization and finds no handler, Domain answers with its
+generic 404: code `NOT_FOUND`, the message exactly "Not Found" and empty or null `details`. The agent treats only
+that answer as a missing route. A 404 for a missing resource, such as `CASE_NOT_FOUND`, never matches, and a
+route outside Domain's policy gets 403.
+
+| Call | When the route is missing |
+|---|---|
+| `GET /catalog/actions` | `load_case` uses the bundled catalog (`app/data/catalog.json`) and sets `run_config.catalog_source` to `bundled`. |
+| `POST /internal/cases/{case_id}/proposals` | The diagnosis still completes. `proposal_id` stays null and `evidence_gaps` says the recommendation wasn't saved as a proposal. |
+| `PUT /internal/cases/{case_id}/investigation` | The status isn't reported and isn't retried. |
+
+Any other error on these calls is handled as usual. When the routes exist, the agent uses them with no
+configuration change, as long as Domain and the agent share `INTERNAL_SERVICE_TOKEN`.
 
 ### Routes Domain doesn't have
 
@@ -127,7 +147,7 @@ Each turn, the model receives:
 
 - **The case and store.** The trigger, window, timezone, and exclusions. Also the store's menu: item IDs, item names and modifier names, so filters use values that exist.
 - **The data limits.** The table above, so the model knows what no check can prove.
-- **The hypotheses.** Every hypothesis with its status, evidence and rationale, plus causes ruled out in a prior run. On a new case the list starts empty, and the first turn opens at least two.
+- **The hypotheses.** Every hypothesis with its status, evidence and rationale. The list starts empty, and the first turn opens at least two. A prior run's rulings join it with reopening in M3; until then, the prompt says there are none.
 - **The latest result.** Its headline, metrics and notes in full, plus at most 20 of its evidence IDs and the total count. These are the first 20 in the order the Domain Service returns them, which puts the most concentrated group's newest records first. See "Evidence ID ordering" in [contracts.md](contracts.md#evidence-id-ordering). Every returned ID still goes into `retrieved_evidence_ids`. To cite records from another group, the agent runs `sample_evidence` filtered to that group. On the first turn, this is the store overview from `load_case`. Earlier checks appear as their plan and headline only.
 - **Pending feedback.** Any rejection from `guard` or `conclude_gate`.
 - **Budget.** Steps left, questions left, and whether a question is open.
@@ -314,14 +334,15 @@ confirm it.
 
 ## Pause and resume
 
-`thread_id` is the `investigation_id`. Checkpoints live in the `agent` schema through LangGraph's Postgres
-checkpointer.
+Pausing and resuming arrive with merchant questions in M3. `thread_id` is the `investigation_id`.
+Checkpoints live in memory (`AGENT_CHECKPOINTER=memory`). The Postgres checkpointer in the `agent` schema
+isn't built yet, and setting `postgres` stops the service at startup.
 
 - **Pausing.** `wait_question_decision` and `wait_merchant_reply` call `interrupt()`, and the checkpoint is saved. The API returns the current status.
 - **Resuming.** The frontend calls `POST /investigations/{id}/resume` after the analyst decides the question or records a reply. The request carries a fresh JWT. The node re-reads the proposal or replies from Domain and never trusts the resume body.
 - **No duplicate effects.** If nothing has changed in Domain, resume returns the current view and does nothing else. A resume on a finished investigation returns 409 `INVESTIGATION_FINISHED`.
-- **Restarts.** A paused investigation survives a container restart because its checkpoint is in Postgres.
-- **Reopening.** After a failed recheck, Domain marks the case `reopened`. The analyst starts a new investigation with `reopen_of` set. A second failed recheck sends the case to `analyst_review`, and no third run is allowed.
+- **Restarts.** No investigation survives a restart yet. Afterwards the list of a case's runs is empty and old IDs return 404. A clean stop first reports each active run to Domain as `failed` with `AGENT_RESTARTED`; if that report fails, nothing resends it. Once checkpoints are in Postgres, a paused investigation will survive a restart.
+- **Reopening.** Start accepts `reopen_of` once per case, only for a `reopened` case and an earlier run of it that the agent still holds. Anything else gets 409 `REOPEN_NOT_ALLOWED`. The rest isn't built yet: Domain reopening a case after a failed recheck and sending it to `analyst_review` after a second one (C-04), and the new run loading the earlier run's rulings (M3).
 
 ## Diagnostic tools
 
@@ -432,7 +453,7 @@ class InvestigationState(TypedDict):
     catalog: list[ActionCatalogEntry]
     excluded: ExclusionSummary           # claims with review_label fraud or not_store_fault
     suspect_cluster: bool                # set by load_case from fraud_signals; pending claims flagged for fraud review
-    prior_hypotheses: list[Hypothesis]   # from the prior run, including its rulings
+    prior_hypotheses: list[Hypothesis]   # from the prior run, including its rulings; empty until M3
 
     # evidence
     checks: Annotated[list[CheckRecord], upsert_by_check_id]

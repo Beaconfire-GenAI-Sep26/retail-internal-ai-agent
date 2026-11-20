@@ -1,0 +1,13 @@
+-r auth/requirements.txt
+-r domain/requirements.txt
+httpx==0.28.1
+pytest>=8,<10
+# B-02 graph/API checks share the same environment as the cross-service suite.
+anthropic>=1,<2
+langgraph>=1,<2
+langgraph-checkpoint-postgres>=3.2.1
+psycopg[binary,pool]>=3.3.9
+pydantic-settings>=2.16.3
+python-ulid>=4.2.0
+pytest-asyncio>=1.5.0
+respx>=0.23.1

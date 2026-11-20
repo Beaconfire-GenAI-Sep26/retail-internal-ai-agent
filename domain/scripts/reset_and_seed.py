@@ -1,7 +1,7 @@
 """Reset the Domain database and load synthetic seed data (C-01).
 
-Usage (from the folder that contains `app/`):
-    python -m scripts.reset_and_seed
+Usage (from the repository root):
+    python -m domain.scripts.reset_and_seed
 
 What it does
 1. Drops the `domain` and `eval` schemas (ALL DATA IS DELETED).
@@ -29,8 +29,8 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import text
 
-from app.db import SessionLocal, engine
-from app.models import (
+from domain.app.db import SessionLocal, engine
+from domain.app.models import (
     DOMAIN_SCHEMA,
     EVAL_SCHEMA,
     Cancellation,

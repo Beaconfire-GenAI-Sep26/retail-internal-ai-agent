@@ -19,8 +19,7 @@ export const selectBootstrapped = (state) => state.auth.bootstrapped;
 // ═══════════════════════════════════════════════════════════════════
 // 2. Role + store-grant selectors
 // ═══════════════════════════════════════════════════════════════════
-// Roles (contract `role` enum): 'loe_analyst' (LOE Analyst — investigate, decide drafts)
-//                               | 'viewer' (read only)
+// Roles: 'loe_analyst' (investigate, decide drafts) | 'viewer' (read only)
 // UI only — they decide what to SHOW. The backend re-checks role and store grant
 // on every request and answers 403.
 export const selectRole = (state) => state.auth.user?.role ?? null;

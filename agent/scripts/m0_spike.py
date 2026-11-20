@@ -29,16 +29,16 @@ sys.path.insert(0, str(AGENT_ROOT))
 
 import anthropic  # noqa: E402
 
-from app.config import get_settings  # noqa: E402
-from app.domain.fixtures import FixtureDomainClient  # noqa: E402
-from app.graph.build import build_graph, run_config  # noqa: E402
-from app.graph.context import AgentContext  # noqa: E402
-from app.graph.rules import evaluate_output  # noqa: E402
-from app.graph.state import initial_state  # noqa: E402
-from app.ids import CounterIdFactory  # noqa: E402
-from app.llm.base import ModelError, ModelReply  # noqa: E402
-from app.llm.schemas import parse_reason_output, reason_output_schema, schema_hash  # noqa: E402
-from app.prompts.render import prompt_hash, render_prompt  # noqa: E402
+from agent.app.config import get_settings  # noqa: E402
+from agent.app.domain.fixtures import FixtureDomainClient  # noqa: E402
+from agent.app.graph.build import build_graph, run_config  # noqa: E402
+from agent.app.graph.context import AgentContext  # noqa: E402
+from agent.app.graph.rules import evaluate_output  # noqa: E402
+from agent.app.graph.state import initial_state  # noqa: E402
+from agent.app.ids import CounterIdFactory  # noqa: E402
+from agent.app.llm.base import ModelError, ModelReply  # noqa: E402
+from agent.app.llm.schemas import parse_reason_output, reason_output_schema, schema_hash  # noqa: E402
+from agent.app.prompts.render import prompt_hash, render_prompt  # noqa: E402
 
 CONFIGS = [("low", "standard"), ("medium", "standard"), ("high", "standard"), ("medium", "fast")]
 OUT = AGENT_ROOT / "scripts" / "out"
@@ -85,7 +85,7 @@ async def first_turn_state() -> dict[str, Any]:
 
 
 async def live_calls(state: dict[str, Any]) -> list[dict[str, Any]]:
-    from app.llm.anthropic_model import AnthropicReasonModel
+    from agent.app.llm.anthropic_model import AnthropicReasonModel
 
     base = get_settings()
     rows = []

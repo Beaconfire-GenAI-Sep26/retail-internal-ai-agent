@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from app.contracts.models import (
+from agent.app.contracts.models import (
     ActionCatalogEntry,
     CaseDetail,
     EvidenceResolveResponse,
@@ -33,7 +33,7 @@ from app.contracts.models import (
     ToolResult,
     Window,
 )
-from app.domain.client import DomainError
+from agent.app.domain.client import DomainError
 
 DATE_KEYS = ("start", "end")
 
@@ -133,7 +133,7 @@ class FixtureDomainClient:
                 self.stores[store_id].known_ids |= set(result.evidence_ids)
 
     # DomainClient
-    def bind(self, *, token: str, request_id: str, investigation_id: str | None) -> FixtureDomainClient:
+    def bind(self, *, token: str, request_id: str, investigation_id: str | None, store_id: str | None = None, case_id: str | None = None) -> FixtureDomainClient:
         return self
 
     async def aclose(self) -> None:

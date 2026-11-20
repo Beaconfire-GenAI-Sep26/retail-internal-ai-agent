@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.deps import get_session
-from app.models import EventType, MenuItem
-from app.schemas import (
+from domain.app.deps import get_session
+from domain.app.models import EventType, MenuItem
+from domain.app.schemas import (
     CancellationBreakdownRequest,
     ClaimBreakdownRequest,
     ComparePeriodsRequest,
@@ -16,10 +16,10 @@ from app.schemas import (
     StoreSummary,
     ToolResult,
 )
-from app.security import CurrentUser, current_user
-from app.services import diagnostics
-from app.services.cases import store_summary
-from app.services.store_data import StoreContext, store_context
+from domain.app.security import CurrentUser, current_user
+from domain.app.services import diagnostics
+from domain.app.services.cases import store_summary
+from domain.app.services.store_data import StoreContext, store_context
 
 router = APIRouter(prefix="/stores/{store_id}", tags=["stores"])
 

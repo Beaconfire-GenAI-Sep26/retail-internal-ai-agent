@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.deps import get_session
-from app.models import CaseStatus
-from app.schemas import CaseDetail, CaseSummary
-from app.security import CurrentUser, current_user
-from app.services import cases
+from domain.app.deps import get_session
+from domain.app.models import CaseStatus
+from domain.app.schemas import CaseDetail, CaseSummary
+from domain.app.security import CurrentUser, current_user
+from domain.app.services import cases
 
 router = APIRouter(tags=["cases"])
 

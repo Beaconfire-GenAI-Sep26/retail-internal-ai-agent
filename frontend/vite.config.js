@@ -4,4 +4,9 @@ import { defineConfig } from 'vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  server: {
+    proxy: Object.fromEntries(['/auth', '/agent', '/domain'].map((path) => [
+      path, { target: 'http://localhost:18080' },
+    ])),
+  },
 })

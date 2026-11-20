@@ -2,8 +2,8 @@ import copy
 
 import pytest
 
-from app.graph.gate import checklist, evaluate_gate
-from tests.unit.builders import EVENT_LOG, C, H, conclusion, passing_state
+from agent.app.graph.gate import checklist, evaluate_gate
+from agent.tests.unit.builders import EVENT_LOG, C, H, conclusion, passing_state
 
 
 def unmet(state, conclude=None):

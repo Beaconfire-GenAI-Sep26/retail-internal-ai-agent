@@ -2,10 +2,10 @@ import json
 
 import pytest
 
-from app.contracts.models import ActionContent, ProposalCreate, Target, ToolResult
-from app.domain.client import DomainError
-from app.domain.fixtures import FixtureDomainClient
-from tests.conftest import FIXTURES
+from agent.app.contracts.models import ActionContent, ProposalCreate, Target, ToolResult
+from agent.app.domain.client import DomainError
+from agent.app.domain.fixtures import FixtureDomainClient
+from agent.tests.conftest import FIXTURES
 
 
 @pytest.fixture

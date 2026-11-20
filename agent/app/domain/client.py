@@ -14,7 +14,7 @@ from urllib.parse import quote
 
 import httpx
 
-from app.contracts.models import (
+from agent.app.contracts.models import (
     ActionCatalogEntry,
     CaseDetail,
     EvidenceResolveResponse,
@@ -24,7 +24,9 @@ from app.contracts.models import (
     ProposalCreate,
     ToolResult,
 )
-from app.logs import log_event
+from agent.app.logs import log_event
+from agent.app.domain_client import DomainClient as ScopedDomainClient, domain_request
+from shared.security import APIError, JWTSettings, require_store, verify_token
 
 logger = logging.getLogger("agent.domain")
 
@@ -65,7 +67,7 @@ class DomainPort(Protocol):
 
 
 class DomainClient(Protocol):
-    def bind(self, *, token: str, request_id: str, investigation_id: str | None) -> DomainPort: ...
+    def bind(self, *, token: str, request_id: str, investigation_id: str | None, store_id: str | None = None, case_id: str | None = None) -> DomainPort: ...
     async def aclose(self) -> None: ...
 
 
@@ -85,22 +87,26 @@ class HttpDomainClient:
         max_retries: int = 2,
         backoff_seconds: float = 0.5,
         transport: httpx.AsyncBaseTransport | None = None,
+        jwt_settings: JWTSettings | None = None,
     ):
         self._client = httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=timeout, transport=transport)
         self._service_token = service_token
+        self._jwt_settings = jwt_settings or JWTSettings.from_env()
         self._max_retries = max_retries
         self._backoff = backoff_seconds
 
-    def bind(self, *, token: str, request_id: str, investigation_id: str | None) -> DomainPort:
-        return _BoundHttpDomain(self, token=token, request_id=request_id, investigation_id=investigation_id)
+    def bind(self, *, token: str, request_id: str, investigation_id: str | None, store_id: str | None = None, case_id: str | None = None) -> DomainPort:
+        return _BoundHttpDomain(self, token=token, request_id=request_id, investigation_id=investigation_id, store_id=store_id, case_id=case_id)
 
     async def aclose(self) -> None:
         await self._client.aclose()
 
 
 class _BoundHttpDomain:
-    def __init__(self, owner: HttpDomainClient, *, token: str, request_id: str, investigation_id: str | None):
+    def __init__(self, owner: HttpDomainClient, *, token: str, request_id: str, investigation_id: str | None, store_id=None, case_id=None):
         self._owner = owner
+        self._store_id, self._case_id = store_id, case_id
+        self._user = verify_token(token, owner._jwt_settings)
         self._token = token
         self._request_id = request_id
         self._investigation_id = investigation_id
@@ -114,39 +120,38 @@ class _BoundHttpDomain:
         body: Any = None,
         internal: bool = False,
     ) -> Any:
-        headers = {"Authorization": f"Bearer {self._token}", "X-Request-ID": self._request_id}
-        if self._investigation_id:
-            headers["X-Investigation-ID"] = self._investigation_id
-        if internal:
-            headers["X-Service-Token"] = self._owner._service_token
         owner = self._owner
-        response: httpx.Response | None = None
-        failure = ""
         for attempt in range(owner._max_retries + 1):
             if attempt:
                 await asyncio.sleep(owner._backoff * 2 ** (attempt - 1))
             try:
-                response = await owner._client.request(method, path, params=params, json=body, headers=headers)
-            except httpx.HTTPError as exc:
-                failure = f"{type(exc).__name__} calling {method} {path}"
-                response = None
-                continue
-            if response.status_code >= 500:
-                failure = f"Domain returned {response.status_code} for {method} {path}"
-                continue
-            break
-        if response is None or response.status_code >= 500:
-            log_event(logger, logging.WARNING, "domain unavailable", method=method, path=path, reason=failure)
-            raise DomainError(503, "UPSTREAM_UNAVAILABLE", failure or "Domain is unavailable.")
-        if response.status_code >= 400:
-            code, message, details = _parse_error(response)
-            raise DomainError(response.status_code, code, message, details)
-        if response.status_code == 204 or not response.content:
-            return None
-        return response.json()
+                if self._store_id is not None and self._case_id is not None:
+                    scoped = ScopedDomainClient(owner._client, access_token=self._token,
+                        settings=owner._jwt_settings, store_id=self._store_id, case_id=self._case_id,
+                        investigation_id=self._investigation_id or "", request_id=self._request_id,
+                        service_token=owner._service_token)
+                    return await scoped.request(method, path, json=body, params=params)
+                # Before ownership is resolved, the only allowed operation is a
+                # case lookup with the user's JWT. Every other call needs scope.
+                import re
+                if method != "GET" or not re.fullmatch(r"/cases/CASE-\d{4,}", path):
+                    raise APIError(403, "FORBIDDEN", "Resolve case ownership before diagnostics.")
+                return await domain_request(owner._client, method, path,
+                    headers={"Authorization": "Bearer " + self._token, "X-Request-ID": self._request_id},
+                    json=body, params=params)
+            except APIError as exc:
+                if exc.status < 500 or attempt == owner._max_retries:
+                    raise DomainError(exc.status, exc.code, exc.message, exc.details) from None
+        raise DomainError(503, "UPSTREAM_UNAVAILABLE", "Domain service unavailable.")
 
     async def get_case(self, case_id: str) -> CaseDetail:
-        return CaseDetail.model_validate(await self._call("GET", f"/cases/{_p(case_id)}"))
+        case = CaseDetail.model_validate(await self._call("GET", f"/cases/{_p(case_id)}"))
+        try:
+            require_store(self._user, case.store_id, hide=True)
+        except APIError as exc:
+            raise DomainError(exc.status, "CASE_NOT_FOUND", "Case not found.") from None
+        self._case_id, self._store_id = case.case_id, case.store_id
+        return case
 
     async def get_menu(self, store_id: str) -> list[MenuItem]:
         data = await self._call("GET", f"/stores/{_p(store_id)}/menu")

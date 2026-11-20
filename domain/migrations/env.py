@@ -9,8 +9,8 @@
 from alembic import context
 from sqlalchemy import text
 
-from app.db import engine
-from app.models import DOMAIN_SCHEMA, EVAL_SCHEMA, Base
+from domain.app.db import engine
+from domain.app.models import DOMAIN_SCHEMA, EVAL_SCHEMA, Base
 
 OWNED_SCHEMAS = {DOMAIN_SCHEMA, EVAL_SCHEMA}
 target_metadata = Base.metadata

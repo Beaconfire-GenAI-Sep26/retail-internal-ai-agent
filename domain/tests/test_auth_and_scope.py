@@ -1,8 +1,8 @@
 from sqlalchemy import select
 
-from app.db import SessionLocal
-from app.models import MIClaim
-from tests.conftest import auth, make_token
+from domain.app.db import SessionLocal
+from domain.app.models import MIClaim
+from domain.tests.conftest import auth, make_token
 
 
 def a_store_a_claim() -> str:

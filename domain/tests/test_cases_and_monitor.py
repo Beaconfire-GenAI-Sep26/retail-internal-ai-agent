@@ -1,4 +1,4 @@
-from tests.conftest import auth
+from domain.tests.conftest import auth
 
 H = auth()
 

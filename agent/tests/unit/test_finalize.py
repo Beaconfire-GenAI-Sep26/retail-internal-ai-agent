@@ -1,8 +1,8 @@
 """One test per row of the finalize truth table, plus the confidence caps."""
 
-from app.graph.finalize import action_content, build_result, cap, decide
-from app.graph.gate import evaluate_gate
-from tests.unit.builders import EVENT_LOG, C, H, conclusion, passing_state
+from agent.app.graph.finalize import action_content, build_result, cap, decide
+from agent.app.graph.gate import evaluate_gate
+from agent.tests.unit.builders import EVENT_LOG, C, H, conclusion, passing_state
 
 
 def finished(state, end_reason, action=None):

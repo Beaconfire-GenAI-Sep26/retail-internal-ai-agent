@@ -5,12 +5,11 @@ sub (user ID), name, role ("viewer" or "loe_analyst"), store_ids, iss, iat, exp.
 """
 from dataclasses import dataclass
 
-import jwt
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.errors import ApiError
-from app.settings import settings
+from domain.app.errors import ApiError
+from shared.security import authenticate
 
 ANALYST = "loe_analyst"
 ROLES = {"viewer", ANALYST}
@@ -31,27 +30,14 @@ class CurrentUser:
 bearer = HTTPBearer(auto_error=False, description="JWT from the Auth service (or scripts/make_demo_token.py)")
 
 
-def current_user(creds: HTTPAuthorizationCredentials | None = Depends(bearer)) -> CurrentUser:
-    if creds is None or creds.scheme.lower() != "bearer" or not creds.credentials:
-        raise ApiError(401, "UNAUTHENTICATED", "A Bearer token is required.")
-    token = creds.credentials.strip()
-    try:
-        claims = jwt.decode(
-            token,
-            settings.jwt_secret,
-            algorithms=["HS256"],
-            issuer=settings.jwt_issuer,
-            options={"require": ["sub", "exp", "iss"]},
-        )
-    except jwt.ExpiredSignatureError:
-        raise ApiError(401, "UNAUTHENTICATED", "The token has expired.")
-    except jwt.PyJWTError:
-        raise ApiError(401, "UNAUTHENTICATED", "The token is not valid.")
-    role = claims.get("role")
-    store_ids = claims.get("store_ids")
-    if role not in ROLES or not isinstance(store_ids, list):
-        raise ApiError(401, "UNAUTHENTICATED", "The token is missing role or store_ids.")
-    return CurrentUser(user_id=str(claims["sub"]), role=role, store_ids=frozenset(store_ids))
+def current_user(request: Request, creds: HTTPAuthorizationCredentials | None = Depends(bearer)) -> CurrentUser:
+    # The shared middleware verifies every claim before routing. Return its
+    # narrowed store context so C-02 query helpers enforce X-Store-ID too.
+    user = getattr(request.state, "user", None)
+    if user is None:
+        user = authenticate(request, request.app.state.jwt)
+    stores = getattr(request.state, "store_ids", user.store_ids)
+    return CurrentUser(user_id=user.user_id, role=user.role, store_ids=frozenset(stores))
 
 
 def require_analyst(user: CurrentUser = Depends(current_user)) -> CurrentUser:

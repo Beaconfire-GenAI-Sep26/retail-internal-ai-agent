@@ -3,6 +3,7 @@
 {"error": {"code": "...", "message": "...", "details": {...}, "request_id": "..."}}
 """
 import uuid
+from shared.security import APIError
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -10,11 +11,9 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
-class ApiError(Exception):
+class ApiError(APIError):
     def __init__(self, status: int, code: str, message: str, details: dict | None = None):
-        self.status = status
-        self.code = code
-        self.message = message
+        super().__init__(status, code, message)
         self.details = details or {}
 
 

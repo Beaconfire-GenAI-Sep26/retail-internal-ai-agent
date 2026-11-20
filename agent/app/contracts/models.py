@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.contracts.enums import (
+from agent.app.contracts.enums import (
     CauseCategory,
     CheckKind,
     Confidence,

@@ -1,6 +1,6 @@
 import pytest
 
-from app.graph.policy import policy_hits, scrub
+from agent.app.graph.policy import policy_hits, scrub
 
 
 @pytest.mark.parametrize(

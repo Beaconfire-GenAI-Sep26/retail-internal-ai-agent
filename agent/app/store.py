@@ -7,7 +7,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from app.contracts.enums import ACTIVE_STATUSES
+from agent.app.contracts.enums import ACTIVE_STATUSES
 
 
 @dataclass(frozen=True)

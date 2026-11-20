@@ -15,11 +15,11 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from app.config import Settings
-from app.graph.gate import checklist
-from app.graph.rules import EXPLORE_CAP, can_rule_out, can_support
-from app.llm.base import RenderedPrompt
-from app.tools.registry import describe_request, render_tool_catalog
+from agent.app.config import Settings
+from agent.app.graph.gate import checklist
+from agent.app.graph.rules import EXPLORE_CAP, can_rule_out, can_support
+from agent.app.llm.base import RenderedPrompt
+from agent.app.tools.registry import describe_request, render_tool_catalog
 
 TEXT_CAP = 300
 SHOWN_EVIDENCE_IDS = 20

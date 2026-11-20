@@ -1,28 +1,32 @@
-"""The Agent Service app. Run with `uv run uvicorn app.main:app`."""
+"""JWT-protected B-02 workflow. Run agent.app.main:app from the repository root."""
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+import re
+from starlette.concurrency import run_in_threadpool
+
+from shared.http import install_http, service_path, json_object
+from shared.security import APIError, JWTSettings, authenticate, require_analyst, require_store
+from agent.app.domain_client import DomainClient as ScopedDomainClient, domain_request
 from contextlib import asynccontextmanager
-from typing import Any
 
 import httpx
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from langgraph.checkpoint.memory import InMemorySaver
 
-from app.api import investigations
-from app.config import Settings, get_settings
-from app.domain.client import DomainClient, HttpDomainClient
-from app.domain.fixtures import FixtureDomainClient
-from app.errors import install_error_handlers
-from app.graph.build import build_graph
-from app.ids import IdFactory, UlidIdFactory
-from app.llm.base import ReasonModel
-from app.logs import configure_logging, request_id_var
-from app.runner import Runner
-from app.store import InvestigationStore
+from agent.app.api import investigations
+from agent.app.config import Settings, get_settings
+from agent.app.domain.client import DomainClient, DomainError, HttpDomainClient
+from agent.app.domain.fixtures import FixtureDomainClient
+from agent.app.errors import install_error_handlers
+from agent.app.graph.build import build_graph
+from agent.app.ids import UlidIdFactory
+from agent.app.llm.base import ReasonModel
+from agent.app.logs import configure_logging, request_id_var
+from agent.app.runner import Runner
+from agent.app.store import InvestigationStore
 
 
 def make_domain_client(settings: Settings) -> DomainClient:
@@ -33,53 +37,159 @@ def make_domain_client(settings: Settings) -> DomainClient:
         settings.internal_service_token,
         timeout=settings.domain_timeout_seconds,
         max_retries=settings.agent_max_retries,
+        jwt_settings=JWTSettings(settings.jwt_secret, settings.jwt_issuer),
     )
 
 
 def make_model(settings: Settings) -> ReasonModel:
-    from app.llm.anthropic_model import AnthropicReasonModel
+    from agent.app.llm.anthropic_model import AnthropicReasonModel
 
+    if not settings.anthropic_api_key:
+        class UnconfiguredModel:
+            name = "anthropic"
+            configured = False
+            async def reason(self, prompt, state):
+                from agent.app.llm.base import ModelError
+                raise ModelError("UPSTREAM_UNAVAILABLE", "ANTHROPIC_API_KEY is not configured.")
+        return UnconfiguredModel()
     return AnthropicReasonModel(settings)
 
 
 def create_app(
-    settings: Settings | None = None,
-    *,
-    domain_client: DomainClient | None = None,
-    model: ReasonModel | None = None,
-    ids: IdFactory | None = None,
-    configure_logs: bool = True,
+    settings=None, domain_http=None, investigation_lookup=None, service_token=None,
+    *, domain_client=None, model=None, ids=None, configure_logs=True,
 ) -> FastAPI:
-    settings = settings or get_settings()
+    # Keep the A-02 injectable boundary for policy tests/extensions while the
+    # default app runs the actual B-02 graph and investigation API.
+    jwt_override = settings if isinstance(settings, JWTSettings) else None
+    workflow = jwt_override is None and domain_http is None and investigation_lookup is None
+    runtime_settings = (Settings(_env_file=None, jwt_secret=jwt_override.secret,
+                                 jwt_issuer=jwt_override.issuer)
+                        if jwt_override else settings or get_settings())
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        if configure_logs:
-            configure_logging(settings.log_level)
-        if settings.agent_checkpointer != "memory":
-            raise RuntimeError("The Postgres checkpointer arrives in M2. Set AGENT_CHECKPOINTER=memory for now.")
-        domain = domain_client or make_domain_client(settings)
-        reason_model = model or make_model(settings)
-        graph = build_graph(InMemorySaver())
-        store = InvestigationStore()
-        app.state.settings = settings
-        app.state.domain_client = domain
-        app.state.graph = graph
-        app.state.store = store
-        app.state.ids = ids or UlidIdFactory()
-        app.state.runner = Runner(graph=graph, store=store, settings=settings, domain_client=domain,
-                                  model=reason_model, ids=app.state.ids)
-        yield
-        await app.state.runner.shutdown()
-        await domain.aclose()
+    async def lifespan(app):
+        app.state.jwt = jwt_override or JWTSettings(runtime_settings.jwt_secret, runtime_settings.jwt_issuer)
+        app.state.settings = runtime_settings
+        app.state.service_token = service_token or runtime_settings.internal_service_token
+        if workflow:
+            if configure_logs:
+                configure_logging(runtime_settings.log_level)
+            if runtime_settings.agent_checkpointer != "memory":
+                raise RuntimeError("Postgres checkpoints are not implemented; use AGENT_CHECKPOINTER=memory.")
+            domain = domain_client or make_domain_client(runtime_settings)
+            reason_model = model or make_model(runtime_settings)
+            graph = build_graph(InMemorySaver())
+            app.state.domain_client = domain
+            app.state.graph = graph
+            app.state.store = InvestigationStore()
+            app.state.ids = ids or UlidIdFactory()
+            app.state.runner = Runner(graph=graph, store=app.state.store, settings=runtime_settings,
+                domain_client=domain, model=reason_model, ids=app.state.ids)
+        else:
+            app.state.domain_http = domain_http or httpx.AsyncClient(
+                base_url=runtime_settings.domain_service_url.rstrip("/")+"/", timeout=15)
+        try:
+            yield
+        finally:
+            if workflow:
+                await app.state.runner.shutdown()
+                await domain.aclose()
+                client = getattr(reason_model, "client", None)
+                if client is not None:
+                    await client.close()
+            elif domain_http is None:
+                await app.state.domain_http.aclose()
 
-    # The gateway prefix (ROOT_PATH, /agent) is passed to uvicorn as --root-path; see the Dockerfile.
-    app = FastAPI(title="Retail Agent Service", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Retail Agent Service", version="0.2.0", lifespan=lifespan)
     install_error_handlers(app)
+    async def authorize_legacy(request):
+        user = authenticate(request, app.state.jwt)
+        path, method = service_path(request), request.method
+        request.state.store_ids = tuple(user.store_ids)
+        if method not in {"GET", "POST"}:
+            raise APIError(403, "FORBIDDEN", "Operation is not permitted.")
+        if method == "POST":
+            require_analyst(user)
+        case_id = None
+        investigation_id = None
+        if path == "/investigations":
+            if method == "POST":
+                body = await json_object(request)
+                case_id = body.get("case_id")
+            else:
+                case_id = request.query_params.get("case_id")
+            if not isinstance(case_id, str) or not re.fullmatch(r"CASE-\d{4,}", case_id):
+                raise APIError(422, "VALIDATION_ERROR", "A valid case_id is required.")
+        elif match := re.fullmatch(r"/investigations/([A-Za-z0-9-]+)(/resume)?", path):
+            if (method == "POST") != bool(match[2]):
+                raise APIError(403, "FORBIDDEN", "Operation is not permitted.")
+            investigation_id = match[1]
+            context = await run_in_threadpool(investigation_lookup, investigation_id) if investigation_lookup else None
+            if context is None:
+                raise APIError(404, "NOT_FOUND", "Investigation not found.")
+            case_id = context["case_id"]
+            require_store(user, context["store_id"], hide=method == "GET")
+        else:
+            raise APIError(403, "FORBIDDEN", "Operation has no access policy.")
+
+        # Domain resolves the authoritative case -> store mapping using the same JWT.
+        case = await domain_request(app.state.domain_http, "GET", f"/cases/{case_id}", headers={
+            "Authorization": f"Bearer {request.state.access_token}", "X-Request-ID": request.state.request_id,
+        })
+        store_id = case["store_id"]
+        require_store(user, store_id, hide=method == "GET")
+        if investigation_id and context["store_id"] != store_id:
+            raise APIError(403, "STORE_NOT_PERMITTED", "Investigation and case store do not match.")
+        request.state.case_id, request.state.store_id = case_id, store_id
+        # Start handlers bind the new investigation ID after generating it. Resumes
+        # use this fresh request's JWT, never a token from persisted graph state.
+        if investigation_id:
+            request.state.domain_client = ScopedDomainClient(app.state.domain_http,
+                access_token=request.state.access_token, settings=app.state.jwt,
+                store_id=store_id, case_id=case_id, investigation_id=investigation_id,
+                request_id=request.state.request_id, service_token=app.state.service_token)
+
+
+    async def authorize(request):
+        if not workflow:
+            return await authorize_legacy(request)
+        user = authenticate(request, app.state.jwt)
+        request.state.store_ids = tuple(user.store_ids)
+        path, method = service_path(request), request.method
+        if method == "POST":
+            require_analyst(user)
+        if path == "/investigations" and method in {"GET", "POST"}:
+            return  # endpoint resolves the case using this user's forwarded JWT
+        match = re.fullmatch(r"/investigations/([A-Za-z0-9-]+)(/resume)?", path)
+        if not match or (method == "POST") != bool(match[2]) or method not in {"GET", "POST"}:
+            raise APIError(403, "FORBIDDEN", "Operation has no access policy.")
+        row = app.state.store.get(match[1])
+        if row is None:
+            raise APIError(404, "NOT_FOUND", "Investigation not found.")
+        require_store(user, row.store_id, hide=method == "GET")
+        domain = app.state.domain_client.bind(token=request.state.access_token,
+            request_id=request.state.request_id, investigation_id=row.investigation_id,
+            store_id=row.store_id, case_id=row.case_id)
+        try:
+            case = await domain.get_case(row.case_id)
+        except DomainError as exc:
+            status = 404 if exc.status in {403, 404} else exc.status
+            raise APIError(status, "NOT_FOUND" if status == 404 else exc.code,
+                           "Investigation not found." if status == 404 else exc.message) from None
+        require_store(user, case.store_id, hide=method == "GET")
+        if case.store_id != row.store_id:
+            raise APIError(403, "STORE_NOT_PERMITTED", "Investigation and case store do not match.")
+        request.state.case_id, request.state.store_id = row.case_id, row.store_id
+        request.state.investigation_id = row.investigation_id
+
+    install_http(app, authorize)
 
     @app.middleware("http")
-    async def request_id(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
-        rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:16]
+    async def request_id(request, call_next):
+        rid = request.headers.get("X-Request-ID", "")
+        rid = rid if 0 < len(rid) <= 128 else uuid.uuid4().hex
+        request.state.request_id = rid
         token = request_id_var.set(rid)
         try:
             response = await call_next(request)
@@ -89,29 +199,29 @@ def create_app(
         return response
 
     @app.get("/health", tags=["health"])
-    async def health() -> dict[str, str]:
+    async def health():
         return {"status": "ok", "service": "agent"}
 
     @app.get("/ready", tags=["health"])
-    async def ready(request: Request) -> Any:
-        s: Settings = request.app.state.settings
-        checks = {"model": "configured" if s.anthropic_api_key else "missing ANTHROPIC_API_KEY",
-                  "checkpointer": s.agent_checkpointer}
-        ok = bool(s.anthropic_api_key)
-        if s.agent_domain_mode == "fixtures":
+    async def ready():
+        configured = not workflow or getattr(app.state.runner.model, "configured", True)
+        checks = {"model": "configured" if configured else "missing ANTHROPIC_API_KEY"}
+        if workflow:
+            checks["checkpointer"] = runtime_settings.agent_checkpointer
             checks["domain"] = "fixtures"
-        else:
-            try:
-                async with httpx.AsyncClient(timeout=3.0) as client:
-                    resp = await client.get(s.domain_service_url.rstrip("/") + "/health")
-                checks["domain"] = "ok" if resp.status_code == 200 else f"http {resp.status_code}"
-                ok = ok and resp.status_code == 200
-            except httpx.HTTPError:
-                checks["domain"] = "unreachable"
-                ok = False
-        return JSONResponse(status_code=200 if ok else 503, content={"status": "ok" if ok else "not_ready", **checks})
+            if runtime_settings.agent_domain_mode == "http":
+                try:
+                    async with httpx.AsyncClient(timeout=3) as client:
+                        response = await client.get(runtime_settings.domain_service_url.rstrip("/") + "/health")
+                    checks["domain"] = "ok" if response.status_code == 200 else "unavailable"
+                except httpx.HTTPError:
+                    checks["domain"] = "unavailable"
+                configured = configured and checks["domain"] == "ok"
+        return JSONResponse(status_code=200 if configured else 503,
+            content={"status": "ok" if configured else "not_ready", "service": "agent", **checks})
 
-    app.include_router(investigations.router)
+    if workflow:
+        app.include_router(investigations.router)
     return app
 
 

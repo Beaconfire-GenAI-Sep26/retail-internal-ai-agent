@@ -45,7 +45,7 @@ which can only end inconclusive.
 4. **State values are JSON-native**, written with `model_dump(mode="json")` and read through typed accessors. LangGraph's msgpack serializer warns on unregistered custom types and blocks them under `LANGGRAPH_STRICT_MSGPACK`.
 5. **`finalize` is deterministic.** The conclude action carries the narrative and the chosen catalog action. `unsure` results are built from templates. This leaves one model call per turn, one schema and one refusal point, and the confidence caps can't be argued past.
 6. **`guard` sees every `ReasonOutput`**: check, ask_merchant and conclude.
-7. **Every terminal path reports to Domain** through one idempotent `report_status` node, so cases don't stay stuck in `investigating`.
+7. **Every terminal path reports to Domain**, through the idempotent `report_status` node or, when a run times out, crashes or is stopped by a shutdown, from the runner. An analyst's next read or list of the run resends a failed report, so a case doesn't stay stuck in `investigating` once an analyst opens it, unless the agent restarted in between.
 8. **The fixture Domain client implements the HTTP client's interface.** It is used for M1, the graph tests and the frontend. The live distinct-route evidence for the POC comes from the real Domain once C-02 lands.
 
 ## Milestones (build order)
@@ -394,7 +394,7 @@ Every node checks `context.deadline` on entry, before any write, and returns `RU
 
 **`report_status`.** No model call.
 - **Calls:** `PUT /internal/cases/{id}/investigation` with `completed`, `unsure` or `failed`. The call is idempotent and retried.
-- **Writes:** on failure, it sets `domain_sync_pending` on the index row, unless Domain has no status route. An analyst's next read of the investigation retries it in the background, at most once every 30 seconds, with that analyst's JWT. A newer investigation on the same case clears the flag. The outcome itself never changes.
+- **Writes:** on failure, it sets `domain_sync_pending` on the index row, unless Domain has no status route. An analyst's next read or list of the investigation retries it in the background, at most once every 30 seconds, with that analyst's JWT. A newer investigation on the same case clears the flag. The outcome itself never changes.
 - **Next:** END.
 
 **`fail`.** No model call.
@@ -607,7 +607,7 @@ sequenceDiagram
 - On an analyst's read of a finished investigation with `domain_sync_pending`, retry the status report in the background.
 
 **Other routes:**
-- `GET /investigations?case_id=` lists the permitted rows, newest first.
+- `GET /investigations?case_id=` lists the permitted rows, newest first. Like a read, an analyst's list retries a finished row's failed status report in the background, because the case page reaches a finished run through the list.
 - Resume comes in M3.
 - `/health` doesn't touch the DB or Domain. `/ready` does.
 - Every route uses the contracts error envelope.
@@ -626,7 +626,7 @@ sequenceDiagram
 **Startup reconcile (Postgres mode):**
 - For each `running` row, read `aget_state`.
 - A terminal state syncs the row. Anything else becomes `failed AGENT_RESTARTED`.
-- In memory mode, nothing survives a restart. A graceful stop still reports each cancelled run to Domain as `failed AGENT_RESTARTED`.
+- In memory mode, nothing survives a restart. A graceful stop still reports each cancelled run to Domain as `failed AGENT_RESTARTED`. If that report fails, nothing resends it.
 
 **Persistence (M2):**
 - `AsyncPostgresSaver` (`langgraph.checkpoint.postgres.aio`) on a psycopg `AsyncConnectionPool` with `kwargs={"autocommit": True, "row_factory": dict_row}`.

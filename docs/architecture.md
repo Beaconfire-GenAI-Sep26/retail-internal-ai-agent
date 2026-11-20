@@ -40,13 +40,14 @@ flowchart LR
   G -->|"/"| F["Frontend container"]
   AG -->|"read-only diagnostics<br/>+ proposal draft (internal)"| D
   AG -->|"model calls"| C["Claude API"]
-  AG -->|"redacted traces"| L["Langfuse Cloud"]
+  AG -.->|"redacted traces"| L["Langfuse Cloud"]
   A --> PA[("auth schema")]
-  AG --> PG[("agent schema<br/>checkpoints")]
+  AG -.-> PG[("agent schema<br/>checkpoints")]
   D --> PD[("domain schema")]
 ```
 
-Calls only go in the directions shown. The Domain Service never calls the Agent Service. When the agent
+Calls only go in the directions shown. Dashed links aren't built yet: checkpoints stay in memory, and Langfuse
+tracing isn't wired in. The Domain Service never calls the Agent Service. When the agent
 needs to continue after an analyst decision or a merchant reply, the frontend calls the agent's resume
 endpoint, and the agent then reads the new state from the Domain Service.
 
@@ -143,7 +144,7 @@ is committed.
 | `AGENT_MAX_REASON_CALLS` | empty | agent | Optional cap on reasoning turns. Empty means `2 * AGENT_MAX_STEPS + 4`. |
 | `AGENT_DOMAIN_MODE` | `http` | agent | `http` calls the Domain Service. `fixtures` answers from the agent's fixtures, for work without a Domain database. |
 | `AGENT_FIXTURES_DIR` | `tests/fixtures/domain` | agent | The fixture folder for fixtures mode |
-| `AGENT_CHECKPOINTER` | `memory` | agent | `memory`, or `postgres` once the `agent` schema and role exist |
+| `AGENT_CHECKPOINTER` | `memory` | agent | `memory` only for now. The Postgres checkpointer isn't built, so `postgres` stops the service at startup. |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | empty | agent | Langfuse Cloud keys. Empty keys turn tracing off. |
 | `LANGFUSE_BASE_URL` | `https://cloud.langfuse.com` | agent | Langfuse endpoint |
 | `MONITOR_GOAL_RATE` | `0.05` | domain | 7-day M&I rate goal for the demo. The proposal cites 2.25% as a real-world reference. |

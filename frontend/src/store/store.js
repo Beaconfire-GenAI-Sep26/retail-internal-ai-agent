@@ -2,7 +2,8 @@
 //
 // State tree:
 //   auth     who is logged in (role, store_ids) + access token   store/auth/
-//   cases    (D-02) case queue · one case · evidence             store/cases/
+//   cases           (D-02) case queue · the open case               store/cases/
+//   investigations  (D-02) latest investigation of the open case    store/investigations/
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -10,6 +11,8 @@
 // ═══════════════════════════════════════════════════════════════════
 import { configureStore } from '@reduxjs/toolkit';
 import authReducer from './auth/authSlice';
+import casesReducer from './cases/casesSlice';
+import investigationsReducer from './investigations/investigationsSlice';
 import { injectStore } from '../api/axios';
 
 
@@ -21,6 +24,8 @@ import { injectStore } from '../api/axios';
 const store = configureStore({
   reducer: {
     auth: authReducer,
+    cases: casesReducer,
+    investigations: investigationsReducer,
   },
 });
 

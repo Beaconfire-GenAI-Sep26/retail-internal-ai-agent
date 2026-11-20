@@ -82,7 +82,13 @@ const clearSession = () => {
 
 // Small delay so loading states ("Signing in…") are visible like a real call
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const fakeToken = (user) => `mock.${user.user_id}.${Date.now()}`;
+// Local dev: if .env has a real JWT for this role (VITE_DEV_TOKEN_ANALYST / _VIEWER),
+// use it so a locally running Domain API accepts the requests. Otherwise a fake token.
+const DEV_TOKENS = {
+  loe_analyst: import.meta.env.VITE_DEV_TOKEN_ANALYST,
+  viewer: import.meta.env.VITE_DEV_TOKEN_VIEWER,
+};
+const fakeToken = (user) => DEV_TOKENS[user.role] || `mock.${user.user_id}.${Date.now()}`;
 // Same lifetime as the real token (JWT_TTL_MINUTES = 60 in architecture.md)
 const fakeExpiresAt = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
 

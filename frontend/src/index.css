@@ -1,13 +1,285 @@
 /* Global styles */
 
 /* ═══ 1. Theme tokens — colors, fonts ═══ */
+/* Every color below comes from these, so the palette changes in one place */
+:root {
+  --bg: #f4f5f8;          /* page background */
+  --surface: #ffffff;     /* cards, nav, table */
+  --surface-soft: #f8f9fb; /* table header, hover */
+  --border: #dde1e8;
+  --text: #1c2230;
+  --text-muted: #687083;
+  --primary: #2f5bd3;     /* buttons, links, "in progress" */
+  --primary-hover: #244ab3;
+  --danger: #b3261e;      /* errors, the rate that triggered the case */
+  --danger-soft: #fdeceb;
+  --warn: #a86400;        /* open cases, goal line */
+  --wait: #8a3ab9;        /* waiting for a person */
+  --ok: #1f7a4a;          /* closed */
+  --radius: 10px;
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+h1 { font-size: 1.6rem; margin: 0; line-height: 1.25; }
+h2 { font-size: 1.05rem; margin: 0; }
+p { margin: 0; }
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
 
 /* ═══ 2. Layout — nav bar + page container ═══ */
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 24px;
+  padding: 12px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.nav-left,
+.nav-user { display: flex; align-items: center; gap: 20px; }
+.nav-brand { font-size: 1.05rem; }
+.nav-left a { color: var(--text-muted); font-weight: 500; }
+.nav-left a.active { color: var(--primary); } /* NavLink adds .active on the current page */
+.nav-user { gap: 12px; font-size: 0.9rem; }
+.nav-role {
+  padding: 1px 8px;
+  border-radius: 99px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+/* Every page: centered column with room on both sides */
+main {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 28px 24px 56px;
+}
+main > section { display: grid; gap: 16px; }
 
 /* ═══ 3. Card + form controls (login form, buttons, .error, .muted) ═══ */
+.muted { color: var(--text-muted); }
+p.error { color: var(--danger); }
+
+/* A block error (page or table failed to load): message + Retry */
+div.error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* Buttons — primary by default, .button-secondary for quiet actions */
+button {
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 7px 16px;
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: var(--primary-hover); }
+button:disabled { opacity: 0.55; cursor: default; }
+button:focus-visible,
+a:focus-visible,
+select:focus-visible,
+input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.button-secondary,
+div.error button {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+.button-secondary:hover:not(:disabled),
+div.error button:hover:not(:disabled) { background: var(--surface-soft); }
+
+input,
+select {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* Login page — the form is a centered card */
+main > form {
+  display: grid;
+  gap: 14px;
+  max-width: 380px;
+  margin: 48px auto 0;
+  padding: 28px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+main > form label { display: grid; gap: 4px; font-size: 0.9rem; font-weight: 500; }
+main > form p:last-child { font-size: 0.8rem; color: var(--text-muted); }
 
 /* ═══ 4. Table — case queue (D-02) ═══ */
+/* Title + Run monitor on one line; the result wraps under the button on narrow screens */
+.page-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; }
+.monitor-run { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.monitor-run p { margin: 0; font-size: 0.9rem; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 16px; }
+.filters label { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; color: var(--text-muted); }
+
+/* The table sits in a card and scrolls inside it instead of widening the page */
+.table-scroll {
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.case-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.case-table th,
+.case-table td { padding: 12px 16px; text-align: left; white-space: nowrap; }
+.case-table th {
+  background: var(--surface-soft);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.case-table td { border-bottom: 1px solid var(--border); }
+.case-table tbody tr:last-child td { border-bottom: none; }
+.case-table tbody tr { cursor: pointer; }
+.case-table tbody tr:hover { background: var(--surface-soft); }
+.case-table a { font-weight: 600; }
+
+/* Empty / loading text under the filters */
+main > section > p.muted { padding: 32px 0; text-align: center; }
 
 /* ═══ 5. Status badge — case statuses (running / awaiting_approval / ...) ═══ */
+/* One color per group: needs attention · in progress · waiting for a person · done */
+.badge {
+  display: inline-block;
+  padding: 1px 10px;
+  border: 1px solid currentColor;
+  border-radius: 99px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.badge-open,
+.badge-reopened { color: var(--warn); }
+.badge-investigating,
+.badge-action_dispatched { color: var(--primary); }
+.badge-awaiting_decision,
+.badge-awaiting_merchant,
+.badge-analyst_review { color: var(--wait); }
+.badge-closed { color: var(--ok); }
+.badge-paused { color: var(--text-muted); }
 
-/* ═══ 6. Small screens ═══ */
+/* ═══ 6. Case detail — header cards, daily chart, investigation panel (D-02) ═══ */
+.case-detail > a { font-size: 0.9rem; }
+
+/* The three blocks of the page are cards */
+.case-header,
+.daily-chart,
+.investigation-panel {
+  display: grid;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+}
+
+/* Header */
+.case-title { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+
+/* Facts row: label on top, value below, thin divider between items */
+.case-facts { display: flex; flex-wrap: wrap; gap: 8px 0; margin: 0; }
+.case-facts > div { padding: 0 20px; border-left: 1px solid var(--border); }
+.case-facts > div:first-child { padding-left: 0; border-left: none; }
+.case-facts dt { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.case-facts dd { margin: 0; font-weight: 500; }
+.stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 4px; }
+.stat-card {
+  display: grid;
+  gap: 2px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+}
+.stat-label { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.stat-value { font-size: 1.75rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.stat-card .muted { font-size: 0.85rem; }
+.stat-card-alert { background: var(--danger-soft); border-color: transparent; }
+.stat-card-alert .stat-value { color: var(--danger); }
+
+/* Daily chart — SVG scales to the card width */
+.daily-chart svg { display: block; width: 100%; height: auto; }
+.daily-chart > p.muted { font-size: 0.82rem; }
+.daily-chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; align-items: baseline; }
+.chart-grid { stroke: #e9ecf1; }
+.chart-label { fill: var(--text-muted); font-size: 10px; }
+.chart-bar { fill: #aab1be; }
+.chart-bar-window { fill: var(--danger); }
+.chart-bar-nodata { fill: none; stroke: var(--border); stroke-dasharray: 3 2; }
+.chart-goal { stroke: var(--warn); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 0.8rem; color: var(--text-muted); }
+.chart-legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; vertical-align: -1px; }
+.legend-day::before { background: #aab1be; }
+.legend-window::before { background: var(--danger); }
+.legend-goal::before { height: 0 !important; border-top: 2px dashed var(--warn); border-radius: 0 !important; vertical-align: 3px !important; }
+
+/* Investigation panel */
+.investigation-panel { gap: 10px; }
+.investigation-panel > p.muted { font-size: 0.9rem; }
+.investigation-start { display: grid; gap: 8px; justify-items: start; margin-top: 4px; }
+.investigation-progress-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.investigation-panel progress {
+  width: 100%;
+  height: 8px;
+  appearance: none;
+  border: none;
+  border-radius: 99px;
+  background: var(--surface-soft);
+  overflow: hidden;
+}
+.investigation-panel progress::-webkit-progress-bar { background: #e9ecf1; border-radius: 99px; }
+.investigation-panel progress::-webkit-progress-value { background: var(--primary); border-radius: 99px; transition: width 0.4s; }
+.investigation-panel progress::-moz-progress-bar { background: var(--primary); border-radius: 99px; }
+
+/* ═══ 7. Small screens ═══ */
+@media (max-width: 600px) {
+  .nav { padding: 10px 16px; }
+  main { padding: 20px 16px 40px; }
+  h1 { font-size: 1.3rem; }
+  /* Facts row → 2 columns; dividers would land at odd places once items wrap */
+  .case-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+  .case-facts > div { padding: 0; border-left: none; }
+  .case-header,
+  .daily-chart,
+  .investigation-panel { padding: 16px; }
+}

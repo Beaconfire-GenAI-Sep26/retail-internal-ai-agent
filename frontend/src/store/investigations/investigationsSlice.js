@@ -9,6 +9,8 @@ import {
   fetchLatestInvestigation,
   startInvestigation,
   fetchInvestigation,
+  resumeInvestigation,
+  fetchPreviousInvestigation,
 } from './investigationsThunks';
 
 
@@ -32,6 +34,13 @@ const initialState = {
   // fetchInvestigation — the 2 s poll
   polling: false, // a poll request is in flight (see the thunk's `condition`)
   pollError: null, // last poll failed; polling keeps trying
+
+  // resumeInvestigation — after a question decision or a merchant reply (D-05)
+  resumeStatus: 'idle', // 'idle' | 'loading' | 'failed'
+  resumeError: null, // { message, code, noResponse }
+
+  // fetchPreviousInvestigation — the first run, when `current` is a reopen (D-05)
+  previous: { id: null, view: null, status: 'idle', error: null },
 };
 
 
@@ -91,6 +100,38 @@ const investigationsSlice = createSlice({
       .addCase(fetchInvestigation.rejected, (state, action) => {
         state.polling = false;
         state.pollError = action.payload ?? 'Could not refresh the investigation';
+      })
+
+      // resumeInvestigation — the 202 view replaces the paused one; if it is
+      // 'running', usePollInvestigation starts polling again by itself
+      .addCase(resumeInvestigation.pending, (state) => {
+        state.resumeStatus = 'loading';
+        state.resumeError = null;
+      })
+      .addCase(resumeInvestigation.fulfilled, (state, action) => {
+        state.resumeStatus = 'idle';
+        if (action.payload.investigation_id === state.current?.investigation_id) {
+          state.current = action.payload;
+        }
+      })
+      // fetchPreviousInvestigation — opening another case resets it (fetchLatest above)
+      .addCase(fetchPreviousInvestigation.pending, (state, action) => {
+        state.previous = { id: action.meta.arg, view: null, status: 'loading', error: null };
+      })
+      .addCase(fetchPreviousInvestigation.fulfilled, (state, action) => {
+        if (state.previous.id !== action.meta.arg) return;
+        state.previous.view = action.payload;
+        state.previous.status = 'succeeded';
+      })
+      .addCase(fetchPreviousInvestigation.rejected, (state, action) => {
+        if (state.previous.id !== action.meta.arg) return;
+        state.previous.status = 'failed';
+        state.previous.error = action.payload ?? 'Could not load the previous investigation';
+      })
+
+      .addCase(resumeInvestigation.rejected, (state, action) => {
+        state.resumeStatus = 'failed';
+        state.resumeError = action.payload ?? { message: "Couldn't continue the investigation", code: null, noResponse: false };
       });
   },
 });

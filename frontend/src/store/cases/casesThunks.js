@@ -1,6 +1,8 @@
 // [07a] Cases thunks — async calls to /domain/cases (Domain Service, C-02)
-// No mock branch: the Domain API already runs locally (see domain/README.md),
-// and in dev the Vite proxy (vite.config.js) forwards /domain/* to it.
+// Always the real Domain API: it runs locally (see domain/README.md), and in dev
+// the Vite proxy (vite.config.js) forwards /domain/* to it.
+// With USE_MOCKS, the mock workflow's case state (status, proposals, rechecks —
+// C-03/C-04, not built yet) is laid over the real response (mockInvestigations.js).
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -9,6 +11,8 @@
 import { createAsyncThunk } from '@reduxjs/toolkit';
 import api from '../../api/axios';
 import { getErrorMessage } from '../../api/errors';
+import { USE_MOCKS } from '../../api/mockAuth';
+import { applyMockCase, applyMockCaseList } from '../../api/mocks/mockInvestigations';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -23,11 +27,14 @@ export const fetchCases = createAsyncThunk(
     // Drop empty filters so the URL only carries the ones the analyst picked
     const params = {};
     if (filters.store_id) params.store_id = filters.store_id;
-    if (filters.status) params.status = filters.status;
+    // Mocks change case status in the browser, so the status filter runs here
+    if (filters.status && !USE_MOCKS) params.status = filters.status;
 
     try {
       const { data } = await api.get('/domain/cases', { params });
-      return data;
+      if (!USE_MOCKS) return data;
+      const list = applyMockCaseList(data);
+      return filters.status ? list.filter((c) => c.status === filters.status) : list;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err, 'Could not load cases'));
     }
@@ -52,7 +59,7 @@ export const fetchCase = createAsyncThunk(
   async (caseId, { rejectWithValue }) => {
     try {
       const { data } = await api.get(`/domain/cases/${caseId}`);
-      return data;
+      return USE_MOCKS ? applyMockCase(data) : data;
     } catch (err) {
       const status = err.response?.status;
       return rejectWithValue({

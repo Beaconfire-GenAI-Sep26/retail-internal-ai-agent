@@ -283,3 +283,366 @@ main > section > p.muted { padding: 32px 0; text-align: center; }
   .daily-chart,
   .investigation-panel { padding: 16px; }
 }
+
+/* ═══ 8. Pills, evidence links, evidence drawer (D-03) ═══ */
+/* Pill — colored by meaning, same shape as .badge */
+.pill {
+  display: inline-block;
+  padding: 0 8px;
+  border: 1px solid currentColor;
+  border-radius: 99px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.pill-ok { color: var(--ok); }
+.pill-warn { color: var(--warn); }
+.pill-bad { color: var(--danger); }
+.pill-accent { color: var(--primary); }
+.pill-neutral { color: var(--text-muted); }
+
+/* Evidence ID — a button that reads like a link */
+button.evidence-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+button.evidence-link:hover:not(:disabled) { background: none; text-decoration: underline; }
+
+/* Drawer — right side, full height; full width on phones */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(28, 34, 48, 0.25);
+}
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  width: min(420px, 100vw);
+  padding: 20px 22px 32px;
+  overflow-y: auto;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(28, 34, 48, 0.12);
+}
+.drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.drawer-head > div { display: grid; gap: 6px; justify-items: start; }
+.drawer-head h2 { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1rem; }
+button.drawer-close {
+  padding: 2px 8px;
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+}
+button.drawer-close:hover:not(:disabled) { background: var(--surface-soft); color: var(--text); }
+.evidence-summary { font-weight: 500; }
+
+/* Attribute rows: label left, value right */
+.evidence-attrs { display: grid; gap: 0; margin: 0; }
+.evidence-attrs > div {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+.evidence-attrs dt { color: var(--text-muted); }
+.evidence-attrs dd { margin: 0; overflow-wrap: anywhere; }
+
+/* Customer / merchant words — plain text, line breaks kept */
+.evidence-quote { margin: 0; display: grid; gap: 4px; }
+.evidence-quote figcaption { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.evidence-quote blockquote {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ═══ 9. Investigation panel parts — boxes 4–12 (D-03) ═══ */
+h3 { font-size: 0.95rem; margin: 0; }
+h4 { font-size: 0.8rem; margin: 0; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.investigation-panel { gap: 14px; }
+.investigation-title { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; }
+.investigation-title .muted { font-size: 0.82rem; }
+.investigation-progress { display: grid; gap: 8px; }
+.investigation-progress h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.evidence-links { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-size: 0.88rem; }
+
+/* Shared spot (boxes 6–10): a tinted block so it reads as "the answer" */
+.slot-placeholder,
+.result-panel,
+.error-panel {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+}
+.result-panel { border-left: 4px solid var(--ok); }
+.result-unsure { border-left-color: var(--warn); }
+.error-panel { border-color: transparent; border-left: 4px solid var(--danger); background: var(--danger-soft); }
+.error-panel details { font-size: 0.85rem; color: var(--text-muted); }
+.error-panel dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 6px 0 0; }
+.error-panel dd { margin: 0; overflow-wrap: anywhere; }
+.result-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.result-head h3 { font-size: 1.1rem; }
+.result-section { display: grid; gap: 4px; }
+.result-section ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.result-section .evidence-links { margin-top: 2px; }
+
+/* Checks | Possible causes — two columns, one on narrow screens */
+.investigation-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 20px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.check-timeline,
+.hypothesis-list { display: grid; align-content: start; gap: 10px; }
+
+.check-timeline ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.check-item { display: grid; grid-template-columns: 26px 1fr; gap: 10px; scroll-margin-top: 16px; }
+.check-item:target .check-body { background: #eef2fd; border-radius: 6px; }
+.check-number {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.check-body { display: grid; gap: 4px; min-width: 0; font-size: 0.92rem; }
+.check-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.check-headline { padding-left: 10px; border-left: 2px solid var(--border); }
+.check-matched summary { cursor: pointer; font-size: 0.85rem; color: var(--primary); }
+.check-matched ul { margin: 6px 0 0; padding-left: 0; list-style: none; display: grid; gap: 4px; font-size: 0.86rem; }
+
+.hypothesis-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.hypothesis {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.92rem;
+}
+.hypothesis-ruled_out { opacity: 0.75; }
+.hypothesis-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+
+@media (max-width: 860px) {
+  .investigation-columns { grid-template-columns: 1fr; }
+}
+
+/* ═══ 10. Recommended action + decisions — box 9 (D-03) ═══ */
+.recommendation-review {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.recommendation-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.recommendation-head .muted { font-size: 0.82rem; }
+.recommendation-title { font-size: 1.05rem; font-weight: 600; }
+.recommendation-instructions { white-space: pre-wrap; }
+.recommendation-facts { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0; font-size: 0.9rem; }
+.recommendation-facts dt { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.recommendation-facts dd { margin: 0; }
+button.recommendation-edit { justify-self: start; }
+
+/* Text fields used by the edit form and the decision note */
+.recommendation-review input,
+.recommendation-review textarea {
+  width: 100%;
+  font: inherit;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+.recommendation-review textarea { resize: vertical; }
+.recommendation-review textarea:focus-visible,
+.recommendation-review input:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+.proposal-edit { display: grid; gap: 10px; }
+.proposal-edit label { display: grid; gap: 4px; font-size: 0.9rem; font-weight: 500; }
+.decision-controls { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+.decision-controls > label { font-size: 0.9rem; font-weight: 500; }
+.decision-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.decision-outcome { display: grid; gap: 2px; padding-top: 10px; border-top: 1px solid var(--border); }
+.decision-note { font-style: italic; white-space: pre-wrap; }
+.decision-viewer { padding-top: 10px; border-top: 1px solid var(--border); }
+
+/* ═══ 12. Merchant question — box 6 (D-05) ═══ */
+.question-history { display: grid; gap: 10px; }
+.question-review {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--wait);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.question-past { background: var(--surface-soft); }
+.question-text {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-soft);
+  font-size: 1rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.question-past .question-text { background: var(--surface); }
+.question-review textarea {
+  width: 100%;
+  font: inherit;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  resize: vertical;
+}
+/* Merchant reply — box 7, and the reply under a past question */
+.reply-form {
+  display: grid;
+  gap: 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--wait);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.reply-form > label { font-size: 0.9rem; font-weight: 500; }
+.reply-form textarea {
+  width: 100%;
+  font: inherit;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  resize: vertical;
+}
+.reply-line { display: grid; gap: 4px; padding-top: 10px; border-top: 1px solid var(--border); }
+.reply-text {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--wait);
+  border-radius: 4px;
+  background: var(--surface);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.continue-box {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px dashed var(--wait);
+}
+
+/* ═══ 11. Recheck card — box 13 (D-03) ═══ */
+.recheck-panel {
+  display: grid;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+}
+.recheck-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.recheck-facts { display: grid; gap: 0; margin: 0; }
+.recheck-facts > div {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.recheck-facts dt { color: var(--text-muted); font-size: 0.9rem; }
+.recheck-facts dd { margin: 0; }
+.recheck-next { font-weight: 500; padding: 8px 12px; border-radius: 6px; background: var(--surface-soft); }
+.recheck-next-improved { color: var(--ok); }
+.recheck-next-not_improved { color: var(--danger); background: var(--danger-soft); }
+.recheck-next-insufficient_data { color: var(--warn); }
+.recheck-run { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; }
+.recheck-run label { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; }
+.recheck-run .error { flex-basis: 100%; text-align: right; }
+
+/* Previous investigation — box 15, folded under the panel title */
+.previous-investigation {
+  padding: 10px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+.previous-investigation summary { cursor: pointer; line-height: 1.7; }
+.previous-body { display: grid; gap: 10px; margin-top: 10px; }
+.previous-action { display: grid; gap: 4px; }
+@media (max-width: 600px) {
+  .recheck-panel { padding: 16px; }
+  .recheck-facts > div { grid-template-columns: 1fr; gap: 2px; }
+}
+
+/* ═══ 13. Case page layout + activity sidebar — box 16 (D-05) ═══ */
+.case-layout { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 16px; align-items: start; }
+.case-main { display: grid; gap: 16px; min-width: 0; }
+.audit-log {
+  position: sticky;
+  top: 16px;
+  display: grid;
+  gap: 10px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.audit-log ol { list-style: none; margin: 0; padding: 0; display: grid; }
+.audit-log li {
+  display: grid;
+  gap: 1px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.84rem;
+}
+.audit-log li:first-child { border-top: none; padding-top: 0; }
+.audit-time { color: var(--text-muted); font-size: 0.76rem; font-variant-numeric: tabular-nums; }
+.audit-what { font-weight: 500; }
+.audit-who { color: var(--text-muted); overflow-wrap: anywhere; }
+button.audit-more { justify-self: start; font-size: 0.82rem; padding: 4px 10px; }
+@media (max-width: 860px) {
+  .case-layout { grid-template-columns: 1fr; }
+  .audit-log { position: static; max-height: none; }
+}
+
+/* Mock mode: "Reset demo" in the nav — dashed so it reads as a dev tool */
+button.nav-reset { border-style: dashed; color: var(--warn); font-size: 0.82rem; padding: 4px 10px; }

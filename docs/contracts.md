@@ -181,7 +181,7 @@ type tool_name =
 ```
 
 `dasher_handoff` stays a valid `cause_category`, but C-01 has no Dasher data. Platform data can't test
-it, so it is settled through a merchant question or left inconclusive. See [agent-graph.md](agent-graph.md).
+it, so it is never supported or ruled out, even after a merchant reply. See [agent-graph.md](agent-graph.md).
 
 ## Status model
 

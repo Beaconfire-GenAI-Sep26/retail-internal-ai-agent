@@ -455,3 +455,45 @@ h4 { font-size: 0.8rem; margin: 0; font-weight: 600; letter-spacing: 0.04em; tex
 @media (max-width: 860px) {
   .investigation-columns { grid-template-columns: 1fr; }
 }
+
+/* ═══ 10. Recommended action + decisions — box 9 (D-03) ═══ */
+.recommendation-review {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.recommendation-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.recommendation-head .muted { font-size: 0.82rem; }
+.recommendation-title { font-size: 1.05rem; font-weight: 600; }
+.recommendation-instructions { white-space: pre-wrap; }
+.recommendation-facts { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0; font-size: 0.9rem; }
+.recommendation-facts dt { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.recommendation-facts dd { margin: 0; }
+button.recommendation-edit { justify-self: start; }
+
+/* Text fields used by the edit form and the decision note */
+.recommendation-review input,
+.recommendation-review textarea {
+  width: 100%;
+  font: inherit;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+.recommendation-review textarea { resize: vertical; }
+.recommendation-review textarea:focus-visible,
+.recommendation-review input:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+.proposal-edit { display: grid; gap: 10px; }
+.proposal-edit label { display: grid; gap: 4px; font-size: 0.9rem; font-weight: 500; }
+.decision-controls { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+.decision-controls > label { font-size: 0.9rem; font-weight: 500; }
+.decision-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.decision-outcome { display: grid; gap: 2px; padding-top: 10px; border-top: 1px solid var(--border); }
+.decision-note { font-style: italic; white-space: pre-wrap; }
+.decision-viewer { padding-top: 10px; border-top: 1px solid var(--border); }

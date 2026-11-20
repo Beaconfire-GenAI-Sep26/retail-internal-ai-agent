@@ -5,6 +5,7 @@
 //   cases           (D-02) case queue · the open case               store/cases/
 //   investigations  (D-02) latest investigation of the open case    store/investigations/
 //   evidence        (D-03) cached evidence records + the drawer     store/evidence/
+//   proposals       (D-03) proposals by ID + their edit / decision  store/proposals/
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -15,6 +16,7 @@ import authReducer from './auth/authSlice';
 import casesReducer from './cases/casesSlice';
 import investigationsReducer from './investigations/investigationsSlice';
 import evidenceReducer from './evidence/evidenceSlice';
+import proposalsReducer from './proposals/proposalsSlice';
 import { injectStore } from '../api/axios';
 
 
@@ -29,6 +31,7 @@ const store = configureStore({
     cases: casesReducer,
     investigations: investigationsReducer,
     evidence: evidenceReducer,
+    proposals: proposalsReducer,
   },
 });
 

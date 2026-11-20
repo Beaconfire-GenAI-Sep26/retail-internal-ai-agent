@@ -10,7 +10,7 @@
 //   └──────────────────────────────────────────────────────────────────┘
 //
 // Still to come: QuestionReview / MerchantReplyForm (commits 5, 6),
-// RecommendationReview (commit 3), PreviousInvestigation (commit 7).
+// PreviousInvestigation (commit 7).
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -30,6 +30,7 @@ import { getCaseView } from './caseSteps';
 import StartInvestigationButton from './StartInvestigationButton';
 import InvestigationProgress from './InvestigationProgress';
 import ResultPanel from './ResultPanel';
+import RecommendationReview from './RecommendationReview';
 import ErrorPanel from './ErrorPanel';
 import CheckTimeline from './CheckTimeline';
 import HypothesisList from './HypothesisList';
@@ -38,7 +39,7 @@ import HypothesisList from './HypothesisList';
 // ═══════════════════════════════════════════════════════════════════
 // 2. The shared spot — boxes 6–10, one at a time
 // ═══════════════════════════════════════════════════════════════════
-const Slot = ({ view, caseId, investigation }) => {
+const Slot = ({ view, caseId, investigation, timeZone }) => {
   switch (view.slot) {
     // D-05 builds these two (commits 5, 6). Until then the run can't continue
     // from the page, so say so instead of showing nothing.
@@ -56,8 +57,19 @@ const Slot = ({ view, caseId, investigation }) => {
           <p className='muted'>Recording the merchant's reply comes in D-05.</p>
         </div>
       );
-    case 'result':
-      return investigation.result ? <ResultPanel result={investigation.result} checks={investigation.checks} /> : null;
+    // Result (box 8), then the recommended action under it (box 9)
+    case 'result': {
+      const { result } = investigation;
+      if (!result) return null;
+      return (
+        <>
+          <ResultPanel result={result} checks={investigation.checks} />
+          {view.showRecommendation && result.proposal_id && (
+            <RecommendationReview proposalId={result.proposal_id} timeZone={timeZone} />
+          )}
+        </>
+      );
+    }
     case 'error':
       return <ErrorPanel caseId={caseId} investigation={investigation} startLabel={view.startLabel} />;
     default:
@@ -131,7 +143,7 @@ const InvestigationPanel = ({ caseId }) => {
       )}
 
       {/* ── Part 2: the shared spot (boxes 6–10) ── */}
-      <Slot view={view} caseId={caseId} investigation={investigation} />
+      <Slot view={view} caseId={caseId} investigation={investigation} timeZone={timeZone} />
 
       {/* ── Part 3: checks (box 11) | possible causes (box 12) ── */}
       {view.showTimeline && (

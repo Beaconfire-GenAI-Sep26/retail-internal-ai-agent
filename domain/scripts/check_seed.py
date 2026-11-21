@@ -1,4 +1,4 @@
-"""Sanity checks for the seeded Domain database (C-01 acceptance criteria).
+"""Sanity checks for the seeded Domain database (C-01 and C-04 acceptance criteria).
 
 Usage (from the repository root):
     python -m domain.scripts.check_seed
@@ -23,6 +23,15 @@ CHECKS = {
     "claims reported before delivery": """
         SELECT count(*) FROM domain.mi_claims c JOIN domain.orders o USING (order_id)
         WHERE c.reported_at < o.delivered_at""",
+    "golden key_evidence_ids that don't resolve to the scenario's store": """
+        SELECT count(*) FROM eval.golden_scenarios g
+        CROSS JOIN LATERAL json_array_elements_text(g.key_evidence_ids) AS k(eid)
+        WHERE NOT EXISTS (SELECT 1 FROM domain.mi_claims c WHERE c.evidence_id = k.eid AND c.store_id = g.store_id)
+          AND NOT EXISTS (SELECT 1 FROM domain.cancellations x WHERE x.evidence_id = k.eid AND x.store_id = g.store_id)
+          AND NOT EXISTS (SELECT 1 FROM domain.operational_events e WHERE e.evidence_id = k.eid AND e.store_id = g.store_id)""",
+    "diagnosis scenarios with no key_evidence_ids": """
+        SELECT count(*) FROM eval.golden_scenarios
+        WHERE expected_outcome = 'diagnosis' AND json_array_length(key_evidence_ids) = 0""",
 }
 
 # 7-day window Nov 9-15 vs 28-day baseline Oct 12 - Nov 8 (UTC dates, good enough for a check)
@@ -52,7 +61,10 @@ def main() -> None:
         for t in ["stores", "menu_items", "orders", "order_items", "mi_claims",
                   "cancellations", "operational_events", "cases"]:
             print(f"  domain.{t:<20} {conn.execute(text(f'SELECT count(*) FROM domain.{t}')).scalar()}")
-        print(f"  eval.golden_scenarios      {conn.execute(text('SELECT count(*) FROM eval.golden_scenarios')).scalar()}")
+        splits = dict(conn.execute(text("SELECT split, count(*) FROM eval.golden_scenarios GROUP BY split")).all())
+        print(f"  eval.golden_scenarios      {sum(splits.values())} (dev {splits.get('dev', 0)}, "
+              f"holdout {splits.get('holdout', 0)})")
+        print(f"  eval.workflow_scenarios    {conn.execute(text('SELECT count(*) FROM eval.workflow_scenarios')).scalar()}")
 
         print("\nIntegrity checks (all should be 0)")
         ok = True

@@ -423,6 +423,29 @@ class GoldenScenario(Base):
     expected_outcome: Mapped[str] = mapped_column(String(20))  # diagnosis / unsure / no_case (InvestigationResult.outcome)
     expected_owner: Mapped[str] = mapped_column(String(20))  # contracts owner_team
     expected_action: Mapped[str] = mapped_column(String(80))  # catalog action_id (app/catalog.py), or no_case
-    key_evidence: Mapped[list] = mapped_column(JSON, default=list)  # descriptions, never concrete IDs
+    key_evidence: Mapped[list] = mapped_column(JSON, default=list)  # descriptions for a person to read
+    # C-04: the evidence IDs behind the label (signal claims, cause events and cancellations).
+    # The seed is fixed, so the same IDs come back on every reset; the B-05 runner compares
+    # the agent's supporting_evidence_ids with them.
+    key_evidence_ids: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
     distractors: Mapped[list] = mapped_column(JSON, default=list)
+    notes: Mapped[str] = mapped_column(Text, default="")
+
+
+class WorkflowScenario(Base):
+    """C-04: expected workflow and safety behavior (sprint plan page 5, "Workflow and safety").
+
+    Each row says what the system must do after a sequence of steps on a seeded case. The B-05 runner
+    and the Domain tests read `expected`; nothing the agent can reach reads this table.
+    """
+    __tablename__ = "workflow_scenarios"
+    __table_args__ = {"schema": EVAL_SCHEMA}
+
+    scenario_id: Mapped[str] = mapped_column(String(10), primary_key=True)  # W-01
+    title: Mapped[str] = mapped_column(String(120))
+    based_on: Mapped[str | None] = mapped_column(String(10), nullable=True)  # GS-xx, or null for any case
+    store_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    tickets: Mapped[list] = mapped_column(JSON, default=list)  # tickets whose code makes it pass, e.g. ["C-03"]
+    steps: Mapped[list] = mapped_column(JSON, default=list)  # what is done, in order
+    expected: Mapped[list] = mapped_column(JSON, default=list)  # what must be true afterwards
     notes: Mapped[str] = mapped_column(Text, default="")

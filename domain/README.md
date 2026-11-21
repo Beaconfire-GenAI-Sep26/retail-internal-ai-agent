@@ -1,7 +1,7 @@
 # Domain Service
 
 FastAPI service with JWT/store access control, SQLAlchemy models, migrations and
-repeatable synthetic data for 10 stores (Oct 5 - Nov 15, 2026). The entry point is
+repeatable synthetic data for 13 stores (Oct 5 - Nov 15, 2026), plus the C-04 golden dataset. The entry point is
 `domain.app.main:app`; Compose builds this directory together with `shared/`.
 
 The app mounts C-02's case, evidence, monitor and diagnostic routers and C-03's
@@ -20,13 +20,16 @@ Run all commands below in Bash on macOS from the repository root.
 | --- | --- |
 | `app/main.py`, `app/access.py` | API entry point, health/readiness, store/menu reads and default-deny authorization |
 | `app/db.py` | Administrative engine/session using the same shared configuration as the API |
-| `app/models.py` | 15 tables: 14 in schema `domain`, answer key in schema `eval` |
+| `app/models.py` | 16 tables: 14 in schema `domain`; the answer key (`golden_scenarios`, `workflow_scenarios`) in schema `eval` |
 | `app/routers/`, `app/services/` | C-02 cases, monitor, diagnostics, evidence; C-03 proposals, decisions, mock dispatch, audit |
 | `app/catalog.py` | Action catalog (same IDs as the agent's `catalog.json` fixture) |
 | `scripts/make_demo_token.py` | Prints a local demo JWT |
 | `alembic.ini`, `migrations/` | Alembic migrations; the version table lives in schema `domain` |
 | `scripts/reset_and_seed.py` | Drops both schemas, runs `alembic upgrade head`, then loads seed data (fixed seed 24) |
-| `scripts/check_seed.py` | Row counts, integrity checks and M&I rate per store |
+| `scripts/check_seed.py` | Row counts, integrity checks (incl. golden evidence IDs) and M&I rate per store |
+| `scripts/scenario_stores.py` | C-04 builder for scenario stores, and the dev stores K-M (GS-05..07) |
+| `scripts/workflow_scenarios.py` | C-04 workflow and safety scenarios W-01..W-05 |
+| `tests/test_workflow_scenarios.py` | Runs W-03, W-04 and W-05 against the API |
 
 ## Run the API
 
@@ -53,7 +56,7 @@ uvicorn domain.app.main:app --reload --port 8003
 ```
 
 Open http://localhost:8003/docs. Print a token signed with the same `JWT_SECRET` and paste it into
-**Authorize** (`loe_analyst`, all 10 stores, valid 12 hours):
+**Authorize** (`loe_analyst`, stores A-P, valid 12 hours):
 
 ```bash
 python -m domain.scripts.make_demo_token
@@ -153,7 +156,7 @@ Never give the running Domain API the administrator's credentials.
 | `POST /evidence/resolve` | agent only | Checks cited IDs. Needs `X-Service-Token` + user JWT; a browser call gets 403 `SERVICE_TOKEN_INVALID` |
 
 Without `start`/`end`, a tool uses the 42 days ending on the store's last day of data.
-Merchant replies, running rechecks and reopening come in C-04.
+Merchant replies, running rechecks and reopening come in C-05.
 
 ### Monitor rule
 
@@ -180,8 +183,8 @@ For each store in the caller's grants, with `as_of` as the last day (default: th
 | `INTERNAL_SERVICE_TOKEN` | required | Read by `app/main.py`. Agent sends it as `X-Service-Token` on `/internal/` routes and `/evidence/resolve`. Must match the Agent service |
 | `MOCK_DISPATCH_FAIL` | `false` | Demo switch: `true` makes every mock send fail with 502 `DISPATCH_FAILED` |
 
-On seed 24 with `as_of` 2026-11-15 the monitor opens cases for STORE-A and STORE-B only. STORE-I is
-`low_volume` and STORE-J (one-day spike) is `below_threshold`.
+On seed 24 with `as_of` 2026-11-15 the monitor opens cases for STORE-A, STORE-B, STORE-K, STORE-L and
+STORE-M. STORE-I is `low_volume` and STORE-J (one-day spike) is `below_threshold`.
 
 ### Diagnostic rules worth knowing
 
@@ -202,7 +205,7 @@ On seed 24 with `as_of` 2026-11-15 the monitor opens cases for STORE-A and STORE
 | `POST /proposals/{proposal_id}/versions` | analyst | Edit while pending: adds the next version (201). Same text adds nothing (200) |
 | `POST /proposals/{proposal_id}/decision` | analyst | `{"version", "decision", "note"}` + `Idempotency-Key`. 409 `STALE_VERSION` / `ALREADY_DECIDED`, 502 `DISPATCH_FAILED` |
 | `GET /cases/{case_id}/audit` | any user | Every action on the case, oldest first |
-| `GET /cases/{case_id}/rechecks` | any user | Planned rechecks (C-04 runs them) |
+| `GET /cases/{case_id}/rechecks` | any user | Planned rechecks (C-05 runs them) |
 | `GET /catalog/actions` | any user | The action catalog |
 
 ### Rules
@@ -245,10 +248,52 @@ Actors are a user ID, `svc_agent` or `svc_monitor`.
 | STORE-C to H | Normal | Claims around 1.0-1.5% of delivered orders |
 | STORE-I | Low volume | High rate but only ~30 orders a week; should not open a case |
 | STORE-J | One-day spike | 6 claims on Nov 8 only; 7-day rate stays normal |
+| STORE-K to M | C-04 dev scenarios | See "Golden dataset" below |
 
 Distractors: STORE-A has an Oct 20 downtime, Oct 24-26 out-of-stock cancellations, a same-day unrelated
 menu change and fraud-labeled claims. STORE-B has a Nov 1 dessert price change, a Nov 3-9 promotion,
 Friday dinner `too_busy` cancellations across the whole period and fraud-labeled claims.
+
+## Golden dataset (C-04)
+
+The answer key lives in schema `eval`, which only the `eval_runner` role can read. B-05's runner compares
+the agent's results with it (contracts.md, "Golden Dataset labels").
+
+**`eval.golden_scenarios`**: one row per data scenario. `key_evidence_ids` lists the evidence IDs behind
+the true cause (the cause event plus every claim and cancellation the scenario added), so the runner can
+check that the agent's cited IDs point at the real signal.
+
+| ID | Split | Store | Situation | Label (cause / owner / action) |
+| --- | --- | --- | --- | --- |
+| GS-01 | dev | STORE-A | POS modifier "Extra sauce" | pos_modifier_mapping / pos_team / fix_modifier_mapping |
+| GS-02 | dev | STORE-B | Large dinner orders lose a bag | packing / merchant / add_large_order_bag_check |
+| GS-03 | dev | STORE-I | Low volume | no_case |
+| GS-04 | dev | STORE-J | One-day spike | no_case |
+| GS-05 | dev | STORE-K | From Nov 4 one taco item goes missing; out-of-stock cancellations rise; a same-day price change is a distractor | inventory / merchant / update_item_availability |
+| GS-06 | dev | STORE-L | From Nov 2 wrong_order claims across all items, longer deliveries, Dasher comments; a same-day menu change is a distractor | dasher_handoff / dasher_ops / review_dasher_handoff |
+| GS-07 | dev | STORE-M | From Nov 6 four customers file 7 pending "entire order" claims each; a POS update the day before is a distractor | fraud_cluster / fraud_review / send_to_fraud_review |
+| GS-08..10 | holdout | N, O, P | Kept out of the repository until the final run | |
+
+Holdout stores are built only with `--holdout`, from `scripts/holdout_stores.py`, which is not committed:
+
+```bash
+python -m domain.scripts.reset_and_seed            # dev: 13 stores, 7 golden scenarios
+python -m domain.scripts.reset_and_seed --holdout  # final run: 16 stores, 10 golden scenarios
+```
+
+Each scenario store has its own random seed and is generated after the C-01 stores, so STORE-A..J and
+every dev ID (orders, claims, events, `key_evidence_ids`) are the same with or without `--holdout`.
+
+**`eval.workflow_scenarios`**: what the system must do, not what the agent concludes. Each row has
+`steps` and an `expected` list of checks (`status`, `code`, `case_status`, `dispatches`, ...).
+
+| ID | Scenario | Runs in |
+| --- | --- | --- |
+| W-01 | No merchant reply | after C-05 and B-04 |
+| W-02 | Failed recheck, reopen once, then analyst handoff | after C-05 and B-04 |
+| W-03 | Invalid or incomplete input | `tests/test_workflow_scenarios.py` |
+| W-04 | Unauthorized or cross-store access | `tests/test_workflow_scenarios.py` |
+| W-05 | Attempted dispatch without approval | `tests/test_workflow_scenarios.py` |
 
 ## Conventions
 

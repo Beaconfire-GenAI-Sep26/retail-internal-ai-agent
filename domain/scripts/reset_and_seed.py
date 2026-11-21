@@ -1,7 +1,8 @@
 """Reset the Domain database and load synthetic seed data (C-01).
 
 Usage (from the repository root):
-    python -m domain.scripts.reset_and_seed
+    python -m domain.scripts.reset_and_seed             # C-01 stores + C-04 dev scenario stores
+    python -m domain.scripts.reset_and_seed --holdout   # also the holdout stores (final evaluation only)
 
 What it does
 1. Drops the `domain` and `eval` schemas (ALL DATA IS DELETED).
@@ -15,8 +16,13 @@ Scenarios
 - STORE-B  Dinner packing: from Nov 3 large dinner orders lose a whole bag
            -> missing_item claims on drinks / desserts / sides.
 - STORE-C..H normal stores, STORE-I low volume, STORE-J one-day spike.
+- STORE-K..M (C-04, scripts/scenario_stores.py): inventory, Dasher handoff, fraud cluster.
+- Holdout stores (scripts/holdout_stores.py) only with --holdout.
+The answer key for every scenario goes to eval.golden_scenarios, and the expected workflow
+behavior to eval.workflow_scenarios (scripts/workflow_scenarios.py).
 All names, comments and numbers are synthetic. No real personal data.
 """
+import argparse
 import random
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
@@ -30,6 +36,8 @@ from alembic.config import Config
 from sqlalchemy import text
 
 from domain.app.db import SessionLocal, engine
+from domain.scripts.scenario_stores import DEV_SEED, DEV_SPECS, Kit, build
+from domain.scripts.workflow_scenarios import WORKFLOW_SCENARIOS
 from domain.app.models import (
     DOMAIN_SCHEMA,
     EVAL_SCHEMA,
@@ -40,6 +48,7 @@ from domain.app.models import (
     EventType,
     GoldenScenario,
     MenuItem,
+    WorkflowScenario,
     MIClaim,
     OperationalEvent,
     Order,
@@ -405,7 +414,15 @@ def add_pending_claims(claims: list[dict], orders: list, customers: dict) -> Non
         ))
 
 
-def main() -> None:
+def main(holdout: bool = False) -> None:
+    holdout_specs = []
+    if holdout:
+        try:
+            from domain.scripts.holdout_stores import HOLDOUT_SEED, HOLDOUT_SPECS
+        except ImportError:
+            raise SystemExit("--holdout needs domain/scripts/holdout_stores.py, which is added only "
+                             "for the final evaluation.")
+        holdout_specs = HOLDOUT_SPECS
     print("Resetting schemas and running Alembic migrations...")
     reset_schema()
     stores, menus = build_stores_and_menus()
@@ -484,6 +501,8 @@ def main() -> None:
                 comment = fmt_comment(BAG_COMMENTS, m.name) if i == 0 else None
                 new_claims.append((ErrorCategory.MISSING_ITEM, m, None, comment, label))
 
+        scenario = bool(new_claims)  # A/B claims are the evidence for their labels (key_evidence_ids)
+
         # STORE-I has a slightly higher base rate (but too few orders to open a case)
         base_rate = 0.04 if sid == "STORE-I" else BASE_CLAIM_RATE
         if not new_claims and rng.random() < base_rate:
@@ -508,7 +527,7 @@ def main() -> None:
                 modifier_detail=mod_detail, customer_comments=comment, error_charge=charge,
                 reported_at=reported, review_label=label,
                 reviewed_at=reported + timedelta(hours=rng.randint(20, 72)),
-                _order=r,
+                _order=r, _signal=scenario,
             ))
 
     # ---- explicit distractors and spikes ----
@@ -562,10 +581,13 @@ def main() -> None:
 
     # Assign claim evidence IDs in time order
     claims.sort(key=lambda c: (c["reported_at"], c["order_id"]))
-    claim_rows = []
+    claim_rows, signal_ids = [], defaultdict(list)
     for c in claims:
         c.pop("_order", None)
+        signal = c.pop("_signal", False)
         claim_rows.append(MIClaim(evidence_id=next_id("EV-CLM", 6), **c))
+        if signal:
+            signal_ids[c["store_id"]].append(claim_rows[-1].evidence_id)
 
     # ---- operational events (real causes + distractors) ----
     def local(sid_tz, d, hh, mm=0):
@@ -599,6 +621,8 @@ def main() -> None:
         for s, t, st, en, desc in events_spec
     ]
 
+    a_cause_event = next(e.evidence_id for e in events
+                         if e.store_id == "STORE-A" and "Extra sauce" in e.description)
     golden = [
         GoldenScenario(
             scenario_id="GS-01", store_id="STORE-A", split="dev", cause_category="pos_modifier_mapping",
@@ -607,6 +631,7 @@ def main() -> None:
             expected_action="fix_modifier_mapping",
             key_evidence=["claims concentrated on modifier_detail 'Extra sauce' after Oct 30",
                           "Oct 30 menu_change adding the Extra sauce modifier"],
+            key_evidence_ids=[a_cause_event] + signal_ids["STORE-A"],
             distractors=["Oct 20 store downtime", "Oct 24-26 out-of-stock cancellations",
                          "same-day unrelated drink rename", "fraud-labeled claims",
                          "one customer_ref with 5 pending entire-order claims (Nov 6-15)"],
@@ -620,6 +645,7 @@ def main() -> None:
             key_evidence=["missing_item claims concentrated in dinner orders with 5+ items after Nov 3",
                           "customer comments mention a whole bag missing",
                           "lunch and small orders stay normal"],
+            key_evidence_ids=signal_ids["STORE-B"],
             distractors=["Nov 1 dessert price change", "Nov 3-9 promotion raising volume",
                          "Friday dinner too_busy cancellations all period", "fraud-labeled claims"],
             notes="Merchant confirmation needed; data shows the daypart pattern, not the crew.",
@@ -642,6 +668,24 @@ def main() -> None:
         ),
     ]
 
+    # C-04 scenario stores: their own generator, IDs continue the sequences above, so nothing
+    # above changes. Holdout stores come last, so the dev IDs are the same with or without them.
+    kit = Kit(menus=MENUS, hour_weights=HOUR_WEIGHTS, generic_comments=GENERIC_COMMENTS,
+              base_claim_rate=BASE_CLAIM_RATE, base_cancel_rate=BASE_CANCEL_RATE, start=START_DATE, end=END_DATE)
+    batches = [build(DEV_SPECS, DEV_SEED, kit, next_id)]
+    if holdout_specs:
+        batches.append(build(holdout_specs, HOLDOUT_SEED, kit, next_id))
+    for b in batches:
+        stores += b.stores
+        menus.update({s.store_id: [m for m in b.menu_items if m.store_id == s.store_id] for s in b.stores})
+        orders += b.orders
+        order_items += b.order_items
+        cancellations += b.cancellations
+        claim_rows += b.claims
+        events += b.events
+        golden += b.golden
+    workflow = [WorkflowScenario(**w) for w in WORKFLOW_SCENARIOS]
+
     print("Inserting rows...")
     with SessionLocal() as session:
         session.add_all(stores)
@@ -655,14 +699,19 @@ def main() -> None:
         session.add_all(claim_rows)
         session.add_all(events)
         session.add_all(golden)
+        session.add_all(workflow)
         session.commit()
 
     print(
         f"Done: {len(stores)} stores, {sum(len(v) for v in menus.values())} menu items, "
         f"{len(orders)} orders, {len(order_items)} order items, {len(claim_rows)} claims, "
-        f"{len(cancellations)} cancellations, {len(events)} events, {len(golden)} golden scenarios."
+        f"{len(cancellations)} cancellations, {len(events)} events, {len(golden)} golden scenarios, "
+        f"{len(workflow)} workflow scenarios."
     )
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--holdout", action="store_true",
+                        help="also generate the holdout stores (final evaluation only)")
+    main(holdout=parser.parse_args().holdout)

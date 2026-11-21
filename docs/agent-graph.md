@@ -227,8 +227,7 @@ Filters use `[]` and `0` for "no constraint". Code converts a request to the con
 with `control_mode: "rest_of_store"` sends `control: null`. The tool and its normalized arguments form the
 check's canonical key, which the duplicate rule uses.
 
-Enum values are lowercased before validation. Merchant reply claims (`reply_claims`) join the schema with
-reply weighing.
+Enum values are lowercased before validation.
 
 Check kinds:
 
@@ -251,7 +250,7 @@ under its rule ID.
 | G4b | `inconclusive` needs a discriminating check that was insufficient or matched `neither`, or a data-limit cause such as `dasher_handoff`, plus a rationale stating the gap | An open question is written down, not dropped |
 | G5  | `dasher_handoff` is never `supported` or `ruled_out` | There is no Dasher data. A merchant reply plus consistent platform data can only move it to `inconclusive` or into the result's gaps. |
 | G6  | A cause ruled out in a prior run stays ruled out unless new contradicting evidence is cited | Reopening doesn't erase earlier findings |
-| G7  | A merchant reply alone can't make a hypothesis `supported` | Replies are weighed against platform evidence, as the sprint plan requires |
+| G7  | A merchant reply alone can't make a hypothesis `supported`. G3 enforces it: support needs a matching check, and a reply is evidence, not a check. | Replies are weighed against platform evidence, as the sprint plan requires |
 | G8  | At least two hypotheses exist after every turn | Competing explanations stay open |
 | G9  | `matched` covers exactly the latest check's expectations while that check is unmatched, and is empty otherwise | Every result is assessed against what was predicted |
 | G10 | Arguments are valid: `days_before` and `days_after` 1 to 28, `limit` 1 to 10, start on or before end, weekday 0 to 6, item count minimum at most the maximum | Domain would reject them, wasting a step |
@@ -312,10 +311,9 @@ confirm it.
 - **When to ask.** An answer must be able to separate named hypotheses, or confirm one that platform data can't test. `why_asked` names them, and the analyst sees that reason when approving.
 - **What only the merchant knows.** In this data, that means bagging practice for large orders, how bags reach the Dasher, crew or staffing changes by daypart, and whether a menu or POS change reached the kitchen tickets.
 - **How many.** At most two per run, and one open at a time. Every question still needs analyst approval before it is sent.
-- **What a reply does.** It becomes evidence, and `reason` extracts its factual statements into `reply_claims`. Statements that platform data can check are tested next. For example, if a merchant says "we fixed the mapping on Nov 10", the agent compares the periods before and after Nov 10.
-- **Conflicts.** A reply that conflicts with platform data is recorded as contradicting evidence. The platform data wins, and confidence drops.
-- **No reply or rejection.** `no_reply` lowers confidence on any hypothesis that depended on an answer. A rejected question is recorded, and `reason` continues without asking it again.
-- **What works today.** A reply or `no_reply` becomes evidence and appears in the prompt's `<questions>` block, with reply text and analysts' notes quoted as data. A rejected question isn't asked again. Extracting `reply_claims`, and the confidence rules for `no_reply` and conflicting replies, come with reply weighing.
+- **What a reply does.** It becomes evidence with an `EV-RPL` ID, and its text appears in the prompt's `<questions>` block, quoted as data. `reason` tests what platform data can check next. For example, if a merchant says "we fixed the mapping on Nov 10", the agent compares the periods before and after Nov 10. The reply text also goes to `reply_claims`, which the result lists as `unverified_reply_claims` for the analyst.
+- **Conflicts.** `reason` cites a reply that conflicts with platform data as contradicting evidence on the leader. The platform data wins, and finalize lowers the confidence one level.
+- **No reply or rejection.** A `no_reply` to a question whose `separates` includes the leader lowers the confidence one level. Either case lowers it once, and the evidence gaps say why. A rejected question is recorded with the analyst's note, and `reason` continues without asking it again.
 
 ## Pause and resume
 

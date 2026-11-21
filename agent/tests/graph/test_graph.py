@@ -399,6 +399,10 @@ async def test_a_question_waits_for_approval_and_the_reply_then_the_run_finishes
     assert reply.evidence_id in final["retrieved_evidence_ids"]
     assert final["questions"][0]["outcome"] == "replied"
     assert run.reports() == ["awaiting_approval", "awaiting_merchant", "running", "completed"]
+    # A reply nobody cited against the leader leaves the confidence alone (medium: dasher_handoff stays open),
+    # and the analyst sees what the merchant said, unverified.
+    assert final["result"]["confidence"] == "medium"
+    assert final["result"]["unverified_reply_claims"][0].startswith(f"{reply.evidence_id}: Large orders go out")
     assert '<latest_result kind="question"' in seen[0] and "second one is sometimes left" in seen[0]
 
 
@@ -429,6 +433,25 @@ async def test_no_reply_is_recorded_as_evidence_and_the_run_goes_on():
     final = (await run.resume()).values
     assert final["status"] == "completed" and final["questions"][0]["outcome"] == "no_reply"
     assert reply.evidence_id in final["retrieved_evidence_ids"] and final["questions"][0]["reply_text"] is None
+    # The question was about the leader, so the missing answer costs a level: medium becomes low.
+    assert final["result"]["confidence"] == "low"
+    assert any("didn't answer question" in g for g in final["result"]["evidence_gaps"])
+
+
+async def test_a_reply_that_conflicts_with_the_leader_lowers_confidence():
+    conclusion = store_b_turns()[-1]["next_action"]
+    weighed = out("The merchant says bags are never left behind, which the large-order rate contradicts.",
+                  conclusion, updates=[upd("@hyp:packing", "supported", "Platform data outweighs the reply.",
+                                           contradicting=["EV-RPL-000001"])])
+    run = PausedRun(store_b_question_turns([weighed]))
+    await run.start()
+    question = run.question()
+    run.domain.decide(question.proposal_id, "approve")
+    await run.resume()
+    run.domain.record_reply(question.proposal_id, "replied", "We never leave a bag behind.")
+    result = (await run.resume()).values["result"]
+    assert result["outcome"] == "diagnosis" and result["confidence"] == "low"
+    assert "EV-RPL-000001" in result["contradicting_evidence_ids"]
 
 
 async def test_domain_down_during_a_resume_keeps_the_run_paused():

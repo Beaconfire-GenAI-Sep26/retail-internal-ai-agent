@@ -163,6 +163,15 @@ def test_g16_blocks_a_repeat_an_open_question_and_a_question_with_no_turn_left(a
     assert "G16" in run(late, ask_out(), max_questions=2, max_reason_calls=28).rule_ids
 
 
+def test_g7_a_reply_alone_cant_make_a_hypothesis_supported(a_matched):
+    state = copy.deepcopy(a_matched)
+    state["retrieved_evidence_ids"] = [*state["retrieved_evidence_ids"], "EV-RPL-000001"]
+    inventory = next(h["hypothesis_id"] for h in state["hypotheses"] if h["cause_category"] == "inventory")
+    raw = out("The merchant says the sauce ran out.", EXPLORE, new_hypotheses=[],
+              updates=[upd(inventory, "supported", "The merchant confirmed it.", ["EV-RPL-000001"])])
+    assert "G3" in run(state, raw).rule_ids  # no check supports it, and a reply is not a check
+
+
 def test_g17_rejects_a_ruled_out_hypothesis(a_matched):
     state = copy.deepcopy(a_matched)
     state["hypotheses"][1]["status"] = "ruled_out"

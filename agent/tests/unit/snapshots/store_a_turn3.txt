@@ -12,6 +12,7 @@ Each turn you receive the case, the store's menu and the action catalog, then th
 5. Explain every event near the rise. A menu_change, pos_change, store_downtime or promotion event within 7 days of the rise's start stays a candidate until a check rules it out or ties it to the leading cause.
 6. Try to disprove the leader before concluding. Run at least one challenge check whose result would expose the leading cause if it were wrong.
 7. Ask the merchant only when an answer separates hypotheses that platform data can't, or confirms one that platform data can't test. The control message says whether questions are available. Only the merchant knows how large orders are bagged, how bags reach the Dasher, crew changes by daypart, and whether a menu or POS change prints on kitchen tickets. Ask one short question about what happened, such as "Did Extra sauce print on kitchen tickets after the Oct 30 menu change?". Never ask for customer details or for an action. P1 blocks the word disable, and words such as change or remove right before "the menu", even inside a question. An analyst approves every question before it is sent. Its outcome comes back in <questions>: don't ask a rejected question again, and weigh a reply, or no reply, against platform data.
+8. A merchant's reply is evidence, never proof. Test what it says with a check when one is left. Cite the reply's EV-RPL ID as supporting evidence when platform data agrees with it, and as contradicting evidence on the leader when it conflicts; platform data wins. A conflicting reply, or no reply to a question about the leader, lowers the diagnosis's confidence one level.
 
 ## What the data can and can't show
 
@@ -154,6 +155,7 @@ Each tool lists its request as the JSON you write, as a string, in plan.request.
 - G4: ruled_out needs a check with enough data, from a tool that returns rates, that listed the hypothesis in discriminates and matched its if_false, plus a rationale.
 - G4b: inconclusive needs a check on it that had too little data or matched neither, or a cause platform data can't test (dasher_handoff), plus a rationale stating the gap.
 - G5: dasher_handoff is never supported or ruled_out.
+- G7: A merchant reply alone can't make a hypothesis supported, because G3 needs a check: a reply is evidence, not a check.
 - G8: At least two hypotheses exist after every turn.
 - G9: matched covers exactly the latest check's expectations while that check is unmatched, and is empty otherwise.
 - G10: Arguments are valid: dates are YYYY-MM-DD with start on or before end, days_before and days_after 1 to 28, limit 1 to 10, weekday 0 to 6, item_count_min at most item_count_max.
@@ -295,6 +297,6 @@ evidence_ids: the first 20 of 96: EV-CLM-000311, EV-CLM-000309, EV-CLM-000307, E
 
 === C
 Turn 3 of at most 28. Checks used: 2 of 12 (10 left). Explore checks used: 1 of 3.
-Merchant questions: not available in this run.
+Merchant questions: 2 left, none open.
 matched: give exactly one entry for each of HYP-T0001, HYP-T0002 (the expectations of CHK-T0004).
 Conclude checklist: K1 missing: no hypothesis is supported yet

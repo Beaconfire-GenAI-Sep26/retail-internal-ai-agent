@@ -105,7 +105,7 @@ agent/
     prompts/system.md  prompts/render.py
     graph/state.py  graph/context.py  graph/build.py
     graph/rules.py  graph/gate.py  graph/finalize.py  graph/policy.py   # pure functions
-    graph/nodes/         # load_case, reason, guard, run_check, conclude_gate, finalize, submit, report_status, fail, questions (M3)
+    graph/nodes/         # load_case, reason, guard, run_check, conclude_gate, finalize, submit, report_status, fail, questions
     tracing.py           # Langfuse (M2); no-op when keys are unset
   scripts/make_fixtures.py  scripts/m0_spike.py
   tests/fixtures/domain/{STORE-A,STORE-B,STORE-C,common}/  tests/unit  tests/graph  tests/api
@@ -260,7 +260,7 @@ flowchart TD
 
 **Confidence caps.**
 - At most `medium` if any rival is `inconclusive`, the budget was spent, or the leader's support rests mostly on `pending` claims.
-- One level lower after `no_reply`, or after a conflicting reply about the leader (M3).
+- Then one level lower when a question about the leader got `no_reply`, or a reply is cited as contradicting the leader (`finalize.reply_gaps`). The reason goes to the evidence gaps.
 
 ## Nodes: reads, calls, writes, next
 

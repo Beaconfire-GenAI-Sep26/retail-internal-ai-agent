@@ -143,7 +143,7 @@ is committed.
 | `LANGFUSE_BASE_URL` | `https://cloud.langfuse.com` | agent | Langfuse v4 endpoint; legacy `LANGFUSE_HOST` is a fallback |
 | `LANGFUSE_TRACING_ENABLED` | `true` | agent | Export only when enabled and both keys exist; logs remain active |
 | `AGENT_RUN_TIMEOUT_SECONDS` | `1200` | agent | Wall-clock limit per investigation. A run past it fails with `RUN_TIMEOUT`. A token that expires sooner is refused at start. |
-| `AGENT_MAX_QUESTIONS` | `0` | agent | Merchant questions per run. `0` until merchant questions are on, then `2`. |
+| `AGENT_MAX_QUESTIONS` | `2` | agent | Merchant questions per run. `0` turns them off. Without Domain's merchant-replies route, none are asked. |
 | `AGENT_MAX_REASON_CALLS` | empty | agent | Optional cap on reasoning turns. Empty means `2 * AGENT_MAX_STEPS + 4`. |
 | `AGENT_DOMAIN_MODE` | `http` | agent | `http` calls the Domain Service. `fixtures` answers from the agent's fixtures, for work without a Domain database. |
 | `AGENT_FIXTURES_DIR` | `tests/fixtures/domain` | agent | The fixture folder for fixtures mode |

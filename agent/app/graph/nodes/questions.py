@@ -156,6 +156,9 @@ async def wait_merchant_reply(state: InvestigationState, runtime: Runtime[AgentC
     await _report(ctx, state, "running")
     log_event(logger, logging.INFO, "merchant reply read", proposal_id=reply.proposal_id, outcome=outcome,
               evidence_id=reply.evidence_id)
-    return {"status": "running", "question_open": False, "question_outcome": outcome,
-            "retrieved_evidence_ids": [reply.evidence_id],
-            "questions": _updated(state, outcome=outcome, reply_evidence_id=reply.evidence_id, reply_text=text)}
+    update = {"status": "running", "question_open": False, "question_outcome": outcome,
+              "retrieved_evidence_ids": [reply.evidence_id],
+              "questions": _updated(state, outcome=outcome, reply_evidence_id=reply.evidence_id, reply_text=text)}
+    if text:  # the result lists what the merchant said as unverified, for the analyst to weigh
+        update["reply_claims"] = [*state.get("reply_claims", []), f"{reply.evidence_id}: {text[:300]}"]
+    return update

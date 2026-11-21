@@ -1,8 +1,9 @@
-"""C-04: run workflow scenarios W-03, W-04 and W-05 from eval.workflow_scenarios.
+"""Run the workflow scenarios W-01..W-05 from eval.workflow_scenarios (C-04; W-01 and W-02 since C-05).
 
 Each test performs the scenario's steps, records what happened in the same order as the stored
 `expected` list, and compares every value the row names. Changing a row in workflow_scenarios.py
-changes what these tests demand. W-01 and W-02 need C-05 and B-04 and are not run here yet.
+changes what these tests demand. Entries with `checked_by` (what the agent concludes) belong to the
+B-05 eval runner and are skipped here.
 """
 import pytest
 from sqlalchemy import func, select
@@ -11,6 +12,7 @@ from domain.app.db import SessionLocal
 from domain.app.models import Dispatch, Proposal, WorkflowScenario
 from domain.app.services import proposals as proposal_service
 from domain.tests.conftest import auth
+from domain.tests import test_replies_rechecks as c05
 from domain.tests.test_proposals import ACTION, AGENT, ANALYST, claim_id, create, decide, user_only
 
 
@@ -34,6 +36,8 @@ def check(scenario_id: str, observed: list[dict]):
     rows = expected(scenario_id)
     assert len(observed) == len(rows), f"{scenario_id}: {len(observed)} observations for {len(rows)} expectations"
     for want, got in zip(rows, observed):
+        if "checked_by" in want:
+            continue  # checked by the eval runner, not here
         for key, value in want.items():
             if key == "then":
                 continue
@@ -127,3 +131,39 @@ def test_w05_dispatch_without_approval(client, case_a, monkeypatch):
     obs.append(seen(decide(client, pid, 2)))
     obs.append({"dispatches": counts(case_a)["dispatches"]})
     check("W-05", obs)
+
+
+
+def test_w01_no_merchant_reply(client, clean_cases):
+    case_k = c05.open_cases(client)["STORE-K"]
+    pid = c05.propose(client, case_k, "STORE-K", c05.QUESTION)
+    c05.approve(client, pid)
+    obs = [{"case_status": c05.case_view(client, case_k)["status"]}]
+    dispatch = client.get(f"/proposals/{pid}", headers=c05.ANALYST).json()["dispatch"]
+    obs.append({"dispatches": counts(case_k)["dispatches"], "channel": dispatch["channel"]})
+    obs.append({"replies": len(c05.replies(client, case_k))})
+
+    r = c05.reply(client, pid, "no_reply")
+    ev = client.get(f"/evidence/{r.json()['evidence_id']}", headers=c05.ANALYST).json()
+    obs.append(seen(r, evidence_type=ev["type"], outcome=r.json()["outcome"]))
+    obs.append({})  # the agent's conclusion: checked by the B-05 runner
+    obs.append(seen(c05.reply(client, pid, "no_reply"), replies=len(c05.replies(client, case_k))))
+    check("W-01", obs)
+
+
+def test_w02_failed_recheck_reopens_once_then_analyst(client, clean_cases):
+    cases = c05.open_cases(client)
+    first = c05.act_and_recheck(client, cases, "STORE-L", c05.L_FIX)
+    obs = [{"recheck_fields": sorted(k for k in ("before", "after", "control", "data_sufficient") if k in first)}]
+    case = c05.case_view(client, cases["STORE-L"])
+    obs.append({"recheck_status": first["status"], "case_status": case["status"], "reopen_count": case["reopen_count"]})
+
+    second = c05.act_and_recheck(client, cases, "STORE-L", c05.L_FIX)  # the reopened investigation's action
+    case = c05.case_view(client, cases["STORE-L"])
+    obs.append({"recheck_status": second["status"], "case_status": case["status"]})
+    obs.append({"reopen_count_max": case["reopen_count"]})
+
+    paused = c05.act_and_recheck(client, cases, "STORE-K", c05.k_fix(client))
+    obs.append({"recheck_status": paused["status"], "case_status": c05.case_view(client, cases["STORE-K"])["status"]})
+    obs.append(seen(c05.run(client, second["recheck_id"])))
+    check("W-02", obs)

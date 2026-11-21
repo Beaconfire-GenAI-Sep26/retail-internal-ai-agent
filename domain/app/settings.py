@@ -2,6 +2,7 @@
 
 Names follow architecture.md (B-01). MONITOR_MIN_RISE and FRAUD_MIN_PENDING_CLAIMS are
 C-02 additions that architecture.md does not list yet. MOCK_DISPATCH_FAIL is a C-03 demo switch.
+RECHECK_MIN_DROP is the C-05 recheck rule.
 """
 import os
 from dataclasses import dataclass
@@ -23,6 +24,8 @@ class Settings:
     fraud_min_pending_claims: int  # pending claims per customer_ref that fraud_signals flags
     # Mock dispatch (C-03). INTERNAL_SERVICE_TOKEN is read by app/main.py and checked in app/access.py.
     mock_dispatch_fail: bool  # demo switch: every mock send fails with 502 DISPATCH_FAILED
+    # Recheck (C-05): improved = the target rate falls by at least this share, and by more than the control
+    recheck_min_drop: Decimal
 
 
 def load_settings() -> Settings:
@@ -37,6 +40,7 @@ def load_settings() -> Settings:
         min_group_orders=int(env("MIN_GROUP_ORDERS", "30")),
         fraud_min_pending_claims=int(env("FRAUD_MIN_PENDING_CLAIMS", "4")),
         mock_dispatch_fail=env("MOCK_DISPATCH_FAIL", "false").lower() == "true",
+        recheck_min_drop=Decimal(env("RECHECK_MIN_DROP", "0.5")),
     )
 
 

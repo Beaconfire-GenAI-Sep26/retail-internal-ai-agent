@@ -11,6 +11,8 @@ Rules (contracts.md "Decision rules" and "Idempotency"):
   intervention or handoff) the planned recheck in one transaction. Rejection never dispatches.
 - If the mock send fails, nothing is saved except a `dispatch.failed` audit row, and the proposal
   stays pending (502 DISPATCH_FAILED).
+- C-05: a dispatched question gets the store's mock merchant answer in the same transaction
+  (services/replies.py). Rechecks are run by services/rechecks.py.
 """
 from datetime import date, datetime, timedelta, timezone
 
@@ -52,6 +54,7 @@ from domain.app.security import CurrentUser, check_store
 from domain.app.services.audit import SVC_AGENT, write_audit
 from domain.app.services.diagnostics import claim_in_scope, order_in_scope
 from domain.app.services.evidence import load_evidence
+from domain.app.services.replies import mock_merchant_answers
 from domain.app.services.store_data import StoreContext, load_context, load_window
 from domain.app.settings import settings
 
@@ -340,6 +343,7 @@ def decide(session: Session, user: CurrentUser, p: Proposal, case: Case, body: D
                 details={"dispatch_id": dispatch.dispatch_id, "channel": channel, "owner_team": owner_team})
     if is_question:
         _set_status(case, CaseStatus.AWAITING_MERCHANT, now)
+        mock_merchant_answers(session, p, case, rid, now)  # C-05: the merchant's answer comes in by itself
     else:
         _set_status(case, CaseStatus.ACTION_DISPATCHED, now)
         r = schedule_recheck(session, case, p, ActionContent.model_validate(content), now)
@@ -358,7 +362,7 @@ def record_dispatch_failure(session: Session, user: CurrentUser, case_id: str, p
 
 
 # ---------------------------------------------------------------------------
-# Planned recheck. C-03 only schedules it and records the "before" rate; C-04 runs it.
+# Planned recheck. C-03 schedules it and records the "before" rate; C-05 runs it (services/rechecks.py).
 # ---------------------------------------------------------------------------
 def target_rate(session: Session, ctx: StoreContext, target: Target, start: date, end: date) -> RateWindow:
     """Attributable claims / delivered orders for the target's orders, store-local dates."""
@@ -377,7 +381,7 @@ def target_rate(session: Session, ctx: StoreContext, target: Target, start: date
 
 def schedule_recheck(session: Session, case: Case, p: Proposal, content: ActionContent, now: datetime) -> Recheck:
     """`before` = the target's rate over the last `recheck_after_days` days of the case window
-    (store-local), so C-04 can compare a window of the same length after the action."""
+    (store-local), so the recheck can compare a window of the same length after the action."""
     ctx = load_context(session, session.get(Store, case.store_id))
     end = case.window_end.astimezone(ctx.tz).date()
     if ctx.last_date and end > ctx.last_date:

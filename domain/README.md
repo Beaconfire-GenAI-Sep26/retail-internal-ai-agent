@@ -1,7 +1,7 @@
 # Domain Service
 
 FastAPI service with JWT/store access control, SQLAlchemy models, migrations and
-repeatable synthetic data for 13 stores (Oct 5 - Nov 15, 2026), plus the C-04 golden dataset. The entry point is
+repeatable synthetic data for 13 stores (Oct 5 - Nov 15, 2026), plus the C-04 golden dataset and the C-05 future snapshot for rechecks. The entry point is
 `domain.app.main:app`; Compose builds this directory together with `shared/`.
 
 The app mounts C-02's case, evidence, monitor and diagnostic routers and C-03's
@@ -20,8 +20,8 @@ Run all commands below in Bash on macOS from the repository root.
 | --- | --- |
 | `app/main.py`, `app/access.py` | API entry point, health/readiness, store/menu reads and default-deny authorization |
 | `app/db.py` | Administrative engine/session using the same shared configuration as the API |
-| `app/models.py` | 16 tables: 14 in schema `domain`; the answer key (`golden_scenarios`, `workflow_scenarios`) in schema `eval` |
-| `app/routers/`, `app/services/` | C-02 cases, monitor, diagnostics, evidence; C-03 proposals, decisions, mock dispatch, audit |
+| `app/models.py` | 21 tables: 19 in schema `domain`; the answer key (`golden_scenarios`, `workflow_scenarios`) in schema `eval` |
+| `app/routers/`, `app/services/` | C-02 cases, monitor, diagnostics, evidence; C-03 proposals, decisions, mock dispatch, audit; C-05 merchant replies, rechecks |
 | `app/catalog.py` | Action catalog (same IDs as the agent's `catalog.json` fixture) |
 | `scripts/make_demo_token.py` | Prints a local demo JWT |
 | `alembic.ini`, `migrations/` | Alembic migrations; the version table lives in schema `domain` |
@@ -29,7 +29,9 @@ Run all commands below in Bash on macOS from the repository root.
 | `scripts/check_seed.py` | Row counts, integrity checks (incl. golden evidence IDs) and M&I rate per store |
 | `scripts/scenario_stores.py` | C-04 builder for scenario stores, and the dev stores K-M (GS-05..07) |
 | `scripts/workflow_scenarios.py` | C-04 workflow and safety scenarios W-01..W-05 |
-| `tests/test_workflow_scenarios.py` | Runs W-03, W-04 and W-05 against the API |
+| `scripts/future_snapshot.py` | C-05 future snapshot (Nov 16 - Dec 13) and each store's mock merchant answer |
+| `tests/test_workflow_scenarios.py` | Runs W-01..W-05 against the API |
+| `tests/test_replies_rechecks.py` | C-05 merchant replies and rechecks |
 
 ## Run the API
 
@@ -156,7 +158,7 @@ Never give the running Domain API the administrator's credentials.
 | `POST /evidence/resolve` | agent only | Checks cited IDs. Needs `X-Service-Token` + user JWT; a browser call gets 403 `SERVICE_TOKEN_INVALID` |
 
 Without `start`/`end`, a tool uses the 42 days ending on the store's last day of data.
-Merchant replies, running rechecks and reopening come in C-05.
+Merchant replies, running rechecks and reopening: see C-05 below.
 
 ### Monitor rule
 
@@ -182,6 +184,7 @@ For each store in the caller's grants, with `as_of` as the last day (default: th
 | `ROOT_PATH` | empty | `/domain` behind the gateway |
 | `INTERNAL_SERVICE_TOKEN` | required | Read by `app/main.py`. Agent sends it as `X-Service-Token` on `/internal/` routes and `/evidence/resolve`. Must match the Agent service |
 | `MOCK_DISPATCH_FAIL` | `false` | Demo switch: `true` makes every mock send fail with 502 `DISPATCH_FAILED` |
+| `RECHECK_MIN_DROP` | `0.5` | C-05: a recheck is `improved` when the target rate falls by at least this share (and more than the control) |
 
 On seed 24 with `as_of` 2026-11-15 the monitor opens cases for STORE-A, STORE-B, STORE-K, STORE-L and
 STORE-M. STORE-I is `low_volume` and STORE-J (one-day spike) is `below_threshold`.
@@ -205,7 +208,7 @@ STORE-M. STORE-I is `low_volume` and STORE-J (one-day spike) is `below_threshold
 | `POST /proposals/{proposal_id}/versions` | analyst | Edit while pending: adds the next version (201). Same text adds nothing (200) |
 | `POST /proposals/{proposal_id}/decision` | analyst | `{"version", "decision", "note"}` + `Idempotency-Key`. 409 `STALE_VERSION` / `ALREADY_DECIDED`, 502 `DISPATCH_FAILED` |
 | `GET /cases/{case_id}/audit` | any user | Every action on the case, oldest first |
-| `GET /cases/{case_id}/rechecks` | any user | Planned rechecks (C-05 runs them) |
+| `GET /cases/{case_id}/rechecks` | any user | Planned and finished rechecks |
 | `GET /catalog/actions` | any user | The action catalog |
 
 ### Rules
@@ -237,7 +240,59 @@ window (store local). `scheduled_for` is the dispatch time plus `recheck_after_d
 
 Audit actions: `case.opened`, `proposal.created`, `proposal.edited`, `proposal.approved`,
 `proposal.rejected`, `dispatch.sent`, `dispatch.failed`, `recheck.scheduled`, `investigation.<status>`.
-Actors are a user ID, `svc_agent` or `svc_monitor`.
+Actors are a user ID, `svc_agent`, `svc_monitor` or (C-05) `svc_mock_merchant`.
+
+## Merchant replies and rechecks (C-05)
+
+### Endpoints in C-05
+
+| Method and path | Who | Notes |
+| --- | --- | --- |
+| `GET /cases/{case_id}/merchant-replies` | any user, agent | Replies to the case's questions, oldest first. `text` is untrusted merchant text |
+| `POST /proposals/{proposal_id}/merchant-reply` | analyst | `{"outcome": "no_reply", "text": null}` + `Idempotency-Key`. 409 `NOT_DISPATCHED` / `REPLY_EXISTS` |
+| `POST /rechecks/{recheck_id}/run` | analyst | Manual demo trigger + `Idempotency-Key`. 409 `RECHECK_ALREADY_RUN` |
+
+### Merchant replies
+
+- The merchant's answer comes in by itself. When a question is approved and dispatched, the mock
+  merchant answers in the same transaction, from the seeded `mock_merchant_inbox` (`recorded_by`
+  `svc_mock_merchant`). The analyst never types it.
+- STORE-K's merchant never answers. The analyst records `no_reply` (W-01).
+- A reply is evidence (`EV-RPL-...`): `GET /evidence/{id}` and `POST /evidence/resolve` accept it.
+- One reply per question. The case stays `awaiting_merchant` until the agent resumes and reports `running`.
+
+### Rechecks
+
+The data ends on Nov 15, so the "after" period is a seeded **future snapshot** (Nov 16 - Dec 13) in
+`future_orders`, `future_order_items` and `future_claims`. Only a recheck reads these tables. The monitor,
+the diagnostics and the agent never do, so for them the data still ends on Nov 15.
+
+| Field | Meaning |
+| --- | --- |
+| `before` | The target's rate over the last `recheck_after_days` days of data (saved at approval) |
+| `after` | The same target over a window of the same length after the data ends. A second recheck (after a reopen) uses the days after the first one's window |
+| `control` | The store's other orders in the after window (the unaffected comparison). `null` when the target is the whole store |
+| `data_sufficient` | Both windows have at least `MIN_GROUP_ORDERS` (30) target orders |
+
+| Result | Rule | `case_status` |
+| --- | --- | --- |
+| `insufficient_data` | Not enough orders | `paused` |
+| `improved` | After at most half of before (`RECHECK_MIN_DROP` 0.5), and a bigger drop than the control | `closed` |
+| `not_improved` | Otherwise, first time | `reopened`, `reopen_count` 1 |
+| `not_improved` | Otherwise, second time | `analyst_review` |
+
+The future is scripted per store, so every result can be shown:
+
+| Store | Weeks 1-2 (first recheck) | Weeks 3-4 (second recheck) |
+| --- | --- | --- |
+| STORE-A | Fixed: improved, closed | |
+| STORE-B | Cause still there: not improved, reopened | Fixed: improved, closed |
+| STORE-K | Reduced hours: insufficient data, paused | |
+| STORE-L | Not improved, reopened | Not improved, analyst_review |
+| STORE-M | Fraud ring stops: improved, closed | |
+
+Audit actions: `merchant_reply.recorded`, `recheck.improved`, `recheck.not_improved`,
+`recheck.insufficient_data` (details hold the windows and the control's before rate).
 
 ## Seeded scenarios
 
@@ -289,8 +344,8 @@ every dev ID (orders, claims, events, `key_evidence_ids`) are the same with or w
 
 | ID | Scenario | Runs in |
 | --- | --- | --- |
-| W-01 | No merchant reply | after C-05 and B-04 |
-| W-02 | Failed recheck, reopen once, then analyst handoff | after C-05 and B-04 |
+| W-01 | No merchant reply (STORE-K) | `tests/test_workflow_scenarios.py`; the agent part in B-05 |
+| W-02 | Failed recheck, reopen once, then analyst handoff (STORE-L) | `tests/test_workflow_scenarios.py` |
 | W-03 | Invalid or incomplete input | `tests/test_workflow_scenarios.py` |
 | W-04 | Unauthorized or cross-store access | `tests/test_workflow_scenarios.py` |
 | W-05 | Attempted dispatch without approval | `tests/test_workflow_scenarios.py` |

@@ -329,7 +329,7 @@ class PausedRun:
     """One STORE-B run with questions on, resumed the way the runner resumes it."""
 
     def __init__(self, turns, domain=None):
-        self.domain = domain or FixtureDomainClient(FIXTURES)
+        self.domain = domain or FixtureDomainClient(FIXTURES, replies=True)
         self.model = ScriptedReasonModel(turns)
         settings = make_settings(agent_max_questions=2)
         self.graph = build_graph()
@@ -388,7 +388,7 @@ async def test_a_question_waits_for_approval_and_the_reply_then_the_run_finishes
     run.domain.decide(question.proposal_id, "approve")
     snap = await run.resume()
     assert snap.next == ("wait_merchant_reply",) and snap.values["status"] == "awaiting_merchant"
-    assert snap.values["questions"][0]["question_text"] == edited  # the version the analyst approved
+    assert snap.values["questions"][0]["approved_text"] == edited  # the version the analyst approved
     snap = await run.resume()  # stale: no reply yet
     assert snap.next == ("wait_merchant_reply",) and run.reports() == ["awaiting_approval", "awaiting_merchant"]
 
@@ -466,9 +466,17 @@ async def test_domain_down_during_a_resume_keeps_the_run_paused():
     assert (await run.resume()).next == ("wait_merchant_reply",)
 
 
-async def test_without_the_reply_route_no_question_is_asked():
-    run = PausedRun(store_b_question_turns(), domain=FixtureDomainClient(FIXTURES, faults={
-        "list_merchant_replies": ROUTE_MISSING}))
+async def test_without_the_reply_route_no_question_is_offered():
+    run = PausedRun(store_b_question_turns(), domain=FixtureDomainClient(FIXTURES))  # like today's Domain
     final = (await run.start()).values
-    assert final["status"] == "completed" and final["questions"][0]["outcome"] == "unavailable"
-    assert not any(p.kind == "merchant_question" for p in run.domain.proposals.values())
+    # load_case found no merchant-replies route, so G16 refused the question and the run concluded.
+    assert final["status"] == "completed" and final["questions"] == []
+    assert final["questions_asked"] == 2 and "Merchant questions: not available" in run.model.prompts[-1].control
+    assert all(p.kind != "merchant_question" for p in run.domain.proposals.values())
+
+
+async def test_without_the_proposals_route_the_question_is_unavailable():
+    run = PausedRun(store_b_question_turns(), domain=FixtureDomainClient(FIXTURES, replies=True, faults={
+        "create_proposal": ROUTE_MISSING}))
+    final = (await run.start()).values
+    assert final["questions"][0]["outcome"] == "unavailable" and final["questions_asked"] == 2

@@ -103,26 +103,11 @@ class Runner:
             request_id=request_id,
             deadline=time.monotonic() + self.settings.agent_run_timeout_seconds,
         )
-        if resume:
-            # The paused node re-reads Domain; the value only has to be a non-empty resume.
-            graph_input: Any = Command(resume={"resumed_at": now_iso()})
-        else:
-            # A reopened case starts from the earlier run's rulings (G6), read from that run's checkpoint.
-            prior = await self.state_values(row.reopen_of) if row.reopen_of else {}
-            graph_input = initial_state(
-                investigation_id=row.investigation_id,
-                case_id=row.case_id,
-                store_id=row.store_id,
-                started_by=row.started_by,
-                started_at=row.started_at,
-                reopen_of=row.reopen_of,
-                run_config=run_config_record(self.settings, self.model),
-                prior_hypotheses=prior.get("hypotheses", []),
-            )
         config = self.config(row.investigation_id)
         log_event(logger, logging.INFO, "investigation resumed" if resume else "investigation started",
                   store_id=row.store_id)
         try:
+            graph_input = await self._graph_input(row, resume)
             await asyncio.wait_for(
                 self.tracing.ainvoke(self.graph, graph_input, config=config, context=ctx, durability="sync",
                     request_id=request_id, case_id=row.case_id, investigation_id=row.investigation_id),
@@ -140,6 +125,23 @@ class Runner:
             await self.sync_row(row.investigation_id)
             log_event(logger, logging.INFO, "investigation segment ended",
                       status=(self.store.get(row.investigation_id) or row).status)
+
+    async def _graph_input(self, row: InvestigationRow, resume: bool) -> Any:
+        if resume:
+            # The paused node re-reads Domain; the value only has to be a non-empty resume.
+            return Command(resume={"resumed_at": now_iso()})
+        # A reopened case starts from the earlier run's rulings (G6), read from that run's checkpoint.
+        prior = await self.state_values(row.reopen_of) if row.reopen_of else {}
+        return initial_state(
+            investigation_id=row.investigation_id,
+            case_id=row.case_id,
+            store_id=row.store_id,
+            started_by=row.started_by,
+            started_at=row.started_at,
+            reopen_of=row.reopen_of,
+            run_config=run_config_record(self.settings, self.model),
+            prior_hypotheses=prior.get("hypotheses", []),
+        )
 
     async def _record_failure(self, row: InvestigationRow, domain: Any, code: str, message: str) -> None:
         error = {"code": code, "message": message}
@@ -217,6 +219,11 @@ class Runner:
                           investigation_id=row.investigation_id, case_id=row.case_id)
                 return
         self.store.update(row.investigation_id, domain_sync_pending=False)
+        try:  # so a restart doesn't send it again
+            await self.graph.aupdate_state(self.config(row.investigation_id), {"domain_sync_pending": False},
+                                           as_node="report_status")
+        except Exception:
+            logger.exception("could not record the sent report in the checkpoint")
 
     async def shutdown(self) -> None:
         tasks = [*self.tasks.values(), *self.flush_tasks.values()]

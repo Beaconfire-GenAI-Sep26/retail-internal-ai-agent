@@ -92,6 +92,7 @@ def create_app(
             app.state.domain_client = domain
             app.state.graph = graph
             app.state.store = InvestigationStore()
+            app.state.db_pool = pool
             await restore_index(graph, app.state.store, saver, pool)  # empty for a fresh in-memory saver
             app.state.ids = ids or UlidIdFactory()
             app.state.runner = Runner(graph=graph, store=app.state.store, settings=runtime_settings,
@@ -235,6 +236,15 @@ def create_app(
                 except httpx.HTTPError:
                     checks["domain"] = "unavailable"
                 configured = configured and checks["domain"] == "ok"
+            pool = getattr(app.state, "db_pool", None)
+            if pool is not None:  # Postgres mode: every read loads its checkpoint
+                try:
+                    async with pool.connection(timeout=3) as conn:
+                        await conn.execute("SELECT 1")
+                    checks["database"] = "ok"
+                except Exception:
+                    checks["database"] = "unavailable"
+                configured = configured and checks["database"] == "ok"
         return JSONResponse(status_code=200 if configured else 503,
             content={"status": "ok" if configured else "not_ready", "service": "agent", **checks})
 

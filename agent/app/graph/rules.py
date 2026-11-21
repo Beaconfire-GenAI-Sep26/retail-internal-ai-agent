@@ -337,15 +337,14 @@ def evaluate_output(
                 v.append(Violation("G2", f"two new hypotheses share cause {nh.cause_category}"))
             new_causes.add(nh.cause_category)
 
-    # G6: a cause the earlier run ruled out comes back only with evidence that run didn't cite
-    prior_out = {h["cause_category"]: h for h in state.get("prior_hypotheses", [])
+    # G6: a cause the earlier run ruled out comes back only on new evidence, from a check this run ran
+    prior_out = {h["cause_category"] for h in state.get("prior_hypotheses", [])
                  if h["status"] == "ruled_out" and h["cause_category"] != "other"}
+    own = {e for c in checks if c.get("source") == "reason" for e in c.get("result", {}).get("evidence_ids", [])}
     for nh in out.new_hypotheses:
-        prior = prior_out.get(nh.cause_category)
-        if prior and all(e.strip() in {*prior["supporting_evidence_ids"], *prior["contradicting_evidence_ids"]}
-                         for e in nh.evidence):
-            v.append(Violation("G6", f"{nh.cause_category} was ruled out in the earlier run ({prior['hypothesis_id']}). "
-                                     "Open it again only by citing evidence that run didn't cite."))
+        if nh.cause_category in prior_out and not any(e.strip() in own for e in nh.evidence):
+            v.append(Violation("G6", f"{nh.cause_category} was ruled out in the earlier run. Open it again only by "
+                                     "citing evidence from a check this run ran."))
 
     # G1: citations come from the retrieved set
     cited = [e for u in out.hypothesis_updates for e in (*u.add_supporting, *u.add_contradicting)]
@@ -460,7 +459,8 @@ def evaluate_output(
             v.append(Violation("G16", "merchant questions are not available in this run"))
         elif state.get("question_open"):
             v.append(Violation("G16", "a merchant question is already open"))
-        elif question_key(question) in {question_key(q["question_text"]) for q in state.get("questions", [])}:
+        elif question_key(question) in {question_key(t) for q in state.get("questions", [])
+                                        for t in (q["question_text"], q.get("approved_text")) if t}:
             v.append(Violation("G16", "this question was already asked in this run. Don't ask it again."))
         elif max_reason_calls is not None and state.get("reason_calls", 0) >= max_reason_calls:
             v.append(Violation("G16", "no reasoning turn is left to use an answer"))

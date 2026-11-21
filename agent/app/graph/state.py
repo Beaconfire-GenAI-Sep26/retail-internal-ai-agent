@@ -8,8 +8,9 @@ CheckRecord: check_id, source ("load_case" or "reason"), kind, tool, request, ca
     signature, purpose, discriminates, expectations, challenges, result (ToolResult),
     matched, needs_match, domain_rejected, at
 Event (event_ledger): evidence_id, event_type, start_date, end_date, description
-Question (questions): proposal_id, question_text, why_asked, separates, outcome (pending, approved, rejected,
-    replied, no_reply or unavailable), decision_note, reply_evidence_id, reply_text
+Question (questions): proposal_id, question_text (as drafted), approved_text (as sent, maybe edited), why_asked,
+    separates, outcome (pending, approved, rejected, replied, no_reply or unavailable), decision_note,
+    reply_evidence_id, reply_text
 """
 
 from __future__ import annotations

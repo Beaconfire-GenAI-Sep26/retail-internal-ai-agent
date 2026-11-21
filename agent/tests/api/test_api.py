@@ -378,7 +378,7 @@ def reports(domain):
 
 
 def test_a_question_pauses_the_run_and_resume_continues_it_only_when_domain_has_news():
-    domain = FixtureDomainClient(FIXTURES)
+    domain = FixtureDomainClient(FIXTURES, replies=True)
     analyst = token()
     with make_client(model=ScriptedReasonModel(store_b_question_turns()), domain=domain,
                      settings=QUESTIONS_ON) as client:
@@ -415,7 +415,7 @@ def test_a_question_pauses_the_run_and_resume_continues_it_only_when_domain_has_
 
 
 def test_a_resume_while_a_segment_runs_starts_nothing():
-    domain = FixtureDomainClient(FIXTURES)
+    domain = FixtureDomainClient(FIXTURES, replies=True)
     analyst = token()
     turns = store_b_question_turns()
     model = GatedModel(turns, hold=len(turns) - 1)  # the turn after the reply
@@ -467,7 +467,7 @@ def restartable(saver, domain, model, ids):
 
 
 def test_a_paused_run_survives_restarts_and_resumes():
-    domain, analyst = FixtureDomainClient(FIXTURES), token()
+    domain, analyst = FixtureDomainClient(FIXTURES, replies=True), token()
     service = restartable(InMemorySaver(), domain, ScriptedReasonModel(store_b_question_turns()), CounterIdFactory())
     with service() as client:
         inv_id = client.post("/investigations", json={"case_id": "CASE-0002"},
@@ -488,19 +488,42 @@ def test_a_paused_run_survives_restarts_and_resumes():
     assert reports(domain) == ["running", "awaiting_approval", "awaiting_merchant", "running", "completed"]
 
 
-def test_a_run_cut_off_mid_segment_comes_back_failed_and_is_reported():
+def left_behind(saver, investigation_id, started_at, as_node, **values):
+    """A checkpoint as a killed process leaves it: `as_node` is the last node that finished."""
+    async def write():
+        state = initial_state(investigation_id=investigation_id, case_id="CASE-0001", store_id="STORE-A",
+                              started_by="USR-001", started_at=started_at, reopen_of=None, run_config={})
+        await build_graph(saver).aupdate_state(run_config(investigation_id, 50), {**state, **values}, as_node=as_node)
+    asyncio.run(write())
+
+
+def test_a_run_cut_off_mid_segment_comes_back_failed_and_is_reported_once():
     saver, domain, analyst = InMemorySaver(), FixtureDomainClient(FIXTURES), token()
-
-    async def crash_mid_run():  # a checkpoint that still says running, as a killed process leaves it
-        graph = build_graph(saver)
-        state = initial_state(investigation_id="INV-CUT", case_id="CASE-0001", store_id="STORE-A",
-                              started_by="USR-001", started_at="2026-11-20T15:00:00Z", reopen_of=None, run_config={})
-        await graph.aupdate_state(run_config("INV-CUT", 50), state, as_node="load_case")
-
-    asyncio.run(crash_mid_run())
-    with restartable(saver, domain, ScriptedReasonModel(store_a_turns()), CounterIdFactory())() as client:
+    left_behind(saver, "INV-CUT", "2026-11-20T15:00:00Z", "load_case")  # still running
+    service = restartable(saver, domain, ScriptedReasonModel(store_a_turns()), CounterIdFactory())
+    with service() as client:
         view = client.get("/investigations/INV-CUT", headers=auth(analyst)).json()
         assert view["status"] == "failed" and view["error"]["code"] == "AGENT_RESTARTED"
         wait_until(lambda: bool(domain.status_updates))  # the analyst's read reported it
+    with service() as client:  # another restart: the report was recorded as sent, so it isn't sent again
+        client.get("/investigations/INV-CUT", headers=auth(analyst))
+        time.sleep(0.2)
     assert domain.status_updates == [{"case_id": "CASE-0001", "investigation_id": "INV-CUT", "status": "failed",
                                       "error_code": "AGENT_RESTARTED"}]
+
+
+def test_restore_fails_a_run_killed_before_its_proposal_and_never_resends_an_older_runs_report():
+    saver, domain, analyst = InMemorySaver(), FixtureDomainClient(FIXTURES), token()
+    # An older run whose failed report never reached Domain, then the case's newest run, killed after finalize
+    # but before submit_recommendation saved its proposal.
+    left_behind(saver, "INV-OLD", "2026-11-20T15:00:00Z", "report_status", status="failed",
+                error={"code": "INTERNAL", "message": "x"}, domain_sync_pending=True)
+    left_behind(saver, "INV-NEW", "2026-11-20T16:00:00Z", "finalize", status="completed",
+                result={"outcome": "diagnosis"})
+    with restartable(saver, domain, ScriptedReasonModel(store_a_turns()), CounterIdFactory())() as client:
+        views = client.get("/investigations", params={"case_id": "CASE-0001"}, headers=auth(analyst)).json()
+        assert [(v["investigation_id"], v["status"]) for v in views] == [("INV-NEW", "failed"), ("INV-OLD", "failed")]
+        assert views[0]["error"]["code"] == "AGENT_RESTARTED"
+        wait_until(lambda: bool(domain.status_updates))
+        time.sleep(0.2)
+    assert [(u["investigation_id"], u["status"]) for u in domain.status_updates] == [("INV-NEW", "failed")]

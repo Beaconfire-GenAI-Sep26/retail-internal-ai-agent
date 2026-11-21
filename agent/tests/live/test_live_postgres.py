@@ -40,7 +40,7 @@ def pg_settings():
 
 
 def test_a_paused_run_survives_a_new_service_process(pg_settings):
-    domain, analyst = FixtureDomainClient(FIXTURES), token()
+    domain, analyst = FixtureDomainClient(FIXTURES, replies=True), token()
     model, ids = ScriptedReasonModel(store_b_question_turns()), UlidIdFactory()
 
     def service():  # each one opens its own pool, checkpointer and index: only Postgres carries the run over

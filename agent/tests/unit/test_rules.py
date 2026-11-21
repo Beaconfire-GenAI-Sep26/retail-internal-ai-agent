@@ -129,6 +129,12 @@ def ask_out(question="How are large orders bagged?", why="Separates packing from
     return out("x", ask(question, why, list(separates)), new_hypotheses=TWO)
 
 
+@pytest.fixture
+def asking(a_first):
+    """The first turn with questions available. The fixture Domain has no reply route, so load_case turned them off."""
+    return {**a_first, "questions_asked": 0}
+
+
 QUESTION_CASES = [
     ("G17", ask_out(question="Tell me how large orders are bagged.")),  # no question mark
     ("G17", ask_out(question="x" * 299 + "??")),  # 301 characters
@@ -142,23 +148,26 @@ QUESTION_CASES = [
 
 
 @pytest.mark.parametrize("rule, raw", QUESTION_CASES)
-def test_question_rules(a_first, rule, raw):
-    assert rule in run(a_first, raw, max_questions=2).rule_ids
+def test_question_rules(asking, rule, raw):
+    assert rule in run(asking, raw, max_questions=2).rule_ids
 
 
-def test_a_clear_question_is_accepted_with_its_hypotheses_resolved(a_first):
+def test_a_clear_question_is_accepted_with_its_hypotheses_resolved(asking):
     # The wording rule 7 of the system prompt suggests must pass P1.
-    d = run(a_first, ask_out(question="Did Extra sauce print on kitchen tickets after the Oct 30 menu change?"),
+    d = run(asking, ask_out(question="Since the last menu change, does the new modifier print on kitchen tickets?"),
             max_questions=2)
     assert d.accepted, d.violations
     assert d.action["separates"] == [d.new_ids["N1"], d.new_ids["N2"]]
 
 
-def test_g16_blocks_a_repeat_an_open_question_and_a_question_with_no_turn_left(a_first):
-    repeat = {**a_first, "questions": [{"question_text": "how are LARGE orders bagged ?"}]}
-    open_one = {**a_first, "question_open": True}
-    late = {**a_first, "reason_calls": 28}
+def test_g16_blocks_a_repeat_an_open_question_and_a_question_with_no_turn_left(asking):
+    assert "G16" not in run(asking, ask_out(), max_questions=2).rule_ids
+    repeat = {**asking, "questions": [{"question_text": "how are LARGE orders bagged ?"}]}
+    edited = {**asking, "questions": [{"question_text": "Something else?", "approved_text": "How are large orders bagged?"}]}
+    open_one = {**asking, "question_open": True}
+    late = {**asking, "reason_calls": 28}
     assert "G16" in run(repeat, ask_out(), max_questions=2).rule_ids
+    assert "G16" in run(edited, ask_out(), max_questions=2).rule_ids  # the version the analyst sent counts too
     assert "G16" in run(open_one, ask_out(), max_questions=2).rule_ids
     assert "G16" in run(late, ask_out(), max_questions=2, max_reason_calls=28).rule_ids
 
@@ -172,14 +181,16 @@ def test_g7_a_reply_alone_cant_make_a_hypothesis_supported(a_matched):
     assert "G3" in run(state, raw).rule_ids  # no check supports it, and a reply is not a check
 
 
-def test_g6_a_cause_the_earlier_run_ruled_out_needs_new_evidence(a_first):
-    earlier = {"hypothesis_id": "HYP-OLD", "cause_category": "menu_change", "status": "ruled_out",
-               "supporting_evidence_ids": [], "contradicting_evidence_ids": ["EV-EVT-000031"]}
-    state = {**a_first, "prior_hypotheses": [earlier]}
-    assert "G6" in run(state, out("x", EXPLORE, new_hypotheses=TWO)).rule_ids
-    fresh = next(e for e in a_first["retrieved_evidence_ids"] if e != "EV-EVT-000031")
-    reopened = [TWO[0], new("N2", "menu_change", "A menu change confuses the kitchen.", evidence=[fresh])]
-    assert "G6" not in run(state, out("x", EXPLORE, new_hypotheses=reopened)).rule_ids
+def test_g6_a_cause_the_earlier_run_ruled_out_needs_evidence_from_this_runs_checks(a_matched):
+    earlier = {"hypothesis_id": "HYP-OLD", "cause_category": "packing", "status": "ruled_out",
+               "supporting_evidence_ids": [], "contradicting_evidence_ids": []}
+    state = {**a_matched, "prior_hypotheses": [earlier]}
+    own = [e for c in state["checks"] if c["source"] == "reason" for e in c["result"]["evidence_ids"]]
+    overview_id = next(e for e in state["checks"][0]["result"]["evidence_ids"] if e not in own)  # load_case's only
+    own_id = own[0]
+    for evidence, blocked in (([], True), ([overview_id], True), ([own_id], False)):
+        raw = out("x", EXPLORE, new_hypotheses=[new("N1", "packing", "Large orders lose a bag.", evidence=evidence)])
+        assert ("G6" in run(state, raw).rule_ids) is blocked, evidence
 
 
 def test_g17_rejects_a_ruled_out_hypothesis(a_matched):

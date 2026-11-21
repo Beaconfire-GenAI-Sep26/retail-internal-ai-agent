@@ -45,9 +45,9 @@ def _updated(state: InvestigationState, **changes: Any) -> list[dict[str, Any]]:
 
 
 def _record(action: dict[str, Any], proposal_id: str | None, outcome: str) -> dict[str, Any]:
-    return {"proposal_id": proposal_id, "question_text": action["question_text"], "why_asked": action["why_asked"],
-            "separates": list(action["separates"]), "outcome": outcome, "decision_note": None,
-            "reply_evidence_id": None, "reply_text": None}
+    return {"proposal_id": proposal_id, "question_text": action["question_text"], "approved_text": None,
+            "why_asked": action["why_asked"], "separates": list(action["separates"]), "outcome": outcome,
+            "decision_note": None, "reply_evidence_id": None, "reply_text": None}
 
 
 def _unavailable(state: InvestigationState, ctx: AgentContext, action: dict[str, Any], route: str) -> dict[str, Any]:
@@ -62,17 +62,12 @@ async def draft_question(state: InvestigationState, runtime: Runtime[AgentContex
     if ctx.expired():
         return {"error": timeout_error()}
     action = state["next_action"]
-    # Without C-04's reply route an answer could never arrive, and the case would wait in awaiting_merchant.
-    try:
-        await ctx.domain.list_merchant_replies(state["case_id"])
-    except DomainError as exc:
-        if exc.route_missing:
-            return _unavailable(state, ctx, action, exc.path or "merchant-replies")
-        return {"error": domain_error(exc, "draft_question")}
-
+    # load_case already checked that Domain has the merchant-replies route. Reply IDs stay out of the
+    # evidence: Domain's proposal check resolves only claims, cancellations and events.
     hypotheses = {h["hypothesis_id"]: h for h in state.get("hypotheses", [])}
     evidence = list(dict.fromkeys(
         e for hid in action["separates"] for e in hypotheses.get(hid, {}).get("supporting_evidence_ids", [])
+        if not e.startswith("EV-RPL-")
     ))[:QUESTION_EVIDENCE_LIMIT]
     body = ProposalCreate(
         investigation_id=state["investigation_id"],
@@ -126,7 +121,7 @@ async def wait_question_decision(state: InvestigationState, runtime: Runtime[Age
         await _report(ctx, state, "awaiting_merchant")
         log_event(logger, logging.INFO, "merchant question approved", proposal_id=proposal.proposal_id)
         return {"status": "awaiting_merchant", "question_outcome": "approved",
-                "questions": _updated(state, outcome="approved", question_text=asked)}
+                "questions": _updated(state, outcome="approved", approved_text=asked)}
     if proposal.status == "rejected":
         note = (scrub(proposal.decision_note) or "")[:NOTE_LIMIT] or None
         await _report(ctx, state, "running")

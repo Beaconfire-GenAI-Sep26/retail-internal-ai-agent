@@ -120,8 +120,12 @@ class FixtureDomainClient:
         variants: dict[str, dict[str, str]] | None = None,
         faults: dict[str, DomainError] | None = None,
         catalog: list[ActionCatalogEntry] | None = None,
+        replies: bool = False,
     ):
         self.root = Path(root)
+        # Like today's Domain, no merchant-replies route unless asked: then a fixtures-mode service never drafts a
+        # question nobody could decide. Tests that exercise questions pass replies=True.
+        self.replies_route = replies
         self.catalog = list(catalog) if catalog is not None else load_bundled_catalog()
         self.stores: dict[str, _StoreFixtures] = {}
         for folder in sorted(p for p in self.root.iterdir() if p.is_dir()):
@@ -307,6 +311,8 @@ class FixtureDomainClient:
 
     async def list_merchant_replies(self, case_id: str) -> list[MerchantReply]:
         self._record("list_merchant_replies", case_id=case_id)
+        if not self.replies_route:
+            raise DomainError(404, "NOT_FOUND", "Not Found")  # the generic 404 of a route Domain doesn't have
         return [r.model_copy() for r in self.replies.values() if self.proposals[r.proposal_id].case_id == case_id]
 
     async def report_investigation_status(self, case_id: str, body: InvestigationStatusUpdate) -> None:

@@ -105,7 +105,8 @@ def _dry_run_model(store_id: str) -> ReasonModel:
 
 async def run(args: argparse.Namespace) -> int:
     settings = get_settings()
-    overrides: dict[str, Any] = {"agent_domain_mode": args.domain}
+    # The CLI can't resume a paused run, so it never asks the merchant.
+    overrides: dict[str, Any] = {"agent_domain_mode": args.domain, "agent_max_questions": 0}
     if args.effort:
         overrides["agent_effort"] = args.effort
     if args.speed:
@@ -201,11 +202,6 @@ async def run(args: argparse.Namespace) -> int:
           f"{final.get('reason_calls', 0)} reason turns, {elapsed:.0f} s")
     if final.get("error"):
         print(f"Error {final['error']['code']}: {final['error']['message']}")
-    paused = final.get("status") in ("awaiting_approval", "awaiting_merchant")
-    if paused:
-        question = (final.get("questions") or [{}])[-1]
-        print(f"Paused for merchant question {question.get('proposal_id')}: {question.get('question_text')}")
-        print("The CLI can't resume a run. Use the API for runs that ask the merchant.")
     if result:
         print(f"Outcome {result.get('outcome')} {result.get('cause_category')} confidence {result.get('confidence')}")
         print(f"Summary: {result.get('summary')}")
@@ -226,8 +222,6 @@ async def run(args: argparse.Namespace) -> int:
                                 "fixture_misses": misses, "state": final}, indent=1, default=str), encoding="utf-8")
     print(f"Report: {path}")
     await client.aclose()
-    if paused:
-        return 3
     return 0 if final.get("status") in ("completed", "unsure") else 1
 
 

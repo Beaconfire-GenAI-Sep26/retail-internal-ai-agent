@@ -47,15 +47,10 @@ class Settings(BaseSettings):
     agent_max_questions: int = 2  # 0 turns merchant questions off
     agent_max_reason_calls: int | None = None  # default: 2 * AGENT_MAX_STEPS + 4
 
-    # Persistence. postgres keeps checkpoints in the agent schema, so a paused run survives a restart.
+    # Persistence. postgres keeps checkpoints in the agent schema, so a paused run survives a restart. Without
+    # DATABASE_URL, persistence.conninfo uses the POSTGRES_* variables Compose sets (role agent_svc).
     agent_checkpointer: Literal["memory", "postgres"] = "memory"
     database_url: str = ""
-    # Used when DATABASE_URL is empty, the way Compose configures every service (role agent_svc).
-    postgres_host: str = "postgres"
-    postgres_port: int = 5432
-    postgres_db: str = ""
-    postgres_user: str = ""
-    postgres_password: str = ""
 
     # Tracing (M2). Empty keys turn tracing off.
     langfuse_public_key: str = ""

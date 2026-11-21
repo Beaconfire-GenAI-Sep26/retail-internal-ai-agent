@@ -320,7 +320,7 @@ def render_questions(state: dict[str, Any]) -> list[str]:
     for q in questions:
         parts = [q.get("proposal_id") or "not saved", QUESTION_OUTCOMES.get(q["outcome"], q["outcome"]),
                  "separates " + ", ".join(q.get("separates", [])),
-                 f'asked: <data kind="question">{esc(q["question_text"])}</data>']
+                 f'asked: <data kind="question">{esc(q.get("approved_text") or q["question_text"])}</data>']
         if q.get("decision_note"):
             parts.append(f'analyst note: <data kind="decision_note">{esc(q["decision_note"], NOTE_CAP)}</data>')
         if q.get("reply_evidence_id"):

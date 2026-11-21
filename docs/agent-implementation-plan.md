@@ -404,8 +404,9 @@ Every node checks `context.deadline` on entry, before any write, and returns `RU
 
 **Question nodes (`nodes/questions.py`).** `AskMerchantAction` carries `separates`, the hypotheses the answer separates; adding it changed `schema_hash` once. G16 rejects every question while `AGENT_MAX_QUESTIONS=0`.
 - **`draft_question`:**
-  - **Calls:** `GET /cases/{id}/merchant-replies` first, to check the route exists; then `POST /internal/cases/{id}/proposals` with kind `merchant_question` and the separated hypotheses' evidence (at most 20 IDs); then reports `awaiting_approval`. A 409 `PROPOSAL_PENDING` adopts this run's own pending question.
-  - **When a route is missing:** no question is asked in the run. `questions_asked` goes to the cap, the record says `unavailable`, and the run goes back to `reason`.
+  - **Before it:** when questions are on, `load_case` calls `GET /cases/{id}/merchant-replies` once. Without that route, `questions_asked` starts at the cap, so the control message says questions aren't available and G16 refuses them from the first turn.
+  - **Calls:** `POST /internal/cases/{id}/proposals` with kind `merchant_question` and the separated hypotheses' evidence (at most 20 IDs, no `EV-RPL` IDs); then reports `awaiting_approval`. A 409 `PROPOSAL_PENDING` adopts this run's own pending question.
+  - **When the proposals route is missing:** no question is asked in the run. `questions_asked` goes to the cap, the record says `unavailable`, and the run goes back to `reason`.
   - **Writes:** `question_proposal_id`, `question_open`, `questions_asked` and a `questions` record.
 - **`wait_question_decision`:**
   - **On entry:** runs only `interrupt()`, with no side effects before it, because the node re-runs on resume.
@@ -615,7 +616,7 @@ sequenceDiagram
 **Other routes:**
 - `GET /investigations?case_id=` lists the permitted rows, newest first. Like a read, an analyst's list retries a finished row's failed status report in the background, because the case page reaches a finished run through the list.
 - `POST /investigations/{id}/resume`: analysts only. Under the case lock, it starts the next segment only when the run is paused, no segment is executing, and Domain shows the decision or the reply. Otherwise it returns the current view. A finished run gets 409 `INVESTIGATION_FINISHED`. Like Start, it returns 401 for a token that expires within `AGENT_RUN_TIMEOUT_SECONDS`, and 503 when the model or Domain is unavailable.
-- `/health` doesn't touch the DB or Domain. `/ready` does.
+- `/health` doesn't touch the DB or Domain. `/ready` does: Domain's `/health` in `http` mode, and `SELECT 1` through the pool in Postgres mode.
 - Every route uses the contracts error envelope.
 
 **Headers on Domain calls:**
@@ -631,7 +632,8 @@ sequenceDiagram
 
 **Startup restore (`persistence.py`):**
 - The index has no table. Every row field is in the run's checkpoint state, so startup reads each thread's latest checkpoint (`aget_state`) and rebuilds the row.
-- Paused and finished runs come back as they were. A run still `running` was cut off. Its checkpoint becomes `failed AGENT_RESTARTED`, and its row is marked for a status report, which an analyst's next read or list sends.
+- Paused and finished runs come back as they were. A run still `running`, or one whose next node is `submit_recommendation`, was cut off: its checkpoint becomes `failed AGENT_RESTARTED` with a status report due. A run whose final report hadn't run, or had failed, also has a report due. An analyst's next read or list sends it, and the runner then records it as sent in the checkpoint, so a later restart doesn't send it again.
+- Only each case's newest run keeps a report due, as when a new run starts, so an older run never overwrites the newer run's case status.
 - In memory mode nothing survives a restart. A graceful stop still reports each cancelled segment to Domain as `failed AGENT_RESTARTED`.
 
 **Persistence (`AGENT_CHECKPOINTER=postgres`, the Compose default):**

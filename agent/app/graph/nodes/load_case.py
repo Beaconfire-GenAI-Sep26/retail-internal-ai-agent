@@ -63,6 +63,16 @@ async def load_case(state: InvestigationState, runtime: Runtime[AgentContext]) -
         log_event(logger, logging.INFO, "Domain has no catalog route; using the bundled catalog", path=exc.path)
         catalog = load_bundled_catalog()
         catalog_source = "bundled"
+    # Merchant questions need Domain's merchant-replies route (C-04). Without it none are offered in this run,
+    # so the control message says so from the first turn and no question is drafted that can't be answered.
+    questions: dict[str, Any] = {}
+    if ctx.settings.agent_max_questions > 0:
+        try:
+            await ctx.domain.list_merchant_replies(state["case_id"])
+        except DomainError as exc:
+            if exc.route_missing:
+                log_event(logger, logging.INFO, "Domain has no merchant-replies route; no questions this run")
+                questions = {"questions_asked": ctx.settings.agent_max_questions}
 
     overview_result = scrub_result(overview.model_dump(mode="json"))
     fraud_result = scrub_result(fraud.model_dump(mode="json"))
@@ -106,4 +116,5 @@ async def load_case(state: InvestigationState, runtime: Runtime[AgentContext]) -
         "retrieved_evidence_ids": [*overview.evidence_ids, *fraud.evidence_ids],
         "latest_check_id": overview_id,
         "status": "running",
+        **questions,
     }

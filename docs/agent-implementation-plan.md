@@ -78,7 +78,7 @@ which can only end inconclusive.
 **M2, Thu Nov 19: B-03 and integration, as C-02 and A-01 land.**
 - The HTTP Domain client, with `respx` tests. Live runs against the real Domain are the distinct-route evidence for the POC.
 - `submit_recommendation`, `/evidence/resolve`, the numbers check on the summary, and target validation.
-- The Postgres checkpointer, the `agent.investigations` table and the restart reconcile, once A-01's DB init exists.
+- The Postgres checkpointer and the restart restore, once A-01's DB init exists. Built in B-04; the index is rebuilt from the checkpoints instead of an `agent.investigations` table.
 - The Langfuse hooks that A-03 builds on.
 
 **M3, Fri Nov 20 to Sat Nov 21: B-04.** Turn questions on (G16, G17, draft, approve, reply), resume idempotency, the restart test, reopen (G6), and reply weighing (G7 and the confidence rules).
@@ -95,6 +95,7 @@ agent/
     config.py            # pydantic-settings, read from the environment and agent/.env
     auth.py              # minimal JWT verifier per architecture.md (A-02 may replace with shared code)
     errors.py  logs.py  ids.py  cli.py  runner.py  store.py   # envelope; JSON logs + request id; IDs; CLI; background runs; index
+    persistence.py       # Postgres checkpointer; rebuilds the index from checkpoints at startup
     api/investigations.py
     contracts/           # Pydantic mirrors of contracts.md
     domain/client.py     # DomainPort protocol + HttpDomainClient (httpx.AsyncClient)
@@ -627,16 +628,16 @@ sequenceDiagram
 - On an exception: `aupdate_state` as `fail`, update the row, and attempt a status report.
 - The row is synced after each run segment.
 
-**Startup reconcile (Postgres mode):**
-- For each `running` row, read `aget_state`.
-- A terminal state syncs the row. Anything else becomes `failed AGENT_RESTARTED`.
-- In memory mode, nothing survives a restart. A graceful stop still reports each cancelled run to Domain as `failed AGENT_RESTARTED`.
+**Startup restore (`persistence.py`):**
+- The index has no table. Every row field is in the run's checkpoint state, so startup reads each thread's latest checkpoint (`aget_state`) and rebuilds the row.
+- Paused and finished runs come back as they were. A run still `running` was cut off. Its checkpoint becomes `failed AGENT_RESTARTED`, and its row is marked for a status report, which an analyst's next read or list sends.
+- In memory mode nothing survives a restart. A graceful stop still reports each cancelled segment to Domain as `failed AGENT_RESTARTED`.
 
-**Persistence (M2):**
-- `AsyncPostgresSaver` (`langgraph.checkpoint.postgres.aio`) on a psycopg `AsyncConnectionPool` with `kwargs={"autocommit": True, "row_factory": dict_row}`.
-- Role `agent_svc` with `options=-c search_path=agent`.
-- `setup()` runs at startup and needs `CREATE` on schema `agent`.
-- The index table is created with idempotent DDL.
+**Persistence (`AGENT_CHECKPOINTER=postgres`, the Compose default):**
+- `AsyncPostgresSaver` (`langgraph.checkpoint.postgres.aio`) on a psycopg `AsyncConnectionPool` with `kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row}`.
+- The connection comes from `DATABASE_URL`, or from the `POSTGRES_*` settings Compose passes, as role `agent_svc`, whose `search_path` is `agent`.
+- `setup()` runs at startup. It creates the checkpointer's four tables, which `agent_svc` may do because it owns schema `agent`.
+- psycopg's async mode can't use Windows' default event loop. Run Postgres mode in the container, or on a selector loop as the live test does.
 
 **Environment variables** added to [architecture.md](architecture.md#environment-variables): `DATABASE_URL` for the agent, `AGENT_DOMAIN_MODE` (`http` or `fixtures`), `AGENT_FIXTURES_DIR`, `AGENT_CHECKPOINTER` (`postgres` or `memory`), `AGENT_RUN_TIMEOUT_SECONDS`, `AGENT_MAX_QUESTIONS` (0 until M3), `AGENT_SPEED` and the optional `AGENT_MAX_REASON_CALLS`. Local values live in `agent/.env`, copied from `agent/.env.example`.
 

@@ -26,6 +26,7 @@ from agent.app.graph.build import build_graph
 from agent.app.ids import UlidIdFactory
 from agent.app.llm.base import ReasonModel
 from agent.app.logs import configure_logging, request_id_var
+from agent.app.persistence import open_postgres, restore_index
 from agent.app.runner import Runner
 from agent.app.store import InvestigationStore
 
@@ -59,7 +60,7 @@ def make_model(settings: Settings, *, tracing=None) -> ReasonModel:
 
 def create_app(
     settings=None, domain_http=None, investigation_lookup=None, service_token=None,
-    *, domain_client=None, model=None, ids=None, configure_logs=True, tracing=None,
+    *, domain_client=None, model=None, ids=None, configure_logs=True, tracing=None, checkpointer=None,
 ) -> FastAPI:
     # Keep the A-02 injectable boundary for policy tests/extensions while the
     # default app runs the actual B-02 graph and investigation API.
@@ -75,17 +76,23 @@ def create_app(
         app.state.tracing = tracing if tracing is not None else Tracing.from_env()
         app.state.settings = runtime_settings
         app.state.service_token = service_token or runtime_settings.internal_service_token
+        pool = None
         if workflow:
             if configure_logs:
                 configure_logging(runtime_settings.log_level)
-            if runtime_settings.agent_checkpointer != "memory":
-                raise RuntimeError("Postgres checkpoints are not implemented; use AGENT_CHECKPOINTER=memory.")
+            if checkpointer is not None:
+                saver = checkpointer
+            elif runtime_settings.agent_checkpointer == "postgres":
+                saver, pool = await open_postgres(runtime_settings)
+            else:
+                saver = InMemorySaver()
             domain = domain_client or make_domain_client(runtime_settings, tracing=app.state.tracing)
             reason_model = model or make_model(runtime_settings, tracing=app.state.tracing)
-            graph = build_graph(InMemorySaver())
+            graph = build_graph(saver)
             app.state.domain_client = domain
             app.state.graph = graph
             app.state.store = InvestigationStore()
+            await restore_index(graph, app.state.store, saver, pool)  # empty for a fresh in-memory saver
             app.state.ids = ids or UlidIdFactory()
             app.state.runner = Runner(graph=graph, store=app.state.store, settings=runtime_settings,
                 domain_client=domain, model=reason_model, ids=app.state.ids, tracing=app.state.tracing)
@@ -101,6 +108,8 @@ def create_app(
                 client = getattr(reason_model, "client", None)
                 if client is not None:
                     await client.close()
+                if pool is not None:
+                    await pool.close()
             elif domain_http is None:
                 await app.state.domain_http.aclose()
             await run_in_threadpool(app.state.tracing.shutdown)

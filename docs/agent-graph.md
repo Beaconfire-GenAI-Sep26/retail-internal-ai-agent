@@ -319,14 +319,14 @@ confirm it.
 
 ## Pause and resume
 
-`thread_id` is the `investigation_id`. Checkpoints live in memory (`AGENT_CHECKPOINTER=memory`). The
-Postgres checkpointer in the `agent` schema isn't built yet, and setting `postgres` stops the service at
-startup.
+`thread_id` is the `investigation_id`. With `AGENT_CHECKPOINTER=postgres`, the Compose default, checkpoints
+live in the `agent` schema. The checkpointer creates its tables at startup, and `agent_svc` owns that
+schema. With `memory`, the default for local runs and tests, they live in the process.
 
 - **Pausing.** `wait_question_decision` and `wait_merchant_reply` call `interrupt()` before anything else, and the checkpoint is saved. The view's status is `awaiting_approval`, then `awaiting_merchant`, and `pending_proposal_id` is the question in both.
 - **Resuming.** The frontend calls `POST /investigations/{id}/resume` after the analyst decides the question or records a reply. The request carries a fresh JWT, which runs the next segment. The node re-reads the proposal or replies from Domain and never reads the resume body. Each segment gets the full `AGENT_RUN_TIMEOUT_SECONDS`; time spent waiting doesn't count. While a segment executes, the view says `running`.
 - **No duplicate effects.** Resume starts a segment only when Domain shows the decision or the reply. Otherwise, and while a segment is already executing, it returns the current view and starts nothing. This holds whatever the `Idempotency-Key`. A resume on a finished investigation returns 409 `INVESTIGATION_FINISHED`.
-- **Restarts.** No investigation survives a restart yet. Afterwards the list of a case's runs is empty and old IDs return 404. A clean stop first reports each running segment to Domain as `failed` with `AGENT_RESTARTED`; if that report fails, nothing resends it. A paused run has no task and holds no token, so nothing reports it, and Domain keeps the case `awaiting_decision` or `awaiting_merchant`. Once checkpoints are in Postgres, a paused investigation will survive a restart.
+- **Restarts.** With Postgres checkpoints, the service rebuilds its list of investigations from them at startup; there is no separate table. A paused run comes back paused, and a resume carries on with the new request's token. A run that was mid-segment can't carry on, because its task and token are gone. A clean stop reports it to Domain as `failed` with `AGENT_RESTARTED`; if that report fails, nothing resends it. After a crash, startup marks it `failed` with `AGENT_RESTARTED`, and an analyst's next read or list reports that to Domain. In memory mode nothing survives: the list comes back empty, old IDs return 404, and Domain keeps a paused case `awaiting_decision` or `awaiting_merchant`.
 - **Reopening.** Start accepts `reopen_of` once per case, only for a `reopened` case and an earlier run of it that the agent still holds. Anything else gets 409 `REOPEN_NOT_ALLOWED`. The rest isn't built yet: Domain reopening a case after a failed recheck and sending it to `analyst_review` after a second one (C-04), and the new run loading the earlier run's rulings (M3).
 
 ## Diagnostic tools

@@ -47,9 +47,15 @@ class Settings(BaseSettings):
     agent_max_questions: int = 0
     agent_max_reason_calls: int | None = None  # default: 2 * AGENT_MAX_STEPS + 4
 
-    # Persistence. Postgres arrives in M2.
+    # Persistence. postgres keeps checkpoints in the agent schema, so a paused run survives a restart.
     agent_checkpointer: Literal["memory", "postgres"] = "memory"
     database_url: str = ""
+    # Used when DATABASE_URL is empty, the way Compose configures every service (role agent_svc).
+    postgres_host: str = "postgres"
+    postgres_port: int = 5432
+    postgres_db: str = ""
+    postgres_user: str = ""
+    postgres_password: str = ""
 
     # Tracing (M2). Empty keys turn tracing off.
     langfuse_public_key: str = ""

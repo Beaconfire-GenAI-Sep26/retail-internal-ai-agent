@@ -7,9 +7,12 @@ import time
 import jwt
 import pytest
 from fastapi.testclient import TestClient
+from langgraph.checkpoint.memory import InMemorySaver
 
 from agent.app.domain.client import DomainError
 from agent.app.domain.fixtures import FixtureDomainClient
+from agent.app.graph.build import build_graph, run_config
+from agent.app.graph.state import initial_state
 from agent.app.ids import CounterIdFactory
 from agent.app.llm.base import ModelError, ModelReply
 from agent.app.llm.scripted_model import ScriptedReasonModel
@@ -430,3 +433,51 @@ def test_a_resume_while_a_segment_runs_starts_nothing():
         client.portal.call(model.release.set)
         assert wait_for(client, inv_id, analyst)["status"] == "completed"
     assert reports(domain).count("running") == 2  # the start, and one resume after the reply
+
+
+# --- B-04: restarts. Each `with` block is one life of the service; the checkpoints outlive it. ----------
+
+
+def restartable(saver, domain, model, ids):
+    return lambda: TestClient(create_app(QUESTIONS_ON, domain_client=domain, model=model, ids=ids,
+                                         configure_logs=False, checkpointer=saver))
+
+
+def test_a_paused_run_survives_restarts_and_resumes():
+    domain, analyst = FixtureDomainClient(FIXTURES), token()
+    service = restartable(InMemorySaver(), domain, ScriptedReasonModel(store_b_question_turns()), CounterIdFactory())
+    with service() as client:
+        inv_id = client.post("/investigations", json={"case_id": "CASE-0002"},
+                             headers=auth(analyst)).json()["investigation_id"]
+        pid = wait_for(client, inv_id, analyst, statuses=("awaiting_approval",))["pending_proposal_id"]
+    domain.decide(pid, "approve")  # while the service is down
+    with service() as client:
+        view = client.get(f"/investigations/{inv_id}", headers=auth(analyst)).json()
+        assert (view["status"], view["pending_proposal_id"]) == ("awaiting_approval", pid)
+        listed = client.get("/investigations", params={"case_id": "CASE-0002"}, headers=auth(analyst)).json()
+        assert [v["investigation_id"] for v in listed] == [inv_id]
+        assert client.post(f"/investigations/{inv_id}/resume", headers=auth(analyst)).status_code == 202
+        wait_for(client, inv_id, analyst, statuses=("awaiting_merchant",))
+    domain.record_reply(pid, "replied", "Large orders go out in two bags; the second is sometimes left behind.")
+    with service() as client:
+        assert client.post(f"/investigations/{inv_id}/resume", headers=auth(analyst)).status_code == 202
+        assert wait_for(client, inv_id, analyst)["status"] == "completed"
+    assert reports(domain) == ["running", "awaiting_approval", "awaiting_merchant", "running", "completed"]
+
+
+def test_a_run_cut_off_mid_segment_comes_back_failed_and_is_reported():
+    saver, domain, analyst = InMemorySaver(), FixtureDomainClient(FIXTURES), token()
+
+    async def crash_mid_run():  # a checkpoint that still says running, as a killed process leaves it
+        graph = build_graph(saver)
+        state = initial_state(investigation_id="INV-CUT", case_id="CASE-0001", store_id="STORE-A",
+                              started_by="USR-001", started_at="2026-11-20T15:00:00Z", reopen_of=None, run_config={})
+        await graph.aupdate_state(run_config("INV-CUT", 50), state, as_node="load_case")
+
+    asyncio.run(crash_mid_run())
+    with restartable(saver, domain, ScriptedReasonModel(store_a_turns()), CounterIdFactory())() as client:
+        view = client.get("/investigations/INV-CUT", headers=auth(analyst)).json()
+        assert view["status"] == "failed" and view["error"]["code"] == "AGENT_RESTARTED"
+        wait_until(lambda: bool(domain.status_updates))  # the analyst's read reported it
+    assert domain.status_updates == [{"case_id": "CASE-0001", "investigation_id": "INV-CUT", "status": "failed",
+                                      "error_code": "AGENT_RESTARTED"}]

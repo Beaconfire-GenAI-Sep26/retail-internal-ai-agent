@@ -1,8 +1,10 @@
 """The merchant question loop: draft the question, wait for the analyst, wait for the merchant.
 
-The wait nodes call interrupt() before anything else, because LangGraph re-runs a node from the top
-when it resumes. On resume they re-read Domain and never trust the resume value. A resume that finds
-nothing new changes nothing: the node returns no update and its router sends it back to pause again.
+LangGraph re-runs a node from the top when it resumes, so nothing with a side effect comes before
+interrupt(). wait_question_decision pauses first. wait_merchant_reply reads the replies first, because
+Domain's simulated merchant can answer as soon as the question goes out, and pauses only while there's
+none. On resume both re-read Domain and never trust the resume value. A resume that finds nothing new
+changes nothing: the node returns no update and its router sends it back to pause again.
 """
 
 from __future__ import annotations
@@ -132,18 +134,18 @@ async def wait_question_decision(state: InvestigationState, runtime: Runtime[Age
 
 
 async def wait_merchant_reply(state: InvestigationState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
-    interrupt({"waiting_for": "merchant_reply", "proposal_id": state["question_proposal_id"]})
     ctx = runtime.context
-    try:
+    try:  # a read only, so it's safe to repeat when a resume re-runs the node
         replies = await ctx.domain.list_merchant_replies(state["case_id"])
     except DomainError as exc:
-        if exc.unavailable or exc.route_missing:
-            log_event(logger, logging.WARNING, "merchant replies unreadable; still paused", code=exc.code)
-            return {}
-        return {"error": domain_error(exc, "wait_merchant_reply")}
+        if not (exc.unavailable or exc.route_missing):
+            return {"error": domain_error(exc, "wait_merchant_reply")}
+        log_event(logger, logging.WARNING, "merchant replies unreadable; still paused", code=exc.code)
+        replies = []
     reply = next((r for r in replies if r.proposal_id == state["question_proposal_id"]), None)
     if reply is None:
-        return {}
+        interrupt({"waiting_for": "merchant_reply", "proposal_id": state["question_proposal_id"]})
+        return {}  # resumed, but the read above found nothing: back round to read again and pause
     outcome = "replied" if reply.outcome == "replied" else "no_reply"
     text = None
     if outcome == "replied":

@@ -438,6 +438,19 @@ async def test_no_reply_is_recorded_as_evidence_and_the_run_goes_on():
     assert any("didn't answer question" in g for g in final["result"]["evidence_gaps"])
 
 
+async def test_a_reply_already_in_domain_needs_no_second_resume():
+    run = PausedRun(store_b_question_turns())
+    await run.start()
+    question = run.question()
+    run.domain.decide(question.proposal_id, "approve")
+    # Domain's simulated merchant answers as soon as the question goes out, before the UI resumes.
+    reply = run.domain.record_reply(question.proposal_id, "replied", "Large orders go out in two bags.")
+    final = (await run.resume()).values
+    assert final["status"] == "completed" and final["questions"][0]["outcome"] == "replied"
+    assert reply.evidence_id in final["retrieved_evidence_ids"]
+    assert run.reports() == ["awaiting_approval", "awaiting_merchant", "running", "completed"]
+
+
 async def test_a_reply_that_conflicts_with_the_leader_lowers_confidence():
     conclusion = store_b_turns()[-1]["next_action"]
     weighed = out("The merchant says bags are never left behind, which the large-order rate contradicts.",

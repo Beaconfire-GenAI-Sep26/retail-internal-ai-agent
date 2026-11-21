@@ -412,8 +412,8 @@ Every node checks `context.deadline` on entry, before any write, and returns `RU
   - **On entry:** runs only `interrupt()`, with no side effects before it, because the node re-runs on resume.
   - **On resume:** calls `GET /proposals/{id}`. Approved: reports `awaiting_merchant`, keeps the approved version's text, and goes to `wait_merchant_reply`. Rejected: reports `running`, records the scrubbed note, and goes to `reason`. Still pending, or Domain unavailable: back to itself, which pauses again.
 - **`wait_merchant_reply`:**
-  - **On entry:** runs only `interrupt()`.
-  - **On resume:** calls `GET /cases/{id}/merchant-replies`. The reply for this question adds its `EV-RPL` ID to `retrieved_evidence_ids`, stores the scrubbed text (at most 1500 characters), reports `running` and goes to `reason`. No reply yet: back to itself.
+  - **On entry:** calls `GET /cases/{id}/merchant-replies` before `interrupt()`, because Domain's simulated merchant can answer as soon as the question goes out. The read has no side effects, so it can run again on resume. The node pauses only while this question has no reply, or Domain is unavailable.
+  - **On a reply:** adds its `EV-RPL` ID to `retrieved_evidence_ids`, stores the scrubbed text (at most 1500 characters), reports `running` and goes to `reason`. A resume that still finds no reply goes back to itself, which reads again and pauses.
 - **Status reports** from these nodes are one call each through the run's Domain port. A failure is logged, and the final report supersedes it.
 
 ## Tools (`tools/registry.py`)

@@ -67,6 +67,10 @@ def conclude(leader: str, rise: str, confidence: str, summary: str, action_id: s
             "summary": summary, "recommendation": {"action_id": action_id, "rationale": rationale, "target": t}}
 
 
+def ask(question: str, why: str, separates: list[str]) -> dict[str, Any]:
+    return {"type": "ask_merchant", "question_text": question, "why_asked": why, "separates": separates}
+
+
 def out(assessment: str, next_action: dict[str, Any], *, matched: list[tuple[str, str]] | None = None,
         updates: list[dict[str, Any]] | None = None, new_hypotheses: list[dict[str, Any]] | None = None):
     return {"assessment": assessment,
@@ -169,3 +173,15 @@ def store_b_turns() -> list[dict[str, Any]]:
                      "add_large_order_bag_check", "Missing items concentrate on large dinner orders.",
                      daypart=["dinner"], item_count_min=5)),
     ]
+
+
+B_QUESTION = "How are large dinner orders bagged, and are all the bags handed to the Dasher together?"
+
+
+def store_b_question_turns(after_answer: list[Any] | None = None) -> list[Any]:
+    """STORE-B asking the merchant before it concludes. `after_answer` replaces the turns after the outcome."""
+    turns = store_b_turns()
+    asking = out("Friday dinners show too_busy cancellations across the whole window, unrelated to the rise.",
+                 ask(B_QUESTION, "The answer separates store-side packing from a Dasher handoff problem.", [PACK, DASH]))
+    concluding = out("The merchant's answer fits store-side packing.", turns[-1]["next_action"])
+    return [*turns[:-1], asking, *(after_answer if after_answer is not None else [concluding])]

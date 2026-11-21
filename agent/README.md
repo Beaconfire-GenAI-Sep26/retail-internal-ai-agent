@@ -3,8 +3,10 @@
 The FastAPI entry point is `agent.app.main:app`. It runs B-02's investigation API,
 LangGraph, bounded runner and in-memory checkpoints behind A-02's shared JWT
 boundary. The typed HTTP tools use the request-scoped Domain capability. No JWT
-or Domain client belongs in checkpoint state. Resume/merchant interactions and
-Postgres persistence remain later workflow milestones.
+or Domain client belongs in checkpoint state. Merchant questions pause a run until
+`POST /investigations/{id}/resume`; they are off while `AGENT_MAX_QUESTIONS=0`, and
+a Domain without the merchant-replies route gets none. Postgres persistence, so a
+paused run survives a restart, is still to come.
 
 Use `AGENT_DOMAIN_MODE=fixtures` for the seeded graph fixtures, or `http` for the
 Domain service. Without an Anthropic key, liveness stays healthy and readiness

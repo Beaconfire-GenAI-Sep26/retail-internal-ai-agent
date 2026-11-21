@@ -14,6 +14,7 @@ from agent.app.ids import CounterIdFactory
 from agent.tests.conftest import capture_state
 from agent.tests.scripts import (
     FULL,
+    ask,
     breakdown,
     check,
     compare,
@@ -107,7 +108,8 @@ FIRST_TURN_CASES = [
     ("G14", out("x", check("explore", "p", {"tool": "store_overview", "start": FULL[0], "end": FULL[1]}),
                 new_hypotheses=TWO)),
     ("G16", out("x", {"type": "ask_merchant", "question_text": "How do you bag large orders?",
-                      "why_asked": "Separates packing from handoff."}, new_hypotheses=TWO)),
+                      "why_asked": "Separates packing from handoff.", "separates": ["N1", "N2"]},
+                new_hypotheses=TWO)),
     ("P1", out("x", EXPLORE, new_hypotheses=[new("N1", "packing", "Email ops@example.com about it."), TWO[1]])),
     ("SCHEMA", {"assessment": "missing fields"}),
 ]
@@ -117,6 +119,56 @@ FIRST_TURN_CASES = [
 def test_first_turn_rules(a_first, rule, raw):
     d = run(a_first, raw)
     assert rule in d.rule_ids, d.violations
+
+
+# --- Merchant questions (G16, G17, P1), with questions on ---------------------------------------
+
+
+def ask_out(question="How are large orders bagged?", why="Separates packing from a menu change.",
+            separates=("N1", "N2")):
+    return out("x", ask(question, why, list(separates)), new_hypotheses=TWO)
+
+
+QUESTION_CASES = [
+    ("G17", ask_out(question="Tell me how large orders are bagged.")),  # no question mark
+    ("G17", ask_out(question="x" * 299 + "??")),  # 301 characters
+    ("G17", ask_out(why="")),
+    ("G17", ask_out(separates=())),
+    ("G17", ask_out(separates=("N1", "N1"))),
+    ("G17", ask_out(separates=("HYP-NOPE",))),
+    ("P1", ask_out(question="Did you change the menu for Extra sauce?")),
+    ("P1", ask_out(question="When Extra sauce ran out, did you disable it?")),
+]
+
+
+@pytest.mark.parametrize("rule, raw", QUESTION_CASES)
+def test_question_rules(a_first, rule, raw):
+    assert rule in run(a_first, raw, max_questions=2).rule_ids
+
+
+def test_a_clear_question_is_accepted_with_its_hypotheses_resolved(a_first):
+    # The wording rule 7 of the system prompt suggests must pass P1.
+    d = run(a_first, ask_out(question="Did Extra sauce print on kitchen tickets after the Oct 30 menu change?"),
+            max_questions=2)
+    assert d.accepted, d.violations
+    assert d.action["separates"] == [d.new_ids["N1"], d.new_ids["N2"]]
+
+
+def test_g16_blocks_a_repeat_an_open_question_and_a_question_with_no_turn_left(a_first):
+    repeat = {**a_first, "questions": [{"question_text": "how are LARGE orders bagged ?"}]}
+    open_one = {**a_first, "question_open": True}
+    late = {**a_first, "reason_calls": 28}
+    assert "G16" in run(repeat, ask_out(), max_questions=2).rule_ids
+    assert "G16" in run(open_one, ask_out(), max_questions=2).rule_ids
+    assert "G16" in run(late, ask_out(), max_questions=2, max_reason_calls=28).rule_ids
+
+
+def test_g17_rejects_a_ruled_out_hypothesis(a_matched):
+    state = copy.deepcopy(a_matched)
+    state["hypotheses"][1]["status"] = "ruled_out"
+    ids = [h["hypothesis_id"] for h in state["hypotheses"][:2]]
+    assert "G17" in run(state, out("x", ask("How are large orders bagged?", "Separates them.", ids)),
+                        max_questions=2).rule_ids
 
 
 def test_explore_cap(a_first):

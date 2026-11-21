@@ -15,7 +15,7 @@ from agent.app.llm.base import ModelError, ModelReply
 from agent.app.llm.scripted_model import ScriptedReasonModel
 from agent.app.main import create_app
 from agent.tests.conftest import FIXTURES, TEST_SECRET, make_settings
-from agent.tests.scripts import store_a_turns
+from agent.tests.scripts import store_a_turns, store_b_question_turns
 
 
 def token(role="loe_analyst", stores=("STORE-A", "STORE-B"), ttl=3600, sub="USR-001", secret=TEST_SECRET):
@@ -42,8 +42,8 @@ class BlockingModel:
         return ModelReply(output=None, raw_text="", model="blocking", stop_reason="end_turn")
 
 
-def make_client(model=None, domain=None):
-    app = create_app(make_settings(), domain_client=domain or FixtureDomainClient(FIXTURES),
+def make_client(model=None, domain=None, settings=None):
+    app = create_app(settings or make_settings(), domain_client=domain or FixtureDomainClient(FIXTURES),
                      model=model or ScriptedReasonModel(store_a_turns()), ids=CounterIdFactory(), configure_logs=False)
     return TestClient(app)
 
@@ -347,3 +347,86 @@ def test_no_read_resends_the_report_of_a_running_investigation(read):
             client.get("/investigations", params={"case_id": "CASE-0001"}, headers=auth(analyst))
         # Only the run's own final report may follow a failed "running" one, so nothing is resent.
         assert not client.app.state.runner.flush_tasks and len(status_calls(domain)) == sent
+
+
+# --- B-04: resume ---------------------------------------------------------------------------------
+
+
+QUESTIONS_ON = make_settings(agent_max_questions=2)
+
+
+class GatedModel(ScriptedReasonModel):
+    """Holds turn `hold` open until `release` is set, so a resumed segment stays running."""
+
+    def __init__(self, turns, hold):
+        super().__init__(turns)
+        self.hold = hold
+        self.release = asyncio.Event()
+
+    async def reason(self, prompt, state):
+        if self.calls == self.hold:
+            await self.release.wait()
+        return await super().reason(prompt, state)
+
+
+def reports(domain):
+    return [u["status"] for u in domain.status_updates]
+
+
+def test_a_question_pauses_the_run_and_resume_continues_it_only_when_domain_has_news():
+    domain = FixtureDomainClient(FIXTURES)
+    analyst = token()
+    with make_client(model=ScriptedReasonModel(store_b_question_turns()), domain=domain,
+                     settings=QUESTIONS_ON) as client:
+        inv_id = client.post("/investigations", json={"case_id": "CASE-0002"},
+                             headers=auth(analyst)).json()["investigation_id"]
+        paused = wait_for(client, inv_id, analyst, statuses=("awaiting_approval",))
+        pid = paused["pending_proposal_id"]
+        assert domain.proposals[pid].kind == "merchant_question"
+
+        def resume(t=analyst):
+            return client.post(f"/investigations/{inv_id}/resume", headers={**auth(t), "Idempotency-Key": "k-1"})
+
+        assert resume().json()["status"] == "awaiting_approval"  # nothing decided yet: nothing starts
+        assert resume(token(role="viewer")).status_code == 403
+        assert resume(token(stores=("STORE-A",))).json()["error"]["code"] == "STORE_NOT_PERMITTED"
+        assert resume(token(ttl=60)).status_code == 401  # the resumed segment could outlive the token
+        started = client.post("/investigations", json={"case_id": "CASE-0002"}, headers=auth(analyst))
+        assert started.json()["error"]["code"] == "INVESTIGATION_ACTIVE"
+
+        domain.decide(pid, "approve")
+        assert resume().status_code == 202
+        waiting = wait_for(client, inv_id, analyst, statuses=("awaiting_merchant",))
+        assert waiting["pending_proposal_id"] == pid
+        assert resume().json()["status"] == "awaiting_merchant"  # a repeat: still no reply, nothing starts
+        assert reports(domain) == ["running", "awaiting_approval", "awaiting_merchant"]
+
+        domain.record_reply(pid, "replied", "Large orders go out in two bags; the second is sometimes left behind.")
+        assert resume().status_code == 202
+        done = wait_for(client, inv_id, analyst)
+        assert done["status"] == "completed" and done["pending_proposal_id"] == done["result"]["proposal_id"] != pid
+        finished = resume()
+        assert finished.status_code == 409 and finished.json()["error"]["code"] == "INVESTIGATION_FINISHED"
+    assert reports(domain) == ["running", "awaiting_approval", "awaiting_merchant", "running", "completed"]
+
+
+def test_a_resume_while_a_segment_runs_starts_nothing():
+    domain = FixtureDomainClient(FIXTURES)
+    analyst = token()
+    turns = store_b_question_turns()
+    model = GatedModel(turns, hold=len(turns) - 1)  # the turn after the reply
+    with make_client(model=model, domain=domain, settings=QUESTIONS_ON) as client:
+        inv_id = client.post("/investigations", json={"case_id": "CASE-0002"},
+                             headers=auth(analyst)).json()["investigation_id"]
+        pid = wait_for(client, inv_id, analyst, statuses=("awaiting_approval",))["pending_proposal_id"]
+        domain.decide(pid, "approve")
+        client.post(f"/investigations/{inv_id}/resume", headers=auth(analyst))
+        wait_for(client, inv_id, analyst, statuses=("awaiting_merchant",))
+        domain.record_reply(pid, "no_reply")
+        first = client.post(f"/investigations/{inv_id}/resume", headers=auth(analyst))
+        second = client.post(f"/investigations/{inv_id}/resume", headers=auth(analyst))
+        assert first.json()["status"] == second.json()["status"] == "running"
+        assert len(client.app.state.runner.tasks) == 1
+        client.portal.call(model.release.set)
+        assert wait_for(client, inv_id, analyst)["status"] == "completed"
+    assert reports(domain).count("running") == 2  # the start, and one resume after the reply

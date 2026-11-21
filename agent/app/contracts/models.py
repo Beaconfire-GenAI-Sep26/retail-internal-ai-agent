@@ -74,6 +74,17 @@ class Proposal(Tolerant):
     dispatch: dict[str, Any] | None = None
 
 
+class MerchantReply(Tolerant):
+    """C-04's record of a merchant's answer to a dispatched question. It is evidence (EV-RPL-)."""
+
+    evidence_id: str
+    proposal_id: str
+    outcome: str  # replied or no_reply
+    text: str | None = None  # untrusted merchant text
+    recorded_by: str | None = None
+    recorded_at: str | None = None
+
+
 class CaseSummary(Tolerant):
     case_id: str
     store_id: str

@@ -65,7 +65,7 @@ Pending claims are counted, and every `ToolResult` reports how many of its claim
 | `X-Trace-ID` | agent | On traced agent-to-Domain calls | Active Langfuse/OTel trace ID (32 lowercase hex characters), for log correlation only. Stripped by the public gateway. |
 | `X-Service-Token`             | agent           | On `/internal/` routes and `/evidence/resolve` | Must equal `INTERNAL_SERVICE_TOKEN` |
 | `X-Store-ID` | agent | On agent-to-Domain calls | Narrows the signed grants to one investigation store. Domain resolves resource ownership and rejects a mismatch. Never grants access. |
-| `Idempotency-Key`             | frontend        | On decision, reply, resume, monitor run and recheck run | A UUID per user action. A repeat returns the first result and changes nothing. |
+| `Idempotency-Key`             | frontend        | On decision, reply, resume, monitor run and recheck run | A UUID per user action. A repeat returns the first result and changes nothing. Resume is idempotent by state instead; see [Idempotency](#idempotency). |
 
 `X-Request-ID` is an opaque `[A-Za-z0-9._-]{1,128}` value. The frontend creates
 one per logical HTTP request and preserves it on authentication retry; gateway
@@ -554,7 +554,7 @@ interface InvestigationView {
   reopen_of: string | null;
   hypotheses: Hypothesis[];
   checks: CheckSummary[]; // oldest first
-  pending_proposal_id: string | null;
+  pending_proposal_id: string | null; // the question while awaiting_approval or awaiting_merchant; the recommendation once completed
   result: InvestigationResult | null;
   error: { code: string; message: string } | null;
 }
@@ -801,7 +801,7 @@ until its short expiry. See [authentication.md](authentication.md) for integrati
 | `POST /investigations`                           | analyst         | `StartInvestigationRequest`   | 202 `InvestigationView` with status `running` | 403, 404 `CASE_NOT_FOUND`, 409 `INVESTIGATION_ACTIVE`, 409 `PROPOSAL_PENDING`, 409 `CASE_NOT_STARTABLE`, 409 `REOPEN_NOT_ALLOWED` |
 | `GET /investigations/{investigation_id}`         | viewer, analyst | —                             | 200 `InvestigationView`                       | 403, 404                                                                        |
 | `GET /investigations?case_id=`                   | viewer, analyst | —                             | 200 `InvestigationView[]`, newest first       | 403                                                                             |
-| `POST /investigations/{investigation_id}/resume` | analyst         | empty body, `Idempotency-Key` | 202 `InvestigationView`                       | 403, 404, 409 `INVESTIGATION_FINISHED`                                          |
+| `POST /investigations/{investigation_id}/resume` | analyst         | empty body, `Idempotency-Key` | 202 `InvestigationView`                       | 401 `UNAUTHENTICATED`, 403, 404, 409 `INVESTIGATION_FINISHED`, 503 `UPSTREAM_UNAVAILABLE` |
 
 The graph runs in the background. While the status is `running`, the frontend polls
 `GET /investigations/{id}` every 2 seconds.
@@ -1000,6 +1000,7 @@ with Domain's message, and the step counts.
 - **Same decision, same result.** Approving an already-approved version returns 200 with the existing proposal and never dispatches twice.
 - **One open case per alert.** The monitor never opens a second open case for a store that already has one.
 - **One reply per question.** A second reply returns 409 `REPLY_EXISTS` and doesn't resume anything.
+- **Resume is idempotent by state.** A resume starts the next segment only when Domain shows the decision or the reply the run waits for, and no segment is executing. Any other resume, with any key, returns the current view and starts nothing. Once the run has finished, a resume returns 409 `INVESTIGATION_FINISHED`. Because the next segment needs the token as long as Start does, 401 covers a token that expires within `AGENT_RUN_TIMEOUT_SECONDS`.
 
 ## Open questions for sign-off
 

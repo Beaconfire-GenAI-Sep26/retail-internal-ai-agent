@@ -80,8 +80,8 @@ flowchart TD
 ```
 
 The graph has one loop and no per-cause branch. Every path back into `reason` carries the new finding,
-reply or rejection reason, and `reason` decides again from the full state. The question nodes run from M3;
-until then, `guard` rejects every question.
+reply or rejection reason, and `reason` decides again from the full state. Questions are off while
+`AGENT_MAX_QUESTIONS` is 0, and `guard` then rejects every one.
 
 ## Nodes
 
@@ -91,9 +91,9 @@ until then, `guard` rejects every question.
 | `reason`                 | Yes        | Assesses the latest finding, updates every hypothesis it bears on, and picks one next action with a full plan. Returns a `ReasonOutput`.                                                                                                                                                                                | `guard`                                              |
 | `guard`                  | No         | Applies the rules in [Guards](#guards) to every output: check, question and conclusion. A rejected output goes back to `reason` with the rule IDs attached, at most twice in a row. An accepted check with no steps left ends the run.                                                                                    | `run_check`, `conclude_gate`, `reason` or `finalize` |
 | `run_check`              | No         | Calls one allowlisted read-only tool with validated arguments. Stores the plan, the result, and the evidence IDs in `retrieved_evidence_ids`.                                                                                                                                                                           | `reason`                                             |
-| `draft_question`         | No         | Creates a `merchant_question` proposal through Domain's internal route. Sets status `awaiting_approval`.                                                                                                                                                                                                                | `wait_question_decision`                             |
-| `wait_question_decision` | No         | Pauses with `interrupt()`. On resume, reads the decision from Domain.                                                                                                                                                                                                                                                   | approved: `wait_merchant_reply`. rejected: `reason`. |
-| `wait_merchant_reply`    | No         | Sets status `awaiting_merchant` and pauses. On resume, reads the reply from Domain. The reply becomes evidence with an `EV-RPL` ID.                                                                                                                                                                                     | `reason`                                             |
+| `draft_question`         | No         | Checks that Domain has the merchant-replies route, then creates a `merchant_question` proposal through Domain's internal route, with the separated hypotheses' evidence. Sets status `awaiting_approval` and reports it. When either route is missing, no question is asked in the run, and `reason` hears why. | `wait_question_decision`, or `reason`                |
+| `wait_question_decision` | No         | Pauses with `interrupt()`. On resume, reads the proposal from Domain. Still pending, or Domain unavailable: pauses again. Approved: status `awaiting_merchant`, keeping the version the analyst approved. Rejected: back to `reason` with the analyst's note.                                                          | itself, `wait_merchant_reply` or `reason`            |
+| `wait_merchant_reply`    | No         | Pauses. On resume, reads the case's replies from Domain. A reply or `no_reply` becomes evidence with an `EV-RPL` ID and the run reports `running`. No reply yet: pauses again.                                                                                                                                         | itself, or `reason`                                  |
 | `conclude_gate`          | No         | Checks the conclusion against the [conclude rules](#conclude-gate).                                                                                                                                                                                                                                                     | `finalize` or `reason`                               |
 | `finalize`               | No         | Writes the `InvestigationResult` from state and the conclusion, using the [truth table](#how-finalize-decides). Cited IDs must be in `retrieved_evidence_ids` and pass Domain's resolve check, and the action, owner and recheck days come from the catalog.                                                          | `submit_recommendation` or `report_status`           |
 | `submit_recommendation`  | No         | Creates the `intervention` or `handoff` proposal through Domain's internal route. On 409 `PROPOSAL_PENDING` it recovers the proposal this investigation created. Approval is then tracked on the proposal, not the graph.                                                                                              | `report_status`                                      |
@@ -207,8 +207,9 @@ class CheckPlan(BaseModel):
 
 class AskMerchantAction(BaseModel):
     type: Literal["ask_merchant"]
-    question_text: str
-    why_asked: str                           # which hypotheses the answer separates
+    question_text: str                       # one short question, with a question mark
+    why_asked: str                           # one sentence for the analyst
+    separates: list[str]                     # 1 to 3 hypotheses the answer separates or confirms
 
 class ConcludeAction(BaseModel):
     type: Literal["conclude"]
@@ -227,7 +228,7 @@ with `control_mode: "rest_of_store"` sends `control: null`. The tool and its nor
 check's canonical key, which the duplicate rule uses.
 
 Enum values are lowercased before validation. Merchant reply claims (`reply_claims`) join the schema with
-merchant questions.
+reply weighing.
 
 Check kinds:
 
@@ -259,13 +260,13 @@ under its rule ID.
 | G13 | At most three `explore` checks per run | Exploration must turn into testing |
 | G14 | The same tool with the same arguments never runs twice, including the `store_overview` and `fraud_signals` calls made by `load_case` | No loops on repeated checks |
 | G15 | A check needs a step left. Otherwise the run goes to `finalize` with the budget spent. | The step limit holds |
-| G16 | A question needs a question left and none open | At most two per run, one at a time |
-| G17 | A question's content passes the output policy and names what it separates | The analyst approves a clear question |
+| G16 | A question needs a question left, none open, no earlier question with the same wording, and a reasoning turn left to use the answer | At most two per run, one at a time, never asked twice |
+| G17 | `question_text` is one question of at most 300 characters, `why_asked` is at most 300 characters, and `separates` names 1 to 3 hypotheses that exist and aren't ruled out. Both texts pass P1. | The analyst approves a clear question |
 | G18 | A conclusion names an existing leader, a rise date inside the window, a catalog action that applies to the leader's cause, and a target whose values exist on the menu and were tested by a check that supported the leader | The recommendation matches the evidence |
 | P1  | Free text (summary, rationales, statements, questions, purposes) requests no refunds, credits, store charges, deactivation, menu edits or customer contact, and contains no URLs, emails, phone numbers or `customer_ref` values. A hit is logged as `blocked_action`. | The agent recommends catalog actions only and never exposes personal data |
 
-G6, G7 and G17 arrive with reopening and merchant questions. Until merchant questions are on, G16 rejects
-every question.
+G6 and G7 arrive with reopening and reply weighing. While `AGENT_MAX_QUESTIONS` is 0, G16 rejects every
+question.
 
 A rejected output returns to `reason` with the failed rules and their details. After two rejections in a
 row, the graph goes to `finalize`, which returns `unsure` and lists the failed rules as evidence gaps.
@@ -314,17 +315,18 @@ confirm it.
 - **What a reply does.** It becomes evidence, and `reason` extracts its factual statements into `reply_claims`. Statements that platform data can check are tested next. For example, if a merchant says "we fixed the mapping on Nov 10", the agent compares the periods before and after Nov 10.
 - **Conflicts.** A reply that conflicts with platform data is recorded as contradicting evidence. The platform data wins, and confidence drops.
 - **No reply or rejection.** `no_reply` lowers confidence on any hypothesis that depended on an answer. A rejected question is recorded, and `reason` continues without asking it again.
+- **What works today.** A reply or `no_reply` becomes evidence and appears in the prompt's `<questions>` block, with reply text and analysts' notes quoted as data. A rejected question isn't asked again. Extracting `reply_claims`, and the confidence rules for `no_reply` and conflicting replies, come with reply weighing.
 
 ## Pause and resume
 
-Pausing and resuming arrive with merchant questions in M3. `thread_id` is the `investigation_id`.
-Checkpoints live in memory (`AGENT_CHECKPOINTER=memory`). The Postgres checkpointer in the `agent` schema
-isn't built yet, and setting `postgres` stops the service at startup.
+`thread_id` is the `investigation_id`. Checkpoints live in memory (`AGENT_CHECKPOINTER=memory`). The
+Postgres checkpointer in the `agent` schema isn't built yet, and setting `postgres` stops the service at
+startup.
 
-- **Pausing.** `wait_question_decision` and `wait_merchant_reply` call `interrupt()`, and the checkpoint is saved. The API returns the current status.
-- **Resuming.** The frontend calls `POST /investigations/{id}/resume` after the analyst decides the question or records a reply. The request carries a fresh JWT. The node re-reads the proposal or replies from Domain and never trusts the resume body.
-- **No duplicate effects.** If nothing has changed in Domain, resume returns the current view and does nothing else. A resume on a finished investigation returns 409 `INVESTIGATION_FINISHED`.
-- **Restarts.** No investigation survives a restart yet. Afterwards the list of a case's runs is empty and old IDs return 404. A clean stop first reports each active run to Domain as `failed` with `AGENT_RESTARTED`; if that report fails, nothing resends it. Once checkpoints are in Postgres, a paused investigation will survive a restart.
+- **Pausing.** `wait_question_decision` and `wait_merchant_reply` call `interrupt()` before anything else, and the checkpoint is saved. The view's status is `awaiting_approval`, then `awaiting_merchant`, and `pending_proposal_id` is the question in both.
+- **Resuming.** The frontend calls `POST /investigations/{id}/resume` after the analyst decides the question or records a reply. The request carries a fresh JWT, which runs the next segment. The node re-reads the proposal or replies from Domain and never reads the resume body. Each segment gets the full `AGENT_RUN_TIMEOUT_SECONDS`; time spent waiting doesn't count. While a segment executes, the view says `running`.
+- **No duplicate effects.** Resume starts a segment only when Domain shows the decision or the reply. Otherwise, and while a segment is already executing, it returns the current view and starts nothing. This holds whatever the `Idempotency-Key`. A resume on a finished investigation returns 409 `INVESTIGATION_FINISHED`.
+- **Restarts.** No investigation survives a restart yet. Afterwards the list of a case's runs is empty and old IDs return 404. A clean stop first reports each running segment to Domain as `failed` with `AGENT_RESTARTED`; if that report fails, nothing resends it. A paused run has no task and holds no token, so nothing reports it, and Domain keeps the case `awaiting_decision` or `awaiting_merchant`. Once checkpoints are in Postgres, a paused investigation will survive a restart.
 - **Reopening.** Start accepts `reopen_of` once per case, only for a `reopened` case and an earlier run of it that the agent still holds. Anything else gets 409 `REOPEN_NOT_ALLOWED`. The rest isn't built yet: Domain reopening a case after a failed recheck and sending it to `analyst_review` after a second one (C-04), and the new run loading the earlier run's rulings (M3).
 
 ## Diagnostic tools
@@ -342,7 +344,7 @@ can't show, because that is what the model chooses from.
 | `sample_evidence`        | Up to 10 claim or cancellation records for a filter, with `customer_comments`                                                                                                                    | Frequency. Samples illustrate and don't measure.       | `POST /stores/{id}/diagnostics/evidence-sample`        | mi_claims, cancellations       |
 | `cancellation_breakdown` | Cancellations grouped by `cancellation_category`, `item_id`, `daypart`, weekday or day. Categories are `item_out_of_stock`, `too_busy`, `menu_data_mismatch`, `pos_technical_error` and `other`. | M&I claims. Canceled orders never have claims.         | `POST /stores/{id}/diagnostics/cancellation-breakdown` | cancellations, orders          |
 | `fraud_signals`          | `customer_ref` values with at least `FRAUD_MIN_PENDING_CLAIMS` (default 4) pending claims in the window                                                                                          | Whether a claim is fraudulent. It flags, never judges. | `GET /stores/{id}/diagnostics/fraud-signals`           | mi_claims, orders              |
-| `merchant_replies`       | Replies to this case's approved questions                                                                                                                                                        | Whether a reply is true                                | `GET /cases/{case_id}/merchant-replies`                | C-04                           |
+| `merchant_replies`       | Replies to this case's approved questions. Read by `wait_merchant_reply`, not chosen by the model.                                                                                               | Whether a reply is true                                | `GET /cases/{case_id}/merchant-replies`                | C-04                           |
 | `action_catalog`         | Allowed interventions and handoffs                                                                                                                                                               | —                                                      | `GET /catalog/actions`                                 | C-03                           |
 
 `claim_breakdown` groups by `item_id`, `modifier`, `daypart`, `weekday`, `item_count`, `error_category`,
@@ -463,7 +465,9 @@ class InvestigationState(TypedDict):
     questions_asked: int                 # cap 2
     question_open: bool
     question_proposal_id: str | None
-    question_outcome: Literal["approved", "rejected", "replied", "no_reply"] | None
+    question_outcome: Literal["approved", "rejected", "replied", "no_reply", "unavailable"] | None
+                                         # cleared once reason acts on it
+    questions: list[Question]            # each asked question with its outcome, note and reply
     reply_claims: list[str]              # merchant statements not yet verified
 
     # outcome

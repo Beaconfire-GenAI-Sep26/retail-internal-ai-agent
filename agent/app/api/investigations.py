@@ -1,7 +1,4 @@
-"""Agent Service endpoints from contracts.md: start, read and list investigations.
-
-Resume (POST /investigations/{id}/resume) arrives with merchant questions in M3.
-"""
+"""Agent Service endpoints from contracts.md: start, read, list and resume investigations."""
 
 from __future__ import annotations
 
@@ -31,6 +28,8 @@ router = APIRouter(tags=["investigations"])
 
 # Case statuses that accept a fresh investigation (one without reopen_of).
 STARTABLE_STATUSES = frozenset({"open", "investigating"})
+# Investigation statuses that wait for a person: the analyst's decision, then the merchant's reply.
+PAUSED_STATUSES = frozenset({"awaiting_approval", "awaiting_merchant"})
 
 
 def _services(request: Request) -> Any:
@@ -59,15 +58,19 @@ async def build_view(request: Request, row: InvestigationRow) -> InvestigationVi
     services = _services(request)
     values = await services.runner.state_values(row.investigation_id)
     checkpoint_status = values.get("status", row.status)
-    if row.status in TERMINAL_STATUSES or checkpoint_status in TERMINAL_STATUSES:
-        # finalize writes a terminal status before the proposal is saved and the status reported; the run
-        # counts as finished only once the runner has recorded it on the row.
+    if row.status in TERMINAL_STATUSES:
+        status = row.status
+    elif services.runner.is_active(row.investigation_id):
+        # A segment is executing, so the UI keeps polling. finalize writes a terminal status before the proposal
+        # is saved and the status reported; the run counts as finished only once the runner records it on the row.
+        status = "running"
+    elif checkpoint_status in TERMINAL_STATUSES:
         status = row.status
     else:
         status = checkpoint_status
     result = values.get("result")
     error = row.error or values.get("error")
-    if status == "awaiting_approval":
+    if status in PAUSED_STATUSES:
         pending = values.get("question_proposal_id")
     elif status == "completed" and result:
         pending = result.get("proposal_id")
@@ -217,3 +220,54 @@ async def list_investigations(
     for row in rows:
         _resend_status_report(services, principal, row)
     return [await build_view(request, r) for r in rows]
+
+
+async def _domain_has_news(services: Any, principal: Principal, row: InvestigationRow, request_id: str) -> bool:
+    """Whether Domain now shows what the paused run waits for: the analyst's decision, or the merchant's reply."""
+    proposal_id = (await services.runner.state_values(row.investigation_id)).get("question_proposal_id")
+    domain = services.domain_client.bind(token=principal.token, request_id=request_id,
+                                         investigation_id=row.investigation_id, store_id=row.store_id,
+                                         case_id=row.case_id, max_retries=0)
+    try:
+        if row.status == "awaiting_approval":
+            return (await domain.get_proposal(proposal_id)).status != "pending"
+        return any(r.proposal_id == proposal_id for r in await domain.list_merchant_replies(row.case_id))
+    except DomainError as exc:
+        if exc.route_missing:
+            return False
+        if exc.status == 401:
+            raise AppError(401, UNAUTHENTICATED, "Domain rejected the token.") from exc
+        if exc.status in (403, 404):
+            raise AppError(404, "NOT_FOUND", f"Investigation {row.investigation_id} was not found.") from exc
+        raise AppError(503, UPSTREAM_UNAVAILABLE, "The Domain Service is unavailable.") from exc
+
+
+@router.post("/investigations/{investigation_id}/resume", status_code=202, response_model=InvestigationView)
+async def resume_investigation(
+    investigation_id: str, request: Request, principal: Principal = Depends(get_principal)
+) -> InvestigationView:
+    """Continue a paused run once Domain has the decision or the reply. The body is never read.
+
+    Idempotent by state, not by Idempotency-Key: a resume with nothing new, or while a segment is executing,
+    returns the current view and starts nothing. A finished run returns 409 INVESTIGATION_FINISHED.
+    """
+    services = _services(request)
+    request_id = request_id_var.get() or "unknown"
+    if not principal.is_analyst:
+        raise AppError(403, "FORBIDDEN", "Only an LOE analyst can resume an investigation.")
+    row = services.store.get(investigation_id)
+    if row is None or not principal.can_see(row.store_id):
+        raise AppError(404, "NOT_FOUND", f"Investigation {investigation_id} was not found.")
+    if not getattr(services.runner.model, "configured", True):
+        raise AppError(503, UPSTREAM_UNAVAILABLE, "ANTHROPIC_API_KEY is not configured.")
+    if principal.expires_at - time.time() < services.settings.agent_run_timeout_seconds:
+        raise AppError(401, UNAUTHENTICATED, "The token expires before the investigation could finish. Log in again.")
+    # Decided and started under the case lock, so two resumes can't start two segments.
+    async with services.store.lock_for(row.case_id):
+        row = services.store.get(investigation_id) or row
+        if row.status in TERMINAL_STATUSES:
+            raise AppError(409, "INVESTIGATION_FINISHED", f"Investigation {investigation_id} has already finished.")
+        if (row.status in PAUSED_STATUSES and not services.runner.is_active(investigation_id)
+                and await _domain_has_news(services, principal, row, request_id)):
+            services.runner.resume(row, token=principal.token, request_id=request_id)
+    return await build_view(request, row)

@@ -299,7 +299,9 @@ sequenceDiagram
   UI->>Domain: POST /proposals/{pid}/decision
   Domain-->>UI: approved, dispatch set
   UI->>Agent: POST /investigations/{id}/resume
-  Agent-->>UI: 202, awaiting_merchant
+  Agent-->>UI: 202, running
+  UI->>Agent: GET /investigations/{id}
+  Agent-->>UI: awaiting_merchant, pending_proposal_id
 ```
 
 ### Steps 4 → 2, end to end

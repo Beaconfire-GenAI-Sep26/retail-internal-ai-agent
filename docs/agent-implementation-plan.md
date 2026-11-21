@@ -359,7 +359,7 @@ Every node checks `context.deadline` on entry, before any write, and returns `RU
   - Sets `next_action`, the typed request plus its canonical key, and `rise_started_at`.
   - Resets the rejection counter.
 - **On reject:** writes the violated rule IDs and the offending values to `guard_feedback`.
-- **Next:** `run_check`, `conclude_gate`, `reason`, `finalize`, or `draft_question` (M3).
+- **Next:** `run_check`, `conclude_gate`, `reason`, `finalize`, or `draft_question`.
 
 **`run_check`.** No model call.
 - **Reads:** `next_action`.
@@ -401,17 +401,18 @@ Every node checks `context.deadline` on entry, before any write, and returns `RU
 - **Writes:** status `failed` and `error {code, message}`, and logs a structured error line.
 - **Next:** `report_status`.
 
-**Question nodes (M3).** The `AskMerchantAction` variant is in the schema from day 1, so `schema_hash` stays stable. G16 rejects it while `AGENT_MAX_QUESTIONS=0`.
+**Question nodes (`nodes/questions.py`).** `AskMerchantAction` carries `separates`, the hypotheses the answer separates; adding it changed `schema_hash` once. G16 rejects every question while `AGENT_MAX_QUESTIONS=0`.
 - **`draft_question`:**
-  - **Calls:** `POST /internal/cases/{id}/proposals` with kind `merchant_question`, then `report_status` `awaiting_approval`.
-  - **Writes:** `question_proposal_id`, `question_open`, `questions_asked` and `asked_questions`.
+  - **Calls:** `GET /cases/{id}/merchant-replies` first, to check the route exists; then `POST /internal/cases/{id}/proposals` with kind `merchant_question` and the separated hypotheses' evidence (at most 20 IDs); then reports `awaiting_approval`. A 409 `PROPOSAL_PENDING` adopts this run's own pending question.
+  - **When a route is missing:** no question is asked in the run. `questions_asked` goes to the cap, the record says `unavailable`, and the run goes back to `reason`.
+  - **Writes:** `question_proposal_id`, `question_open`, `questions_asked` and a `questions` record.
 - **`wait_question_decision`:**
   - **On entry:** runs only `interrupt()`, with no side effects before it, because the node re-runs on resume.
-  - **On resume:** calls `GET /proposals/{id}`. Approved goes to `wait_merchant_reply` with status `awaiting_merchant`. Rejected goes to `reason`. Still pending interrupts again.
+  - **On resume:** calls `GET /proposals/{id}`. Approved: reports `awaiting_merchant`, keeps the approved version's text, and goes to `wait_merchant_reply`. Rejected: reports `running`, records the scrubbed note, and goes to `reason`. Still pending, or Domain unavailable: back to itself, which pauses again.
 - **`wait_merchant_reply`:**
   - **On entry:** runs only `interrupt()`.
-  - **On resume:** calls `GET /cases/{id}/merchant-replies` and writes the reply as `EV-RPL` evidence, plus `question_outcome`.
-  - **Next:** `reason`.
+  - **On resume:** calls `GET /cases/{id}/merchant-replies`. The reply for this question adds its `EV-RPL` ID to `retrieved_evidence_ids`, stores the scrubbed text (at most 1500 characters), reports `running` and goes to `reason`. No reply yet: back to itself.
+- **Status reports** from these nodes are one call each through the run's Domain port. A failure is logged, and the final report supersedes it.
 
 ## Tools (`tools/registry.py`)
 
@@ -458,7 +459,9 @@ from `fraud_signals`.
 | G15 | A check needs `step_count < AGENT_MAX_STEPS`. Otherwise the run goes to finalize with `budget_spent`. |
 | G18 | Conclude: the leader exists, `rise_started_at` is inside the window, the action is in the catalog and applies to the cause, and the target's values exist and were tested by a check that supported the leader, as a filter value or a breakdown group |
 | P1 | Output policy on the free text: the summary, rationale and question. No requests for refunds, credits, store charges, deactivation, menu edits or customer contact. No URLs, emails, phone numbers or `customer_ref` values. A hit is rejected and traced as `blocked_action`. |
-| G6, G7, G16, G17 | Prior-run rulings, reply-only support, question availability and question content. All M3. |
+| G16 | A question needs one left, none open, wording not asked before, and a reasoning turn left for the answer |
+| G17 | The question has a question mark and at most 300 characters, `why_asked` at most 300, and `separates` names 1 to 3 hypotheses that exist and aren't ruled out |
+| G6, G7 | Prior-run rulings and reply-only support. They arrive with reopening and reply weighing. |
 
 **Conclude gate:**
 - **K1.** The leader is `supported`.
@@ -485,7 +488,7 @@ from `fraud_signals`.
 **Boundaries:**
 - The API checks the JWT, role and store grant. Domain calls forward the user's JWT.
 - Every call goes through the scoped Domain client. It pins the case and store, allow-lists paths and methods, and sends `X-Store-ID` and `X-Investigation-ID` once the case's store is known. `X-Service-Token` goes only on the two `/internal/` writes and on `POST /evidence/resolve`.
-- The model never writes. Only `submit_recommendation` (and `draft_question` in M3) create proposals, after the guard, the gate and finalize have validated them.
+- The model never writes. Only `submit_recommendation` and `draft_question` create proposals, after the guard (and for a recommendation, the gate and finalize) have validated them.
 - No token in state, logs or traces.
 
 **Untrusted text.** Every Domain-supplied string is rendered as escaped data inside tagged blocks in U1 and U2, capped at 300 characters. That covers `customer_comments`, reply text, event descriptions, menu and modifier names, headlines, notes and group labels. The system-role message carries only counters, rule IDs and computed checklists.
@@ -531,7 +534,7 @@ flowchart LR
 `assessment` → `matched` (list of `{hypothesis_id, outcome}`) → `hypothesis_updates` → `new_hypotheses` (`ref`, cause, statement, rationale, evidence) → `next_action`.
 - `next_action` is a union of three variants:
   - `CheckAction{plan: CheckPlan}`.
-  - `AskMerchantAction{question_text, why_asked}`.
+  - `AskMerchantAction{question_text, why_asked, separates}`.
   - `ConcludeAction{leading_hypothesis_id, rise_started_at, confidence, summary, recommendation{action_id, rationale, target}}`.
 - `CheckPlan` = `kind, purpose, discriminates, expectations, challenges ("" if none), request`, where `request` is a JSON object written as a string. Code decodes it and validates it against the 8 per-tool request models, picked by `tool` (and `evidence_type` for samples). Filter and scope fields the model leaves out default to no constraint.
 - A converter maps the wire shape to the internal state shapes in [agent-graph.md](agent-graph.md#reasonoutput).
@@ -603,12 +606,13 @@ sequenceDiagram
 - Read the row and check the store grant. Outside the grants, return 404.
 - Build the `InvestigationView` from `aget_state`.
 - The status turns terminal only after the run has saved its proposal and reported its status, so a `completed` view already carries its `pending_proposal_id`.
-- `pending_proposal_id` is the open question while awaiting approval, or the recommendation's proposal once completed.
+- While a segment is executing, the status is `running`, so the frontend keeps polling.
+- `pending_proposal_id` is the question while `awaiting_approval` or `awaiting_merchant`, or the recommendation's proposal once completed.
 - On an analyst's read of a finished investigation with `domain_sync_pending`, retry the status report in the background.
 
 **Other routes:**
 - `GET /investigations?case_id=` lists the permitted rows, newest first. Like a read, an analyst's list retries a finished row's failed status report in the background, because the case page reaches a finished run through the list.
-- Resume comes in M3.
+- `POST /investigations/{id}/resume`: analysts only. Under the case lock, it starts the next segment only when the run is paused, no segment is executing, and Domain shows the decision or the reply. Otherwise it returns the current view. A finished run gets 409 `INVESTIGATION_FINISHED`. Like Start, it returns 401 for a token that expires within `AGENT_RUN_TIMEOUT_SECONDS`, and 503 when the model or Domain is unavailable.
 - `/health` doesn't touch the DB or Domain. `/ready` does.
 - Every route uses the contracts error envelope.
 

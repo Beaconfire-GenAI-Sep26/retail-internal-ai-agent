@@ -2,12 +2,14 @@
 
 `evaluate_output` returns every violation it finds, plus the hypotheses, `matched` and next action
 the output would produce if accepted. The guard node applies them only when there is no violation.
-G6, G7, G16's question budget and G17 are M3; G16 rejects every question while questions are off.
+G7 holds through G3: support needs a check, and a merchant reply isn't one. G16 rejects every question while
+AGENT_MAX_QUESTIONS is 0.
 """
 
 from __future__ import annotations
 
 import copy
+import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
@@ -30,6 +32,12 @@ from agent.app.tools.registry import (
 DATA_LIMIT_CAUSES = frozenset({"dasher_handoff"})
 EXPLORE_CAP = 3
 BUCKET_MIN = {"1-2": 1, "3-4": 3, "5+": 5}
+QUESTION_CAP = 300  # characters, for question_text and why_asked (G17)
+
+
+def question_key(text: str) -> str:
+    """Compares questions for G16's repeat rule: case, spacing and punctuation don't count."""
+    return " ".join(re.sub(r"[^\w\s]", " ", text.casefold()).split())
 
 
 @dataclass
@@ -272,6 +280,7 @@ def evaluate_output(
     max_steps: int,
     max_questions: int,
     ids: IdFactory,
+    max_reason_calls: int | None = None,
 ) -> GuardDecision:
     decision = GuardDecision()
     v = decision.violations
@@ -327,6 +336,15 @@ def evaluate_output(
             elif nh.cause_category in new_causes:
                 v.append(Violation("G2", f"two new hypotheses share cause {nh.cause_category}"))
             new_causes.add(nh.cause_category)
+
+    # G6: a cause the earlier run ruled out comes back only on new evidence, from a check this run ran
+    prior_out = {h["cause_category"] for h in state.get("prior_hypotheses", [])
+                 if h["status"] == "ruled_out" and h["cause_category"] != "other"}
+    own = {e for c in checks if c.get("source") == "reason" for e in c.get("result", {}).get("evidence_ids", [])}
+    for nh in out.new_hypotheses:
+        if nh.cause_category in prior_out and not any(e.strip() in own for e in nh.evidence):
+            v.append(Violation("G6", f"{nh.cause_category} was ruled out in the earlier run. Open it again only by "
+                                     "citing evidence from a check this run ran."))
 
     # G1: citations come from the retrieved set
     cited = [e for u in out.hypothesis_updates for e in (*u.add_supporting, *u.add_contradicting)]
@@ -435,15 +453,38 @@ def evaluate_output(
             return decision
         decision.action = _check_action(state, action.plan, after, resolve, menu, window, checks, v)
     elif isinstance(action, w.AskMerchantAction):
-        if max_questions <= state.get("questions_asked", 0) or state.get("question_open"):
+        question, why = action.question_text.strip(), action.why_asked.strip()
+        # G16: a question left, none open, not asked before, and a turn left to use the answer
+        if max_questions <= state.get("questions_asked", 0):
             v.append(Violation("G16", "merchant questions are not available in this run"))
-        for label, text in (("question_text", action.question_text), ("why_asked", action.why_asked)):
+        elif state.get("question_open"):
+            v.append(Violation("G16", "a merchant question is already open"))
+        elif question_key(question) in {question_key(t) for q in state.get("questions", [])
+                                        for t in (q["question_text"], q.get("approved_text")) if t}:
+            v.append(Violation("G16", "this question was already asked in this run. Don't ask it again."))
+        elif max_reason_calls is not None and state.get("reason_calls", 0) >= max_reason_calls:
+            v.append(Violation("G16", "no reasoning turn is left to use an answer"))
+        # G17: one clear question that names what it separates
+        if not 0 < len(question) <= QUESTION_CAP or "?" not in question:
+            v.append(Violation("G17", f"question_text must be one question of 1 to {QUESTION_CAP} characters, "
+                                      "with a question mark"))
+        if not 0 < len(why) <= QUESTION_CAP:
+            v.append(Violation("G17", f"why_asked must be 1 to {QUESTION_CAP} characters"))
+        separates = [resolve(s) for s in action.separates]
+        if not 1 <= len(separates) <= 3 or len(set(separates)) != len(separates):
+            v.append(Violation("G17", "separates must list 1 to 3 different hypotheses"))
+        for hid in dict.fromkeys(separates):
+            if hid not in after:
+                v.append(Violation("G17", f"separates names {hid}, which doesn't exist"))
+            elif after[hid]["status"] == "ruled_out":
+                v.append(Violation("G17", f"separates names {hid}, which is ruled out"))
+        for label, text in (("question_text", question), ("why_asked", why)):
             hits = policy_hits(text, actions=True)
             if hits:
                 v.append(Violation("P1", f"{label} contains {', '.join(hits)}"))
                 decision.blocked_action = True
-        decision.action = {"type": "ask_merchant", "question_text": action.question_text.strip(),
-                           "why_asked": action.why_asked.strip()}
+        decision.action = {"type": "ask_merchant", "question_text": question, "why_asked": why,
+                           "separates": separates}
     else:
         decision.action = _conclude_action(state, action, after, resolve, menu, window, checks_after, v, decision)
     return decision

@@ -105,7 +105,8 @@ def _dry_run_model(store_id: str) -> ReasonModel:
 
 async def run(args: argparse.Namespace) -> int:
     settings = get_settings()
-    overrides: dict[str, Any] = {"agent_domain_mode": args.domain}
+    # The CLI can't resume a paused run, so it never asks the merchant.
+    overrides: dict[str, Any] = {"agent_domain_mode": args.domain, "agent_max_questions": 0}
     if args.effort:
         overrides["agent_effort"] = args.effort
     if args.speed:

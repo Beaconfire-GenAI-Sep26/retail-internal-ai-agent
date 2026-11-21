@@ -44,10 +44,11 @@ class Settings(BaseSettings):
     agent_max_steps: int = 12
     agent_max_retries: int = 2
     agent_run_timeout_seconds: int = 1200
-    agent_max_questions: int = 0
+    agent_max_questions: int = 2  # 0 turns merchant questions off
     agent_max_reason_calls: int | None = None  # default: 2 * AGENT_MAX_STEPS + 4
 
-    # Persistence. Postgres arrives in M2.
+    # Persistence. postgres keeps checkpoints in the agent schema, so a paused run survives a restart. Without
+    # DATABASE_URL, persistence.conninfo uses the POSTGRES_* variables Compose sets (role agent_svc).
     agent_checkpointer: Literal["memory", "postgres"] = "memory"
     database_url: str = ""
 

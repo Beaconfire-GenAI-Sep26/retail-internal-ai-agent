@@ -40,14 +40,14 @@ flowchart LR
   G -->|"/"| F["Frontend container"]
   AG -->|"read-only diagnostics<br/>+ proposal draft (internal)"| D
   AG -->|"model calls"| C["Claude API"]
-  AG -.->|"redacted traces"| L["Langfuse Cloud"]
+  AG -->|"redacted traces"| L["Langfuse Cloud"]
   A --> PA[("auth schema")]
-  AG -.-> PG[("agent schema<br/>checkpoints")]
+  AG --> PG[("agent schema<br/>checkpoints")]
   D --> PD[("domain schema")]
 ```
 
-Calls only go in the directions shown. Dashed links aren't built yet: checkpoints stay in memory, and Langfuse
-tracing isn't wired in. The Domain Service never calls the Agent Service. When the agent
+Calls only go in the directions shown. The agent keeps its checkpoints in the agent schema when
+`AGENT_CHECKPOINTER=postgres`, the Compose default. The Domain Service never calls the Agent Service. When the agent
 needs to continue after an analyst decision or a merchant reply, the frontend calls the agent's resume
 endpoint, and the agent then reads the new state from the Domain Service.
 
@@ -143,11 +143,11 @@ is committed.
 | `LANGFUSE_BASE_URL` | `https://cloud.langfuse.com` | agent | Langfuse v4 endpoint; legacy `LANGFUSE_HOST` is a fallback |
 | `LANGFUSE_TRACING_ENABLED` | `true` | agent | Export only when enabled and both keys exist; logs remain active |
 | `AGENT_RUN_TIMEOUT_SECONDS` | `1200` | agent | Wall-clock limit per investigation. A run past it fails with `RUN_TIMEOUT`. A token that expires sooner is refused at start. |
-| `AGENT_MAX_QUESTIONS` | `0` | agent | Merchant questions per run. `0` until merchant questions are on, then `2`. |
+| `AGENT_MAX_QUESTIONS` | `2` | agent | Merchant questions per run. `0` turns them off. Without Domain's merchant-replies route, none are asked. |
 | `AGENT_MAX_REASON_CALLS` | empty | agent | Optional cap on reasoning turns. Empty means `2 * AGENT_MAX_STEPS + 4`. |
 | `AGENT_DOMAIN_MODE` | `http` | agent | `http` calls the Domain Service. `fixtures` answers from the agent's fixtures, for work without a Domain database. |
 | `AGENT_FIXTURES_DIR` | `tests/fixtures/domain` | agent | The fixture folder for fixtures mode |
-| `AGENT_CHECKPOINTER` | `memory` | agent | `memory`, or `postgres` once the `agent` schema and role exist |
+| `AGENT_CHECKPOINTER` | `memory` (`postgres` in Compose) | agent | `postgres` keeps checkpoints in the `agent` schema, so a paused investigation survives a restart. `memory` is for local runs and tests. |
 | `MONITOR_GOAL_RATE` | `0.05` | domain | 7-day M&I rate goal for the demo. The proposal cites 2.25% as a real-world reference. |
 | `MONITOR_SPIKE_RATIO` | `1.5` | domain | Opens a case when the 7-day rate is at least this multiple of the 28-day baseline |
 | `MONITOR_MIN_ORDERS` | `100` | domain | Minimum 7-day eligible orders before a store can open a case |

@@ -33,7 +33,30 @@ def route_after_guard(state: dict[str, Any]) -> str:
         return "run_check"
     if action.get("type") == "conclude":
         return "conclude_gate"
-    return "reason"  # ask_merchant goes to draft_question in M3; G16 rejects it until then
+    if action.get("type") == "ask_merchant":
+        return "draft_question"
+    return "reason"
+
+
+def route_after_draft(state: dict[str, Any]) -> str:
+    if state.get("error"):
+        return "fail"
+    return "wait_question_decision" if state.get("question_open") else "reason"  # not open: Domain can't take one
+
+
+def route_after_question_decision(state: dict[str, Any]) -> str:
+    if state.get("error"):
+        return "fail"
+    outcome = state.get("question_outcome")
+    if outcome == "approved":
+        return "wait_merchant_reply"
+    return "reason" if outcome == "rejected" else "wait_question_decision"  # still pending: pause again
+
+
+def route_after_merchant_reply(state: dict[str, Any]) -> str:
+    if state.get("error"):
+        return "fail"
+    return "reason" if state.get("question_outcome") in ("replied", "no_reply") else "wait_merchant_reply"
 
 
 def route_after_run_check(state: dict[str, Any]) -> str:
@@ -64,6 +87,9 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph.add_node("guard", nodes.guard)
     graph.add_node("run_check", nodes.run_check)
     graph.add_node("conclude_gate", nodes.conclude_gate)
+    graph.add_node("draft_question", nodes.draft_question)
+    graph.add_node("wait_question_decision", nodes.wait_question_decision)
+    graph.add_node("wait_merchant_reply", nodes.wait_merchant_reply)
     graph.add_node("finalize", nodes.finalize)
     graph.add_node("submit_recommendation", nodes.submit_recommendation)
     graph.add_node("report_status", nodes.report_status)
@@ -73,8 +99,13 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph.add_conditional_edges("load_case", route_after_load, ["reason", "fail"])
     graph.add_conditional_edges("reason", route_after_reason, ["guard", "fail"])
     graph.add_conditional_edges(
-        "guard", route_after_guard, ["run_check", "conclude_gate", "reason", "finalize", "fail"]
+        "guard", route_after_guard, ["run_check", "conclude_gate", "draft_question", "reason", "finalize", "fail"]
     )
+    graph.add_conditional_edges("draft_question", route_after_draft, ["wait_question_decision", "reason", "fail"])
+    graph.add_conditional_edges("wait_question_decision", route_after_question_decision,
+                                ["wait_question_decision", "wait_merchant_reply", "reason", "fail"])
+    graph.add_conditional_edges("wait_merchant_reply", route_after_merchant_reply,
+                                ["wait_merchant_reply", "reason", "fail"])
     graph.add_conditional_edges("run_check", route_after_run_check, ["reason", "finalize", "fail"])
     graph.add_conditional_edges("conclude_gate", route_after_gate, ["reason", "finalize", "fail"])
     graph.add_conditional_edges("finalize", route_after_finalize, ["submit_recommendation", "report_status"])

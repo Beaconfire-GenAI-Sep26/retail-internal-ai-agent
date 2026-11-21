@@ -154,6 +154,35 @@ def test_decide_defaults_to_unsure_without_an_end_reason():
     assert decide(passing_state())["outcome"] == "unsure"
 
 
+def question(outcome, separates=("HYP-1", "HYP-2"), reply="EV-RPL-000001"):
+    return {"proposal_id": "PROP-0001", "separates": list(separates), "outcome": outcome, "reply_evidence_id": reply}
+
+
+def test_no_reply_to_a_question_about_the_leader_lowers_confidence_one_level():
+    state = finished(passing_state(questions=[question("no_reply")]), "gate_passed", conclusion())
+    result = build_result(state, max_steps=12)
+    assert result["confidence"] == "medium"
+    assert any("didn't answer question PROP-0001" in g for g in result["evidence_gaps"])
+    # A question about other causes doesn't weaken the leader.
+    other = finished(passing_state(questions=[question("no_reply", separates=("HYP-2",))]), "gate_passed",
+                     conclusion())
+    assert build_result(other, max_steps=12)["confidence"] == "high"
+
+
+def test_a_reply_cited_against_the_leader_lowers_confidence_and_one_that_agrees_does_not():
+    agrees = finished(passing_state(questions=[question("replied")]), "gate_passed", conclusion())
+    assert build_result(agrees, max_steps=12)["confidence"] == "high"
+    hypotheses = [H("HYP-1", "pos_modifier_mapping", "supported", sup=("EV-EVT-000005", "EV-CLM-000101"),
+                    con=("EV-RPL-000001",)),
+                  H("HYP-2", "menu_change", "ruled_out", sup=("EV-EVT-000006",))]
+    state = finished(passing_state(hypotheses=hypotheses, questions=[question("replied")]), "gate_passed",
+                     conclusion(confidence="medium"))
+    result = build_result(state, max_steps=12)
+    assert result["confidence"] == "low"
+    assert "EV-RPL-000001" in result["contradicting_evidence_ids"]
+    assert any("conflicts with the leading cause" in g for g in result["evidence_gaps"])
+
+
 def test_action_content_fills_title_and_instructions_from_the_catalog():
     state = finished(passing_state(), "gate_passed", conclusion())
     result = build_result(state, max_steps=12)

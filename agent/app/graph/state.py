@@ -8,6 +8,9 @@ CheckRecord: check_id, source ("load_case" or "reason"), kind, tool, request, ca
     signature, purpose, discriminates, expectations, challenges, result (ToolResult),
     matched, needs_match, domain_rejected, at
 Event (event_ledger): evidence_id, event_type, start_date, end_date, description
+Question (questions): proposal_id, question_text (as drafted), approved_text (as sent, maybe edited), why_asked,
+    separates, outcome (pending, approved, rejected, replied, no_reply or unavailable), decision_note,
+    reply_evidence_id, reply_text
 """
 
 from __future__ import annotations
@@ -104,8 +107,9 @@ class InvestigationState(TypedDict, total=False):
     questions_asked: int
     question_open: bool
     question_proposal_id: str | None
-    question_outcome: str | None
+    question_outcome: str | None  # the open or latest question's new outcome; guard clears it once reason acts
     asked_questions: list[str]
+    questions: list[dict[str, Any]]
     reply_claims: list[str]
 
     # Outcome
@@ -125,6 +129,7 @@ def initial_state(
     started_at: str,
     reopen_of: str | None,
     run_config: dict[str, Any],
+    prior_hypotheses: list[dict[str, Any]] | None = None,
 ) -> InvestigationState:
     return InvestigationState(
         investigation_id=investigation_id,
@@ -135,7 +140,7 @@ def initial_state(
         reopen_of=reopen_of,
         status="running",
         run_config=run_config,
-        prior_hypotheses=[],
+        prior_hypotheses=list(prior_hypotheses or []),
         checks=[],
         retrieved_evidence_ids=[],
         event_ledger=[],
@@ -159,6 +164,7 @@ def initial_state(
         question_proposal_id=None,
         question_outcome=None,
         asked_questions=[],
+        questions=[],
         reply_claims=[],
         result=None,
         error=None,

@@ -7,15 +7,19 @@ import time
 import jwt
 import pytest
 from fastapi.testclient import TestClient
+from langgraph.checkpoint.memory import InMemorySaver
 
 from agent.app.domain.client import DomainError
 from agent.app.domain.fixtures import FixtureDomainClient
+from agent.app.graph.build import build_graph, run_config
+from agent.app.graph.state import initial_state
 from agent.app.ids import CounterIdFactory
 from agent.app.llm.base import ModelError, ModelReply
 from agent.app.llm.scripted_model import ScriptedReasonModel
 from agent.app.main import create_app
+from agent.app.prompts.render import render_case_facts
 from agent.tests.conftest import FIXTURES, TEST_SECRET, make_settings
-from agent.tests.scripts import store_a_turns
+from agent.tests.scripts import store_a_turns, store_b_question_turns
 
 
 def token(role="loe_analyst", stores=("STORE-A", "STORE-B"), ttl=3600, sub="USR-001", secret=TEST_SECRET):
@@ -42,8 +46,8 @@ class BlockingModel:
         return ModelReply(output=None, raw_text="", model="blocking", stop_reason="end_turn")
 
 
-def make_client(model=None, domain=None):
-    app = create_app(make_settings(), domain_client=domain or FixtureDomainClient(FIXTURES),
+def make_client(model=None, domain=None, settings=None):
+    app = create_app(settings or make_settings(), domain_client=domain or FixtureDomainClient(FIXTURES),
                      model=model or ScriptedReasonModel(store_a_turns()), ids=CounterIdFactory(), configure_logs=False)
     return TestClient(app)
 
@@ -310,3 +314,216 @@ def test_a_viewer_read_never_schedules_a_status_write():
         assert not client.app.state.runner.flush_tasks
         assert client.app.state.store.get(inv["investigation_id"]).domain_sync_pending is True
     assert len(status_calls(domain)) == 2  # the start and the end report only
+
+
+def test_an_analysts_list_resends_a_failed_final_report():
+    domain = FixtureDomainClient(FIXTURES, faults={
+        "report_investigation_status": DomainError(503, "UPSTREAM_UNAVAILABLE", "down")})
+    analyst, viewer = token(), token(role="viewer", stores=("STORE-A",))
+    case = {"case_id": "CASE-0001"}
+    with make_client(domain=domain) as client:
+        inv_id = client.post("/investigations", json=case, headers=auth(analyst)).json()["investigation_id"]
+        wait_for(client, inv_id, viewer)  # a viewer's reads never resend, so the end report stays unsent
+        store, runner = client.app.state.store, client.app.state.runner
+        del domain.faults["report_investigation_status"]  # Domain is back
+        sent = len(status_calls(domain))
+        client.get("/investigations", params=case, headers=auth(viewer))
+        assert not runner.flush_tasks and len(status_calls(domain)) == sent
+        client.get("/investigations", params=case, headers=auth(analyst))  # the case page opens
+        wait_until(lambda: store.get(inv_id).domain_sync_pending is False)
+    assert domain.status_updates == [
+        {"case_id": "CASE-0001", "investigation_id": inv_id, "status": "completed", "error_code": None}]
+
+
+@pytest.mark.parametrize("read", ["by_id", "list"])
+def test_no_read_resends_the_report_of_a_running_investigation(read):
+    domain = FixtureDomainClient(FIXTURES, faults={
+        "report_investigation_status": DomainError(503, "UPSTREAM_UNAVAILABLE", "down")})
+    analyst = token()
+    with make_client(model=BlockingModel(), domain=domain) as client:
+        inv_id = client.post("/investigations", json={"case_id": "CASE-0001"},
+                             headers=auth(analyst)).json()["investigation_id"]
+        assert client.app.state.store.get(inv_id).domain_sync_pending is True  # the "running" report failed
+        sent = len(status_calls(domain))
+        if read == "by_id":
+            client.get(f"/investigations/{inv_id}", headers=auth(analyst))
+        else:
+            client.get("/investigations", params={"case_id": "CASE-0001"}, headers=auth(analyst))
+        # Only the run's own final report may follow a failed "running" one, so nothing is resent.
+        assert not client.app.state.runner.flush_tasks and len(status_calls(domain)) == sent
+
+
+# --- B-04: resume ---------------------------------------------------------------------------------
+
+
+QUESTIONS_ON = make_settings(agent_max_questions=2)
+
+
+class GatedModel(ScriptedReasonModel):
+    """Holds turn `hold` open until `release` is set, so a resumed segment stays running."""
+
+    def __init__(self, turns, hold):
+        super().__init__(turns)
+        self.hold = hold
+        self.release = asyncio.Event()
+
+    async def reason(self, prompt, state):
+        if self.calls == self.hold:
+            await self.release.wait()
+        return await super().reason(prompt, state)
+
+
+def reports(domain):
+    return [u["status"] for u in domain.status_updates]
+
+
+def test_a_question_pauses_the_run_and_resume_continues_it_only_when_domain_has_news():
+    domain = FixtureDomainClient(FIXTURES, replies=True)
+    analyst = token()
+    with make_client(model=ScriptedReasonModel(store_b_question_turns()), domain=domain,
+                     settings=QUESTIONS_ON) as client:
+        inv_id = client.post("/investigations", json={"case_id": "CASE-0002"},
+                             headers=auth(analyst)).json()["investigation_id"]
+        paused = wait_for(client, inv_id, analyst, statuses=("awaiting_approval",))
+        pid = paused["pending_proposal_id"]
+        assert domain.proposals[pid].kind == "merchant_question"
+
+        def resume(t=analyst):
+            return client.post(f"/investigations/{inv_id}/resume", headers={**auth(t), "Idempotency-Key": "k-1"})
+
+        assert resume().json()["status"] == "awaiting_approval"  # nothing decided yet: nothing starts
+        assert resume(token(role="viewer")).status_code == 403
+        assert resume(token(stores=("STORE-A",))).json()["error"]["code"] == "STORE_NOT_PERMITTED"
+        assert resume(token(ttl=60)).status_code == 401  # the resumed segment could outlive the token
+        started = client.post("/investigations", json={"case_id": "CASE-0002"}, headers=auth(analyst))
+        assert started.json()["error"]["code"] == "INVESTIGATION_ACTIVE"
+
+        domain.decide(pid, "approve")
+        assert resume().status_code == 202
+        waiting = wait_for(client, inv_id, analyst, statuses=("awaiting_merchant",))
+        assert waiting["pending_proposal_id"] == pid
+        assert resume().json()["status"] == "awaiting_merchant"  # a repeat: still no reply, nothing starts
+        assert reports(domain) == ["running", "awaiting_approval", "awaiting_merchant"]
+
+        domain.record_reply(pid, "replied", "Large orders go out in two bags; the second is sometimes left behind.")
+        assert resume().status_code == 202
+        done = wait_for(client, inv_id, analyst)
+        assert done["status"] == "completed" and done["pending_proposal_id"] == done["result"]["proposal_id"] != pid
+        finished = resume()
+        assert finished.status_code == 409 and finished.json()["error"]["code"] == "INVESTIGATION_FINISHED"
+    assert reports(domain) == ["running", "awaiting_approval", "awaiting_merchant", "running", "completed"]
+
+
+def test_a_resume_while_a_segment_runs_starts_nothing():
+    domain = FixtureDomainClient(FIXTURES, replies=True)
+    analyst = token()
+    turns = store_b_question_turns()
+    model = GatedModel(turns, hold=len(turns) - 1)  # the turn after the reply
+    with make_client(model=model, domain=domain, settings=QUESTIONS_ON) as client:
+        inv_id = client.post("/investigations", json={"case_id": "CASE-0002"},
+                             headers=auth(analyst)).json()["investigation_id"]
+        pid = wait_for(client, inv_id, analyst, statuses=("awaiting_approval",))["pending_proposal_id"]
+        domain.decide(pid, "approve")
+        client.post(f"/investigations/{inv_id}/resume", headers=auth(analyst))
+        wait_for(client, inv_id, analyst, statuses=("awaiting_merchant",))
+        domain.record_reply(pid, "no_reply")
+        first = client.post(f"/investigations/{inv_id}/resume", headers=auth(analyst))
+        second = client.post(f"/investigations/{inv_id}/resume", headers=auth(analyst))
+        assert first.json()["status"] == second.json()["status"] == "running"
+        assert len(client.app.state.runner.tasks) == 1
+        client.portal.call(model.release.set)
+        assert wait_for(client, inv_id, analyst)["status"] == "completed"
+    assert reports(domain).count("running") == 2  # the start, and one resume after the reply
+
+
+def test_a_reopened_case_starts_from_the_earlier_runs_rulings():
+    seen = []
+
+    def look(state):  # the reopened run's first turn: keep what the model was shown, then stop
+        seen.append(render_case_facts(state))
+        raise ModelError("INTERNAL", "seen")
+
+    domain, analyst = FixtureDomainClient(FIXTURES), token()
+    with make_client(model=ScriptedReasonModel([*store_a_turns(), look]), domain=domain) as client:
+        first = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(analyst)).json()
+        done = wait_for(client, first["investigation_id"], analyst)
+        domain.decide(done["result"]["proposal_id"], "approve")  # the fix went out, and its recheck failed:
+        domain.stores["STORE-A"].case.status = "reopened"  # Domain reopened the case (C-04)
+        second = client.post("/investigations", json={"case_id": "CASE-0001", "reopen_of": first["investigation_id"]},
+                             headers=auth(analyst))
+        assert second.status_code == 202
+        wait_for(client, second.json()["investigation_id"], analyst)
+    ruled_out = [h["hypothesis_id"] for h in done["hypotheses"] if h["status"] == "ruled_out"]
+    assert ruled_out and "The case was reopened" in seen[0]
+    assert all(f"{hid} |" in seen[0] for hid in ruled_out)
+
+
+# --- B-04: restarts. Each `with` block is one life of the service; the checkpoints outlive it. ----------
+
+
+def restartable(saver, domain, model, ids):
+    return lambda: TestClient(create_app(QUESTIONS_ON, domain_client=domain, model=model, ids=ids,
+                                         configure_logs=False, checkpointer=saver))
+
+
+def test_a_paused_run_survives_restarts_and_resumes():
+    domain, analyst = FixtureDomainClient(FIXTURES, replies=True), token()
+    service = restartable(InMemorySaver(), domain, ScriptedReasonModel(store_b_question_turns()), CounterIdFactory())
+    with service() as client:
+        inv_id = client.post("/investigations", json={"case_id": "CASE-0002"},
+                             headers=auth(analyst)).json()["investigation_id"]
+        pid = wait_for(client, inv_id, analyst, statuses=("awaiting_approval",))["pending_proposal_id"]
+    domain.decide(pid, "approve")  # while the service is down
+    with service() as client:
+        view = client.get(f"/investigations/{inv_id}", headers=auth(analyst)).json()
+        assert (view["status"], view["pending_proposal_id"]) == ("awaiting_approval", pid)
+        listed = client.get("/investigations", params={"case_id": "CASE-0002"}, headers=auth(analyst)).json()
+        assert [v["investigation_id"] for v in listed] == [inv_id]
+        assert client.post(f"/investigations/{inv_id}/resume", headers=auth(analyst)).status_code == 202
+        wait_for(client, inv_id, analyst, statuses=("awaiting_merchant",))
+    domain.record_reply(pid, "replied", "Large orders go out in two bags; the second is sometimes left behind.")
+    with service() as client:
+        assert client.post(f"/investigations/{inv_id}/resume", headers=auth(analyst)).status_code == 202
+        assert wait_for(client, inv_id, analyst)["status"] == "completed"
+    assert reports(domain) == ["running", "awaiting_approval", "awaiting_merchant", "running", "completed"]
+
+
+def left_behind(saver, investigation_id, started_at, as_node, **values):
+    """A checkpoint as a killed process leaves it: `as_node` is the last node that finished."""
+    async def write():
+        state = initial_state(investigation_id=investigation_id, case_id="CASE-0001", store_id="STORE-A",
+                              started_by="USR-001", started_at=started_at, reopen_of=None, run_config={})
+        await build_graph(saver).aupdate_state(run_config(investigation_id, 50), {**state, **values}, as_node=as_node)
+    asyncio.run(write())
+
+
+def test_a_run_cut_off_mid_segment_comes_back_failed_and_is_reported_once():
+    saver, domain, analyst = InMemorySaver(), FixtureDomainClient(FIXTURES), token()
+    left_behind(saver, "INV-CUT", "2026-11-20T15:00:00Z", "load_case")  # still running
+    service = restartable(saver, domain, ScriptedReasonModel(store_a_turns()), CounterIdFactory())
+    with service() as client:
+        view = client.get("/investigations/INV-CUT", headers=auth(analyst)).json()
+        assert view["status"] == "failed" and view["error"]["code"] == "AGENT_RESTARTED"
+        wait_until(lambda: bool(domain.status_updates))  # the analyst's read reported it
+    with service() as client:  # another restart: the report was recorded as sent, so it isn't sent again
+        client.get("/investigations/INV-CUT", headers=auth(analyst))
+        time.sleep(0.2)
+    assert domain.status_updates == [{"case_id": "CASE-0001", "investigation_id": "INV-CUT", "status": "failed",
+                                      "error_code": "AGENT_RESTARTED"}]
+
+
+def test_restore_fails_a_run_killed_before_its_proposal_and_never_resends_an_older_runs_report():
+    saver, domain, analyst = InMemorySaver(), FixtureDomainClient(FIXTURES), token()
+    # An older run whose failed report never reached Domain, then the case's newest run, killed after finalize
+    # but before submit_recommendation saved its proposal.
+    left_behind(saver, "INV-OLD", "2026-11-20T15:00:00Z", "report_status", status="failed",
+                error={"code": "INTERNAL", "message": "x"}, domain_sync_pending=True)
+    left_behind(saver, "INV-NEW", "2026-11-20T16:00:00Z", "finalize", status="completed",
+                result={"outcome": "diagnosis"})
+    with restartable(saver, domain, ScriptedReasonModel(store_a_turns()), CounterIdFactory())() as client:
+        views = client.get("/investigations", params={"case_id": "CASE-0001"}, headers=auth(analyst)).json()
+        assert [(v["investigation_id"], v["status"]) for v in views] == [("INV-NEW", "failed"), ("INV-OLD", "failed")]
+        assert views[0]["error"]["code"] == "AGENT_RESTARTED"
+        wait_until(lambda: bool(domain.status_updates))
+        time.sleep(0.2)
+    assert [(u["investigation_id"], u["status"]) for u in domain.status_updates] == [("INV-NEW", "failed")]

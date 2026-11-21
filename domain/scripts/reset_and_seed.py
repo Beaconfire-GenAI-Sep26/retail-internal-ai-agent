@@ -18,6 +18,8 @@ Scenarios
 - STORE-C..H normal stores, STORE-I low volume, STORE-J one-day spike.
 - STORE-K..M (C-04, scripts/scenario_stores.py): inventory, Dasher handoff, fraud cluster.
 - Holdout stores (scripts/holdout_stores.py) only with --holdout.
+- C-05 (scripts/future_snapshot.py): 4 weeks after the last day (Nov 16 - Dec 13) in the future_*
+  tables, which only rechecks read, and each store's mock merchant answer (mock_merchant_inbox).
 The answer key for every scenario goes to eval.golden_scenarios, and the expected workflow
 behavior to eval.workflow_scenarios (scripts/workflow_scenarios.py).
 All names, comments and numbers are synthetic. No real personal data.
@@ -36,6 +38,7 @@ from alembic.config import Config
 from sqlalchemy import text
 
 from domain.app.db import SessionLocal, engine
+from domain.scripts.future_snapshot import MERCHANT_INBOX, build_future
 from domain.scripts.scenario_stores import DEV_SEED, DEV_SPECS, Kit, build
 from domain.scripts.workflow_scenarios import WORKFLOW_SCENARIOS
 from domain.app.models import (
@@ -50,6 +53,7 @@ from domain.app.models import (
     MenuItem,
     WorkflowScenario,
     MIClaim,
+    MockMerchantInbox,
     OperationalEvent,
     Order,
     OrderItem,
@@ -415,14 +419,15 @@ def add_pending_claims(claims: list[dict], orders: list, customers: dict) -> Non
 
 
 def main(holdout: bool = False) -> None:
-    holdout_specs = []
+    holdout_specs, holdout_inbox = [], {}
     if holdout:
         try:
-            from domain.scripts.holdout_stores import HOLDOUT_SEED, HOLDOUT_SPECS
+            from domain.scripts import holdout_stores
         except ImportError:
             raise SystemExit("--holdout needs domain/scripts/holdout_stores.py, which is added only "
                              "for the final evaluation.")
-        holdout_specs = HOLDOUT_SPECS
+        holdout_specs, HOLDOUT_SEED = holdout_stores.HOLDOUT_SPECS, holdout_stores.HOLDOUT_SEED
+        holdout_inbox = getattr(holdout_stores, "HOLDOUT_INBOX", {})  # mock merchant answers (C-05)
     print("Resetting schemas and running Alembic migrations...")
     reset_schema()
     stores, menus = build_stores_and_menus()
@@ -686,6 +691,11 @@ def main(holdout: bool = False) -> None:
         golden += b.golden
     workflow = [WorkflowScenario(**w) for w in WORKFLOW_SCENARIOS]
 
+    # C-05: future snapshot (own generator and IDs, so nothing above changes) and mock merchant answers
+    future = build_future(stores, menus, HOUR_WEIGHTS, BASE_CLAIM_RATE)
+    inbox = {**MERCHANT_INBOX, **holdout_inbox}
+    inbox_rows = [MockMerchantInbox(store_id=sid, reply_text=t) for sid, t in sorted(inbox.items())]
+
     print("Inserting rows...")
     with SessionLocal() as session:
         session.add_all(stores)
@@ -700,13 +710,20 @@ def main(holdout: bool = False) -> None:
         session.add_all(events)
         session.add_all(golden)
         session.add_all(workflow)
+        session.add_all(inbox_rows)
+        session.add_all(future.orders)
+        session.flush()
+        session.add_all(future.order_items)
+        session.add_all(future.claims)
         session.commit()
 
     print(
         f"Done: {len(stores)} stores, {sum(len(v) for v in menus.values())} menu items, "
         f"{len(orders)} orders, {len(order_items)} order items, {len(claim_rows)} claims, "
         f"{len(cancellations)} cancellations, {len(events)} events, {len(golden)} golden scenarios, "
-        f"{len(workflow)} workflow scenarios."
+        f"{len(workflow)} workflow scenarios.\n"
+        f"Future snapshot: {len(future.orders)} orders, {len(future.claims)} claims; "
+        f"{len(inbox_rows)} mock merchant answers."
     )
 
 

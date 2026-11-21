@@ -1,8 +1,8 @@
-"""Evidence records (contracts.md `Evidence`): one claim, cancellation or operational event."""
+"""Evidence records (contracts.md `Evidence`): one claim, cancellation, operational event or merchant reply."""
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from domain.app.models import Cancellation, MIClaim, OperationalEvent, Order
+from domain.app.models import Case, Cancellation, MerchantReply, MIClaim, OperationalEvent, Order
 from domain.app.schemas import Evidence
 
 
@@ -73,6 +73,25 @@ def event_evidence(e: OperationalEvent) -> Evidence:
     )
 
 
+def reply_evidence(r: MerchantReply, store_id: str) -> Evidence:
+    said = f": {r.text}" if r.text else ""
+    return Evidence(
+        evidence_id=r.evidence_id,
+        type="merchant_reply",
+        store_id=store_id,
+        occurred_at=r.recorded_at,
+        summary=f"merchant {r.outcome.value} to {r.proposal_id}{said}",
+        attributes={
+            "proposal_id": r.proposal_id,
+            "case_id": r.case_id,
+            "outcome": r.outcome.value,
+            "text": r.text,  # untrusted merchant text
+            "recorded_by": r.recorded_by,
+            "recorded_at": r.recorded_at,
+        },
+    )
+
+
 def load_evidence(session: Session, evidence_ids: list[str]) -> dict[str, Evidence]:
     """Look up evidence by ID, in any store. Unknown IDs are left out of the result."""
     by_prefix: dict[str, list[str]] = {}
@@ -94,5 +113,11 @@ def load_evidence(session: Session, evidence_ids: list[str]) -> dict[str, Eviden
     if ids := by_prefix.get("EV-EVT-"):
         for e in session.scalars(select(OperationalEvent).where(OperationalEvent.evidence_id.in_(ids))):
             found[e.evidence_id] = event_evidence(e)
-    # EV-RPL- (merchant replies) arrive with C-04.
+    if ids := by_prefix.get("EV-RPL-"):
+        for r, store_id in session.execute(
+            select(MerchantReply, Case.store_id)
+            .join(Case, Case.case_id == MerchantReply.case_id)
+            .where(MerchantReply.evidence_id.in_(ids))
+        ):
+            found[r.evidence_id] = reply_evidence(r, store_id)
     return found

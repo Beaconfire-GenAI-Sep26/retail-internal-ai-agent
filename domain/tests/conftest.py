@@ -1,7 +1,7 @@
 """Tests run against the seeded database (python -m scripts.reset_and_seed first).
 
-They delete rows from the tables the seed leaves empty: cases, idempotency_keys and the
-C-03 tables (proposals, proposal_versions, dispatches, rechecks, audit_log).
+They delete rows from the tables the seed leaves empty: cases, idempotency_keys, the
+C-03 tables (proposals, proposal_versions, dispatches, rechecks, audit_log) and C-05's merchant_replies.
 """
 import time
 import os
@@ -27,6 +27,7 @@ from domain.app.models import (
     Case,
     Dispatch,
     IdempotencyRecord,
+    MerchantReply,
     Proposal,
     ProposalVersion,
     Recheck,
@@ -65,7 +66,7 @@ def client():
 def clean_cases():
     def wipe():
         with SessionLocal() as s:
-            for model in (AuditEntry, Recheck, Dispatch, ProposalVersion, Proposal, IdempotencyRecord, Case):
+            for model in (AuditEntry, MerchantReply, Recheck, Dispatch, ProposalVersion, Proposal, IdempotencyRecord, Case):
                 s.execute(delete(model))  # children before parents
             s.commit()
 

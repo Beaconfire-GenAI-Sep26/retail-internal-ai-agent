@@ -107,6 +107,8 @@ class Runner:
             # The paused node re-reads Domain; the value only has to be a non-empty resume.
             graph_input: Any = Command(resume={"resumed_at": now_iso()})
         else:
+            # A reopened case starts from the earlier run's rulings (G6), read from that run's checkpoint.
+            prior = await self.state_values(row.reopen_of) if row.reopen_of else {}
             graph_input = initial_state(
                 investigation_id=row.investigation_id,
                 case_id=row.case_id,
@@ -115,6 +117,7 @@ class Runner:
                 started_at=row.started_at,
                 reopen_of=row.reopen_of,
                 run_config=run_config_record(self.settings, self.model),
+                prior_hypotheses=prior.get("hypotheses", []),
             )
         config = self.config(row.investigation_id)
         log_event(logger, logging.INFO, "investigation resumed" if resume else "investigation started",

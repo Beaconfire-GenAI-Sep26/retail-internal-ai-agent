@@ -133,6 +133,8 @@ def render_case_facts(state: dict[str, Any]) -> str:
     prior = state.get("prior_hypotheses", [])
     if prior:
         lines.append("<prior_rulings>")
+        lines.append("The case was reopened: the action the earlier run recommended didn't bring the rate down. "
+                     "Its hypotheses, with their final status:")
         for h in prior:
             lines.append(f"{h['hypothesis_id']} | {h['cause_category']} | {h['status']} | {esc(h.get('rationale'))}")
         lines.append("</prior_rulings>")

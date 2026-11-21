@@ -128,6 +128,7 @@ def initial_state(
     started_at: str,
     reopen_of: str | None,
     run_config: dict[str, Any],
+    prior_hypotheses: list[dict[str, Any]] | None = None,
 ) -> InvestigationState:
     return InvestigationState(
         investigation_id=investigation_id,
@@ -138,7 +139,7 @@ def initial_state(
         reopen_of=reopen_of,
         status="running",
         run_config=run_config,
-        prior_hypotheses=[],
+        prior_hypotheses=list(prior_hypotheses or []),
         checks=[],
         retrieved_evidence_ids=[],
         event_ledger=[],

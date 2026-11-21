@@ -2,7 +2,8 @@
 
 `evaluate_output` returns every violation it finds, plus the hypotheses, `matched` and next action
 the output would produce if accepted. The guard node applies them only when there is no violation.
-G6 and G7 arrive with reopening and reply weighing. G16 rejects every question while AGENT_MAX_QUESTIONS is 0.
+G7 holds through G3: support needs a check, and a merchant reply isn't one. G16 rejects every question while
+AGENT_MAX_QUESTIONS is 0.
 """
 
 from __future__ import annotations
@@ -335,6 +336,16 @@ def evaluate_output(
             elif nh.cause_category in new_causes:
                 v.append(Violation("G2", f"two new hypotheses share cause {nh.cause_category}"))
             new_causes.add(nh.cause_category)
+
+    # G6: a cause the earlier run ruled out comes back only with evidence that run didn't cite
+    prior_out = {h["cause_category"]: h for h in state.get("prior_hypotheses", [])
+                 if h["status"] == "ruled_out" and h["cause_category"] != "other"}
+    for nh in out.new_hypotheses:
+        prior = prior_out.get(nh.cause_category)
+        if prior and all(e.strip() in {*prior["supporting_evidence_ids"], *prior["contradicting_evidence_ids"]}
+                         for e in nh.evidence):
+            v.append(Violation("G6", f"{nh.cause_category} was ruled out in the earlier run ({prior['hypothesis_id']}). "
+                                     "Open it again only by citing evidence that run didn't cite."))
 
     # G1: citations come from the retrieved set
     cited = [e for u in out.hypothesis_updates for e in (*u.add_supporting, *u.add_contradicting)]

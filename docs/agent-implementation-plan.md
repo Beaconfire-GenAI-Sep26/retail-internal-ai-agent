@@ -462,7 +462,8 @@ from `fraud_signals`.
 | P1 | Output policy on the free text: the summary, rationale and question. No requests for refunds, credits, store charges, deactivation, menu edits or customer contact. No URLs, emails, phone numbers or `customer_ref` values. A hit is rejected and traced as `blocked_action`. |
 | G16 | A question needs one left, none open, wording not asked before, and a reasoning turn left for the answer |
 | G17 | The question has a question mark and at most 300 characters, `why_asked` at most 300, and `separates` names 1 to 3 hypotheses that exist and aren't ruled out |
-| G6, G7 | Prior-run rulings and reply-only support. They arrive with reopening and reply weighing. |
+| G6 | On a reopened case, a cause the earlier run ruled out needs evidence that run didn't cite for it |
+| G7 | A reply alone can't support a hypothesis. G3 enforces it, since a reply is evidence, not a check. |
 
 **Conclude gate:**
 - **K1.** The leader is `supported`.

@@ -172,6 +172,16 @@ def test_g7_a_reply_alone_cant_make_a_hypothesis_supported(a_matched):
     assert "G3" in run(state, raw).rule_ids  # no check supports it, and a reply is not a check
 
 
+def test_g6_a_cause_the_earlier_run_ruled_out_needs_new_evidence(a_first):
+    earlier = {"hypothesis_id": "HYP-OLD", "cause_category": "menu_change", "status": "ruled_out",
+               "supporting_evidence_ids": [], "contradicting_evidence_ids": ["EV-EVT-000031"]}
+    state = {**a_first, "prior_hypotheses": [earlier]}
+    assert "G6" in run(state, out("x", EXPLORE, new_hypotheses=TWO)).rule_ids
+    fresh = next(e for e in a_first["retrieved_evidence_ids"] if e != "EV-EVT-000031")
+    reopened = [TWO[0], new("N2", "menu_change", "A menu change confuses the kitchen.", evidence=[fresh])]
+    assert "G6" not in run(state, out("x", EXPLORE, new_hypotheses=reopened)).rule_ids
+
+
 def test_g17_rejects_a_ruled_out_hypothesis(a_matched):
     state = copy.deepcopy(a_matched)
     state["hypotheses"][1]["status"] = "ruled_out"

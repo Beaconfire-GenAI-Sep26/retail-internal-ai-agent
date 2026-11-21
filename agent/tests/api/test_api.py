@@ -17,6 +17,7 @@ from agent.app.ids import CounterIdFactory
 from agent.app.llm.base import ModelError, ModelReply
 from agent.app.llm.scripted_model import ScriptedReasonModel
 from agent.app.main import create_app
+from agent.app.prompts.render import render_case_facts
 from agent.tests.conftest import FIXTURES, TEST_SECRET, make_settings
 from agent.tests.scripts import store_a_turns, store_b_question_turns
 
@@ -433,6 +434,28 @@ def test_a_resume_while_a_segment_runs_starts_nothing():
         client.portal.call(model.release.set)
         assert wait_for(client, inv_id, analyst)["status"] == "completed"
     assert reports(domain).count("running") == 2  # the start, and one resume after the reply
+
+
+def test_a_reopened_case_starts_from_the_earlier_runs_rulings():
+    seen = []
+
+    def look(state):  # the reopened run's first turn: keep what the model was shown, then stop
+        seen.append(render_case_facts(state))
+        raise ModelError("INTERNAL", "seen")
+
+    domain, analyst = FixtureDomainClient(FIXTURES), token()
+    with make_client(model=ScriptedReasonModel([*store_a_turns(), look]), domain=domain) as client:
+        first = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(analyst)).json()
+        done = wait_for(client, first["investigation_id"], analyst)
+        domain.decide(done["result"]["proposal_id"], "approve")  # the fix went out, and its recheck failed:
+        domain.stores["STORE-A"].case.status = "reopened"  # Domain reopened the case (C-04)
+        second = client.post("/investigations", json={"case_id": "CASE-0001", "reopen_of": first["investigation_id"]},
+                             headers=auth(analyst))
+        assert second.status_code == 202
+        wait_for(client, second.json()["investigation_id"], analyst)
+    ruled_out = [h["hypothesis_id"] for h in done["hypotheses"] if h["status"] == "ruled_out"]
+    assert ruled_out and "The case was reopened" in seen[0]
+    assert all(f"{hid} |" in seen[0] for hid in ruled_out)
 
 
 # --- B-04: restarts. Each `with` block is one life of the service; the checkpoints outlive it. ----------

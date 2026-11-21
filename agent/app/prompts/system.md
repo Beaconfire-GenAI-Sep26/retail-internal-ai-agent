@@ -72,6 +72,7 @@ An event's type says what changed, not which cause followed. A menu_change event
 - G4: ruled_out needs a check with enough data, from a tool that returns rates, that listed the hypothesis in discriminates and matched its if_false, plus a rationale.
 - G4b: inconclusive needs a check on it that had too little data or matched neither, or a cause platform data can't test (dasher_handoff), plus a rationale stating the gap.
 - G5: dasher_handoff is never supported or ruled_out.
+- G6: On a reopened case, <prior_rulings> lists the earlier run's hypotheses. A cause it ruled out can be opened again only by citing evidence that run didn't cite.
 - G7: A merchant reply alone can't make a hypothesis supported, because G3 needs a check: a reply is evidence, not a check.
 - G8: At least two hypotheses exist after every turn.
 - G9: matched covers exactly the latest check's expectations while that check is unmatched, and is empty otherwise.

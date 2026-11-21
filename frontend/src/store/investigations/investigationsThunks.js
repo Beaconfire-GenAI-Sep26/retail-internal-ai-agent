@@ -132,6 +132,14 @@ export const fetchInvestigation = createAsyncThunk(
       if (view.status !== 'running') dispatch(fetchCase(view.case_id));
       return view;
     } catch (err) {
+      // 404: the agent restarted and the run is gone (runs live in its memory).
+      // Stop polling (the slice drops the run) and reload the case, so the page
+      // shows what Domain still has (getCaseView's no-run view).
+      if (err?.response?.status === 404) {
+        const { caseId } = getState().investigations;
+        if (caseId) dispatch(fetchCase(caseId));
+        return rejectWithValue({ lost: true });
+      }
       return rejectWithValue(getErrorMessage(err, 'Could not refresh the investigation'));
     }
   },

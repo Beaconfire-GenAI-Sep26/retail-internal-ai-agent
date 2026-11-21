@@ -39,7 +39,7 @@
 //       run recheck → improved → closed
 //   CASE-0002 · running → awaiting_approval
 //       approve + resume → awaiting_merchant
-//           reply + resume    → running → completed (packing) → approve → action_dispatched
+//           resume (reply arrives in the system) → running → completed (packing) → approve → action_dispatched
 //               run recheck → not improved → reopened
 //               start with reopen_of → 2nd run (inventory) → approve → run recheck → improved → closed
 //           no_reply + resume → running → unsure → analyst_review
@@ -85,6 +85,7 @@ import {
   runScheduledRecheck,
   defaultRecheckOutcome,
   replyToEvidence,
+  SAMPLE_REPLY_TEXT,
 } from './fixtures';
 
 
@@ -457,6 +458,11 @@ export const mockResumeInvestigation = async (investigationId, { user, idempoten
     }
 
     const proposal = db.proposals.get(rec.pending_proposal_id);
+    // The merchant's answer reaches Domain on its own, not through the analyst.
+    // The analyst confirms it arrived by resuming; the mock plays that arrival here.
+    if (rec.status === 'awaiting_merchant' && proposal && !db.replies.has(proposal.proposal_id)) {
+      saveReply(proposal, 'replied', SAMPLE_REPLY_TEXT, 'svc-merchant-inbox');
+    }
     const reply = db.replies.get(rec.pending_proposal_id);
     const run = (patch) => {
       Object.assign(rec, { status: 'running', updated_at: now() }, patch);
@@ -683,7 +689,25 @@ export const mockDecideProposal = async (proposalId, { version, decision, note =
   return result;
 };
 
+// One reply per question. actor: the analyst (User), or a service ID when the
+// reply came into the system by itself.
+const saveReply = (proposal, outcome, text, actor) => {
+  db.seq.rpl += 1;
+  const created = {
+    evidence_id: `EV-RPL-${pad(db.seq.rpl, 6)}`,
+    proposal_id: proposal.proposal_id,
+    outcome,
+    text: outcome === 'replied' ? text.trim() : null,
+    recorded_by: typeof actor === 'string' ? actor : (actor.user_id ?? 'USR-001'),
+    recorded_at: now(),
+  };
+  db.replies.set(proposal.proposal_id, created);
+  audit(proposal.case_id, actor, 'merchant_reply.recorded', { proposal_id: proposal.proposal_id });
+  return created;
+};
+
 // POST /domain/proposals/{id}/merchant-reply { outcome, text } → 201 MerchantReply
+// The UI uses it only for "No reply"; replies arrive by themselves (see resume).
 // Does not resume the investigation — the UI calls resume next.
 export const mockRecordReply = async (proposalId, { outcome, text = null }, { user, idempotencyKey } = {}) => {
   await delay(300);
@@ -701,18 +725,7 @@ export const mockRecordReply = async (proposalId, { outcome, text = null }, { us
       throw mockError(422, 'VALIDATION_ERROR', 'text: required when outcome is "replied".');
     }
 
-    db.seq.rpl += 1;
-    const created = {
-      evidence_id: `EV-RPL-${pad(db.seq.rpl, 6)}`,
-      proposal_id: proposalId,
-      outcome,
-      text: outcome === 'replied' ? text.trim() : null,
-      recorded_by: user.user_id ?? 'USR-001',
-      recorded_at: now(),
-    };
-    db.replies.set(proposalId, created);
-    audit(proposal.case_id, user, 'merchant_reply.recorded', { proposal_id: proposalId });
-    return clone(created);
+    return clone(saveReply(proposal, outcome, text, user));
   });
   save();
   return reply;

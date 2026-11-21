@@ -1,7 +1,7 @@
 // getCaseView: every step of ui-workflow.md v0.3, Failed, Unsure, and the case
 // ends the d03 plan added (analyst_review, closed, paused).
 import { describe, expect, it } from 'vitest';
-import { getCaseView, findRecheck, runQuestions, needsResume } from './caseSteps';
+import { getCaseView, findRecheck, runQuestions, needsResume, survivedChallenges, latestAction } from './caseSteps';
 
 const inv = (status, extra = {}) => ({
   investigation_id: 'INV-2',
@@ -169,5 +169,74 @@ describe('needsResume', () => {
   it('a running or finished run never needs it', () => {
     expect(needsResume(inv('running'), question('approved'))).toBe(false);
     expect(needsResume(inv('completed'), question('approved'), { outcome: 'replied' })).toBe(false);
+  });
+});
+
+describe('no run from the agent (it restarted)', () => {
+  const action = (id, status, created_at, extra = {}) =>
+    ({ proposal_id: id, kind: 'intervention', status, created_at, investigation_id: 'INV-1', ...extra });
+
+  it('open with no proposal: Start investigation', () => {
+    expect(view(null, caseIn('open', { proposals: [] }))).toMatchObject({ step: '1', showStart: true });
+  });
+
+  it('investigating with no run (lost mid-run): Start investigation', () => {
+    expect(view(null, caseIn('investigating', { proposals: [] }))).toMatchObject({ step: '1', showStart: true });
+  });
+
+  it('pending action: show it to decide, no Start', () => {
+    const v = view(null, caseIn('awaiting_decision', { proposals: [action('PROP-0001', 'pending', '2026-11-16T15:00:00Z')] }));
+    expect(v).toMatchObject({ step: 'no_run', slot: 'proposal', proposalId: 'PROP-0001', showRecommendation: true, showStart: false });
+  });
+
+  it('pending action on an investigating case: still no Start (agent refuses PROPOSAL_PENDING)', () => {
+    const v = view(null, caseIn('investigating', { proposals: [action('PROP-0001', 'pending', '2026-11-16T15:00:00Z')] }));
+    expect(v).toMatchObject({ step: 'no_run', proposalId: 'PROP-0001', showStart: false });
+  });
+
+  it('decided case: the latest action, read-only, no Start', () => {
+    const v = view(null, caseIn('action_dispatched', {
+      proposals: [
+        action('PROP-0001', 'approved', '2026-11-16T15:00:00Z'),
+        action('PROP-0003', 'approved', '2026-11-18T15:00:00Z', { kind: 'handoff' }),
+        { proposal_id: 'PROP-0002', kind: 'merchant_question', status: 'approved', created_at: '2026-11-19T15:00:00Z' },
+      ],
+    }));
+    expect(v).toMatchObject({ step: 'no_run', slot: 'proposal', proposalId: 'PROP-0003', showStart: false });
+  });
+
+  it('past open with no action: message only', () => {
+    expect(view(null, caseIn('reopened', { proposals: [] })))
+      .toMatchObject({ step: 'no_run', slot: null, proposalId: null, showStart: false });
+  });
+
+  it('latestAction skips merchant questions', () => {
+    expect(latestAction({ proposals: [{ proposal_id: 'Q', kind: 'merchant_question', created_at: 'z' }] })).toBeNull();
+  });
+});
+
+describe('survivedChallenges', () => {
+  const hypotheses = [
+    { hypothesis_id: 'H-POS', cause_category: 'pos_modifier_mapping' },
+    { hypothesis_id: 'H-PACK', cause_category: 'packing' },
+  ];
+  const challenge = (id, target, outcome, extra = {}) =>
+    ({ check_id: id, kind: 'challenge', challenges: target, matched: { [target]: outcome }, data_sufficient: true, ...extra });
+  const result = (ids) => ({ outcome: 'diagnosis', cause_category: 'pos_modifier_mapping', challenge_check_ids: ids });
+
+  it('keeps only challenges on the named cause that matched if_true with enough data', () => {
+    const checks = [
+      challenge('C1', 'H-POS', 'if_true'),
+      challenge('C2', 'H-POS', 'if_false'),
+      challenge('C3', 'H-POS', 'neither'),
+      challenge('C4', 'H-POS', 'if_true', { data_sufficient: false }),
+      challenge('C5', 'H-PACK', 'if_true'),
+    ];
+    expect(survivedChallenges(result(['C1', 'C2', 'C3', 'C4', 'C5']), checks, hypotheses)).toEqual(['C1']);
+  });
+
+  it('unknown check or hypothesis: drops the check, trusts the match', () => {
+    const checks = [challenge('C1', 'H-OTHER', 'if_true')];
+    expect(survivedChallenges(result(['C1', 'MISSING']), checks, hypotheses)).toEqual(['C1']);
   });
 });

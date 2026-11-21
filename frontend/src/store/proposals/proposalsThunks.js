@@ -164,13 +164,13 @@ export const fetchMerchantReplies = createAsyncThunk(
 // 7. recordMerchantReply — POST /domain/proposals/{id}/merchant-reply (D-05)
 // ═══════════════════════════════════════════════════════════════════
 // Body: MerchantReplyCreate { outcome: 'replied' | 'no_reply', text }
-//   text is required for 'replied', null for 'no_reply'. The analyst types or
-//   pastes what the merchant said — untrusted text, always shown as plain text.
+//   text is required for 'replied', null for 'no_reply'. The UI only sends
+//   'no_reply': the merchant's answer reaches Domain by itself (MerchantReplyCard).
 // Header: Idempotency-Key.
 // → 201 MerchantReply (it is also evidence EV-RPL-…). The caller then resumes
-//   the run (MerchantReplyForm) — "reply first, then resume".
+//   the run (MerchantReplyCard) — "reply first, then resume".
 //
-// 409 REPLY_EXISTS → someone recorded it first: reload the replies, so the form
+// 409 REPLY_EXISTS → a reply is already there: reload the replies, so the card
 //   turns into "reply saved → Continue".
 export const recordMerchantReply = createAsyncThunk(
   'proposals/recordReply',

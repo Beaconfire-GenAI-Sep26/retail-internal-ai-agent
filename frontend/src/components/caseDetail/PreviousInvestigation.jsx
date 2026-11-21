@@ -78,7 +78,7 @@ const PreviousInvestigation = ({ investigation }) => {
 
       <div className='previous-body'>
         <p className='muted'>{view.investigation_id} · started by {view.started_by}</p>
-        {result && <ResultPanel result={result} checks={view.checks} />}
+        {result && <ResultPanel result={result} checks={view.checks} hypotheses={view.hypotheses} />}
         {action && (
           <div className='previous-action'>
             <h4>Action sent</h4>

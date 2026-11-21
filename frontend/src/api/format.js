@@ -319,7 +319,12 @@ export const formatInvestigationError = (code) =>
 // Still to confirm with C-03 (d03 plan, "需要确认").
 export const AUDIT_ACTION_LABELS = {
   'case.opened': 'Case opened',
+  // Domain writes investigation.<status> when the agent reports one (C-03);
+  // the start arrives as investigation.running. investigation.started is the mock's.
+  'investigation.running': 'Investigation started',
   'investigation.started': 'Investigation started',
+  'investigation.awaiting_approval': 'Question waiting for approval',
+  'investigation.awaiting_merchant': 'Waiting for the merchant',
   'investigation.completed': 'Investigation completed',
   'investigation.unsure': 'Investigation unsure',
   'investigation.failed': 'Investigation failed',

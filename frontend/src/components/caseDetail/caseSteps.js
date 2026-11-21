@@ -20,6 +20,8 @@
 //   unsure            unsure             analyst_review       result    (no recommendation)
 //   analyst_review    completed          analyst_review       result    recommendation, recheck if one ran
 //   closed / paused   completed          closed / paused      result    recommendation, recheck
+//   no_run            — (agent lost it)  past open, or one   proposal  the latest action, no Start
+//                                        pending proposal
 //
 // Always true for every step: the previous run shows whenever this run is a
 // reopen (reopen_of set), not only at step 8 — it stays through the second
@@ -81,6 +83,7 @@ const NOTHING = {
   showRecommendation: false, // RecommendationReview under the result
   showRecheck: false,
   showPrevious: false,
+  proposalId: null, // slot 'proposal' only: the action to show when the agent has no run
 };
 
 
@@ -89,6 +92,52 @@ const NOTHING = {
 export const checkNumbers = (checks = []) =>
   Object.fromEntries(checks.map((c, i) => [c.check_id, i + 1]));
 
+// The challenge checks the leading cause survived, as check_ids.
+// result.challenge_check_ids lists every challenge the run tried, including ones
+// that didn't hold up. A challenge survived when it had enough data and matched
+// if_true for the hypothesis it challenged (the agent's K2 rule, gate.py), and
+// that hypothesis is the cause the result names.
+export const survivedChallenges = (result, checks = [], hypotheses = []) => {
+  const byId = Object.fromEntries(checks.map((c) => [c.check_id, c]));
+  const causeOf = Object.fromEntries(hypotheses.map((h) => [h.hypothesis_id, h.cause_category]));
+  return (result?.challenge_check_ids ?? []).filter((id) => {
+    const check = byId[id];
+    const target = check?.challenges;
+    if (!target || !check.data_sufficient || check.matched?.[target] !== 'if_true') return false;
+    // Hypothesis not in the list: trust the match rather than hide the check
+    return !(target in causeOf) || causeOf[target] === result.cause_category;
+  });
+};
+
+// The case's latest recommended action (intervention or handoff), or null
+export const latestAction = (caseDetail) =>
+  (caseDetail?.proposals ?? [])
+    .filter((p) => p.kind === 'intervention' || p.kind === 'handoff')
+    .reduce((latest, p) => (!latest || p.created_at > latest.created_at ? p : latest), null);
+
+// Case statuses the agent starts a fresh run on (agent STARTABLE_STATUSES)
+const STARTABLE = new Set(['open', 'investigating']);
+
+// No run from the agent for this case. Either it was never investigated, or
+// the agent restarted: it keeps runs in memory, so a case that already has a
+// recommendation comes back with no run. Domain still has the proposals, so
+// show the latest action (pending → decide it here) instead of a Start the
+// agent would refuse (409 PROPOSAL_PENDING / CASE_NOT_STARTABLE).
+const noRunView = (caseDetail) => {
+  const hasPending = (caseDetail?.proposals ?? []).some((p) => p.status === 'pending');
+  if (!caseDetail || (STARTABLE.has(caseDetail.status) && !hasPending)) {
+    return { ...NOTHING, step: '1', showStart: true, startLabel: START_LABELS.first };
+  }
+  const action = latestAction(caseDetail);
+  return {
+    ...NOTHING,
+    step: 'no_run',
+    slot: action ? 'proposal' : null,
+    showRecommendation: Boolean(action),
+    proposalId: action?.proposal_id ?? null,
+  };
+};
+
 
 // ═══════════════════════════════════════════════════════════════════
 // 2. getCaseView({ investigation, caseDetail })
@@ -96,10 +145,8 @@ export const checkNumbers = (checks = []) =>
 // investigation: the latest InvestigationView, or null = never investigated
 // caseDetail:    CaseDetail, or null while it loads
 export const getCaseView = ({ investigation, caseDetail }) => {
-  // Step 1: never investigated
-  if (!investigation) {
-    return { ...NOTHING, step: '1', showStart: true, startLabel: START_LABELS.first };
-  }
+  // Step 1 (never investigated), or the agent lost the run (no_run)
+  if (!investigation) return noRunView(caseDetail);
 
   const isReopen = Boolean(investigation.reopen_of);
   const base = {

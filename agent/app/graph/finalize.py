@@ -5,6 +5,9 @@
 | gate_passed                                               | diagnosis, confidence after the caps     |
 | budget_spent, final action conclude, K1, K2 and K5 hold   | diagnosis at most medium; K3/K4 -> gaps  |
 | budget_spent otherwise, guard_cap, gate_cap, reason_cap   | unsure; candidate and failed rules -> gaps |
+
+A diagnosis loses one confidence level, after the caps, when the merchant didn't answer a question about the
+leader or a reply is cited against it: platform data outweighs a merchant's word.
 """
 
 from __future__ import annotations
@@ -29,6 +32,24 @@ END_REASON_TEXT = {
 
 def cap(confidence: str, ceiling: str) -> str:
     return LEVELS[min(LEVELS.index(confidence), LEVELS.index(ceiling))]
+
+
+def lower(confidence: str) -> str:
+    return LEVELS[max(0, LEVELS.index(confidence) - 1)]
+
+
+def reply_gaps(state: dict[str, Any], leader_id: str) -> list[str]:
+    """How the merchant's answers weaken the leader: a question about it went unanswered, or a reply cited against it."""
+    lead = next(h for h in state["hypotheses"] if h["hypothesis_id"] == leader_id)
+    gaps = []
+    for q in state.get("questions", []):
+        if q["outcome"] == "no_reply" and leader_id in q.get("separates", []):
+            gaps.append(f"The merchant didn't answer question {q['proposal_id']} about the leading cause, "
+                        "so confidence is one level lower.")
+        elif q["outcome"] == "replied" and q.get("reply_evidence_id") in lead["contradicting_evidence_ids"]:
+            gaps.append(f"The merchant's reply {q['reply_evidence_id']} conflicts with the leading cause. Platform data "
+                        "was weighed over it, and confidence is one level lower.")
+    return gaps
 
 
 def mostly_pending(leader: str, checks: list[dict[str, Any]]) -> bool:
@@ -245,6 +266,10 @@ def build_result(
         )
         if rivals_inconclusive or decision["capped"] or mostly_pending(leader_id, checks):
             confidence = cap(confidence, "medium")
+        weakened = reply_gaps(state, leader_id)
+        if weakened:
+            confidence = lower(confidence)
+            gaps += weakened
         if decision["capped"]:
             for c in decision["gate"]["unmet"]:
                 gaps.append(f"{c['rule']} not met when the checks ran out: {c['detail']}")

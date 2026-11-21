@@ -78,7 +78,7 @@ which can only end inconclusive.
 **M2, Thu Nov 19: B-03 and integration, as C-02 and A-01 land.**
 - The HTTP Domain client, with `respx` tests. Live runs against the real Domain are the distinct-route evidence for the POC.
 - `submit_recommendation`, `/evidence/resolve`, the numbers check on the summary, and target validation.
-- The Postgres checkpointer, the `agent.investigations` table and the restart reconcile, once A-01's DB init exists.
+- The Postgres checkpointer and the restart restore, once A-01's DB init exists. Built in B-04; the index is rebuilt from the checkpoints instead of an `agent.investigations` table.
 - The Langfuse hooks that A-03 builds on.
 
 **M3, Fri Nov 20 to Sat Nov 21: B-04.** Turn questions on (G16, G17, draft, approve, reply), resume idempotency, the restart test, reopen (G6), and reply weighing (G7 and the confidence rules).
@@ -95,6 +95,7 @@ agent/
     config.py            # pydantic-settings, read from the environment and agent/.env
     auth.py              # minimal JWT verifier per architecture.md (A-02 may replace with shared code)
     errors.py  logs.py  ids.py  cli.py  runner.py  store.py   # envelope; JSON logs + request id; IDs; CLI; background runs; index
+    persistence.py       # Postgres checkpointer; rebuilds the index from checkpoints at startup
     api/investigations.py
     contracts/           # Pydantic mirrors of contracts.md
     domain/client.py     # DomainPort protocol + HttpDomainClient (httpx.AsyncClient)
@@ -104,7 +105,7 @@ agent/
     prompts/system.md  prompts/render.py
     graph/state.py  graph/context.py  graph/build.py
     graph/rules.py  graph/gate.py  graph/finalize.py  graph/policy.py   # pure functions
-    graph/nodes/         # load_case, reason, guard, run_check, conclude_gate, finalize, submit, report_status, fail, questions (M3)
+    graph/nodes/         # load_case, reason, guard, run_check, conclude_gate, finalize, submit, report_status, fail, questions
     tracing.py           # Langfuse (M2); no-op when keys are unset
   scripts/make_fixtures.py  scripts/m0_spike.py
   tests/fixtures/domain/{STORE-A,STORE-B,STORE-C,common}/  tests/unit  tests/graph  tests/api
@@ -259,7 +260,7 @@ flowchart TD
 
 **Confidence caps.**
 - At most `medium` if any rival is `inconclusive`, the budget was spent, or the leader's support rests mostly on `pending` claims.
-- One level lower after `no_reply`, or after a conflicting reply about the leader (M3).
+- Then one level lower when a question about the leader got `no_reply`, or a reply is cited as contradicting the leader (`finalize.reply_gaps`). The reason goes to the evidence gaps.
 
 ## Nodes: reads, calls, writes, next
 
@@ -359,7 +360,7 @@ Every node checks `context.deadline` on entry, before any write, and returns `RU
   - Sets `next_action`, the typed request plus its canonical key, and `rise_started_at`.
   - Resets the rejection counter.
 - **On reject:** writes the violated rule IDs and the offending values to `guard_feedback`.
-- **Next:** `run_check`, `conclude_gate`, `reason`, `finalize`, or `draft_question` (M3).
+- **Next:** `run_check`, `conclude_gate`, `reason`, `finalize`, or `draft_question`.
 
 **`run_check`.** No model call.
 - **Reads:** `next_action`.
@@ -401,17 +402,19 @@ Every node checks `context.deadline` on entry, before any write, and returns `RU
 - **Writes:** status `failed` and `error {code, message}`, and logs a structured error line.
 - **Next:** `report_status`.
 
-**Question nodes (M3).** The `AskMerchantAction` variant is in the schema from day 1, so `schema_hash` stays stable. G16 rejects it while `AGENT_MAX_QUESTIONS=0`.
+**Question nodes (`nodes/questions.py`).** `AskMerchantAction` carries `separates`, the hypotheses the answer separates; adding it changed `schema_hash` once. G16 rejects every question while `AGENT_MAX_QUESTIONS=0`.
 - **`draft_question`:**
-  - **Calls:** `POST /internal/cases/{id}/proposals` with kind `merchant_question`, then `report_status` `awaiting_approval`.
-  - **Writes:** `question_proposal_id`, `question_open`, `questions_asked` and `asked_questions`.
+  - **Before it:** when questions are on, `load_case` calls `GET /cases/{id}/merchant-replies` once. Without that route, `questions_asked` starts at the cap, so the control message says questions aren't available and G16 refuses them from the first turn.
+  - **Calls:** `POST /internal/cases/{id}/proposals` with kind `merchant_question` and the separated hypotheses' evidence (at most 20 IDs, no `EV-RPL` IDs); then reports `awaiting_approval`. A 409 `PROPOSAL_PENDING` adopts this run's own pending question.
+  - **When the proposals route is missing:** no question is asked in the run. `questions_asked` goes to the cap, the record says `unavailable`, and the run goes back to `reason`.
+  - **Writes:** `question_proposal_id`, `question_open`, `questions_asked` and a `questions` record.
 - **`wait_question_decision`:**
   - **On entry:** runs only `interrupt()`, with no side effects before it, because the node re-runs on resume.
-  - **On resume:** calls `GET /proposals/{id}`. Approved goes to `wait_merchant_reply` with status `awaiting_merchant`. Rejected goes to `reason`. Still pending interrupts again.
+  - **On resume:** calls `GET /proposals/{id}`. Approved: reports `awaiting_merchant`, keeps the approved version's text, and goes to `wait_merchant_reply`. Rejected: reports `running`, records the scrubbed note, and goes to `reason`. Still pending, or Domain unavailable: back to itself, which pauses again.
 - **`wait_merchant_reply`:**
-  - **On entry:** runs only `interrupt()`.
-  - **On resume:** calls `GET /cases/{id}/merchant-replies` and writes the reply as `EV-RPL` evidence, plus `question_outcome`.
-  - **Next:** `reason`.
+  - **On entry:** calls `GET /cases/{id}/merchant-replies` before `interrupt()`, because Domain's simulated merchant can answer as soon as the question goes out. The read has no side effects, so it can run again on resume. The node pauses only while this question has no reply, or Domain is unavailable.
+  - **On a reply:** adds its `EV-RPL` ID to `retrieved_evidence_ids`, stores the scrubbed text (at most 1500 characters), reports `running` and goes to `reason`. A resume that still finds no reply goes back to itself, which reads again and pauses.
+- **Status reports** from these nodes are one call each through the run's Domain port. A failure is logged, and the final report supersedes it.
 
 ## Tools (`tools/registry.py`)
 
@@ -458,7 +461,10 @@ from `fraud_signals`.
 | G15 | A check needs `step_count < AGENT_MAX_STEPS`. Otherwise the run goes to finalize with `budget_spent`. |
 | G18 | Conclude: the leader exists, `rise_started_at` is inside the window, the action is in the catalog and applies to the cause, and the target's values exist and were tested by a check that supported the leader, as a filter value or a breakdown group |
 | P1 | Output policy on the free text: the summary, rationale and question. No requests for refunds, credits, store charges, deactivation, menu edits or customer contact. No URLs, emails, phone numbers or `customer_ref` values. A hit is rejected and traced as `blocked_action`. |
-| G6, G7, G16, G17 | Prior-run rulings, reply-only support, question availability and question content. All M3. |
+| G16 | A question needs one left, none open, wording not asked before, and a reasoning turn left for the answer |
+| G17 | The question has a question mark and at most 300 characters, `why_asked` at most 300, and `separates` names 1 to 3 hypotheses that exist and aren't ruled out |
+| G6 | On a reopened case, a cause the earlier run ruled out needs evidence that run didn't cite for it |
+| G7 | A reply alone can't support a hypothesis. G3 enforces it, since a reply is evidence, not a check. |
 
 **Conclude gate:**
 - **K1.** The leader is `supported`.
@@ -485,7 +491,7 @@ from `fraud_signals`.
 **Boundaries:**
 - The API checks the JWT, role and store grant. Domain calls forward the user's JWT.
 - Every call goes through the scoped Domain client. It pins the case and store, allow-lists paths and methods, and sends `X-Store-ID` and `X-Investigation-ID` once the case's store is known. `X-Service-Token` goes only on the two `/internal/` writes and on `POST /evidence/resolve`.
-- The model never writes. Only `submit_recommendation` (and `draft_question` in M3) create proposals, after the guard, the gate and finalize have validated them.
+- The model never writes. Only `submit_recommendation` and `draft_question` create proposals, after the guard (and for a recommendation, the gate and finalize) have validated them.
 - No token in state, logs or traces.
 
 **Untrusted text.** Every Domain-supplied string is rendered as escaped data inside tagged blocks in U1 and U2, capped at 300 characters. That covers `customer_comments`, reply text, event descriptions, menu and modifier names, headlines, notes and group labels. The system-role message carries only counters, rule IDs and computed checklists.
@@ -531,7 +537,7 @@ flowchart LR
 `assessment` → `matched` (list of `{hypothesis_id, outcome}`) → `hypothesis_updates` → `new_hypotheses` (`ref`, cause, statement, rationale, evidence) → `next_action`.
 - `next_action` is a union of three variants:
   - `CheckAction{plan: CheckPlan}`.
-  - `AskMerchantAction{question_text, why_asked}`.
+  - `AskMerchantAction{question_text, why_asked, separates}`.
   - `ConcludeAction{leading_hypothesis_id, rise_started_at, confidence, summary, recommendation{action_id, rationale, target}}`.
 - `CheckPlan` = `kind, purpose, discriminates, expectations, challenges ("" if none), request`, where `request` is a JSON object written as a string. Code decodes it and validates it against the 8 per-tool request models, picked by `tool` (and `evidence_type` for samples). Filter and scope fields the model leaves out default to no constraint.
 - A converter maps the wire shape to the internal state shapes in [agent-graph.md](agent-graph.md#reasonoutput).
@@ -603,13 +609,14 @@ sequenceDiagram
 - Read the row and check the store grant. Outside the grants, return 404.
 - Build the `InvestigationView` from `aget_state`.
 - The status turns terminal only after the run has saved its proposal and reported its status, so a `completed` view already carries its `pending_proposal_id`.
-- `pending_proposal_id` is the open question while awaiting approval, or the recommendation's proposal once completed.
+- While a segment is executing, the status is `running`, so the frontend keeps polling.
+- `pending_proposal_id` is the question while `awaiting_approval` or `awaiting_merchant`, or the recommendation's proposal once completed.
 - On an analyst's read of a finished investigation with `domain_sync_pending`, retry the status report in the background.
 
 **Other routes:**
 - `GET /investigations?case_id=` lists the permitted rows, newest first. Like a read, an analyst's list retries a finished row's failed status report in the background, because the case page reaches a finished run through the list.
-- Resume comes in M3.
-- `/health` doesn't touch the DB or Domain. `/ready` does.
+- `POST /investigations/{id}/resume`: analysts only. Under the case lock, it starts the next segment only when the run is paused, no segment is executing, and Domain shows the decision or the reply. Otherwise it returns the current view. A finished run gets 409 `INVESTIGATION_FINISHED`. Like Start, it returns 401 for a token that expires within `AGENT_RUN_TIMEOUT_SECONDS`, and 503 when the model or Domain is unavailable.
+- `/health` doesn't touch the DB or Domain. `/ready` does: Domain's `/health` in `http` mode, and `SELECT 1` through the pool in Postgres mode.
 - Every route uses the contracts error envelope.
 
 **Headers on Domain calls:**
@@ -623,16 +630,17 @@ sequenceDiagram
 - On an exception: `aupdate_state` as `fail`, update the row, and attempt a status report.
 - The row is synced after each run segment.
 
-**Startup reconcile (Postgres mode):**
-- For each `running` row, read `aget_state`.
-- A terminal state syncs the row. Anything else becomes `failed AGENT_RESTARTED`.
-- In memory mode, nothing survives a restart. A graceful stop still reports each cancelled run to Domain as `failed AGENT_RESTARTED`.
+**Startup restore (`persistence.py`):**
+- The index has no table. Every row field is in the run's checkpoint state, so startup reads each thread's latest checkpoint (`aget_state`) and rebuilds the row.
+- Paused and finished runs come back as they were. A run still `running`, or one whose next node is `submit_recommendation`, was cut off: its checkpoint becomes `failed AGENT_RESTARTED` with a status report due. A run whose final report hadn't run, or had failed, also has a report due. An analyst's next read or list sends it, and the runner then records it as sent in the checkpoint, so a later restart doesn't send it again.
+- Only each case's newest run keeps a report due, as when a new run starts, so an older run never overwrites the newer run's case status.
+- In memory mode nothing survives a restart. A graceful stop still reports each cancelled segment to Domain as `failed AGENT_RESTARTED`.
 
-**Persistence (M2):**
-- `AsyncPostgresSaver` (`langgraph.checkpoint.postgres.aio`) on a psycopg `AsyncConnectionPool` with `kwargs={"autocommit": True, "row_factory": dict_row}`.
-- Role `agent_svc` with `options=-c search_path=agent`.
-- `setup()` runs at startup and needs `CREATE` on schema `agent`.
-- The index table is created with idempotent DDL.
+**Persistence (`AGENT_CHECKPOINTER=postgres`, the Compose default):**
+- `AsyncPostgresSaver` (`langgraph.checkpoint.postgres.aio`) on a psycopg `AsyncConnectionPool` with `kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row}`.
+- The connection comes from `DATABASE_URL`, or from the `POSTGRES_*` settings Compose passes, as role `agent_svc`, whose `search_path` is `agent`.
+- `setup()` runs at startup. It creates the checkpointer's four tables, which `agent_svc` may do because it owns schema `agent`.
+- psycopg's async mode can't use Windows' default event loop. Run Postgres mode in the container, or on a selector loop as the live test does.
 
 **Environment variables** added to [architecture.md](architecture.md#environment-variables): `DATABASE_URL` for the agent, `AGENT_DOMAIN_MODE` (`http` or `fixtures`), `AGENT_FIXTURES_DIR`, `AGENT_CHECKPOINTER` (`postgres` or `memory`), `AGENT_RUN_TIMEOUT_SECONDS`, `AGENT_MAX_QUESTIONS` (0 until M3), `AGENT_SPEED` and the optional `AGENT_MAX_REASON_CALLS`. Local values live in `agent/.env`, copied from `agent/.env.example`.
 
@@ -663,24 +671,18 @@ flowchart TB
 
 - **`data_sufficient`** follows the per-tool rules in [contracts.md](contracts.md#when-a-result-has-enough-data).
 
-## Tracing and logs (hooks for A-03)
+## Tracing and logs
 
-`langfuse` isn't in the lockfile; M2 adds it with tracing. These are the v4 calls; confirm each against the version it adds:
-- **Trace attributes:** each run segment is wrapped in `propagate_attributes(trace_name, session_id=investigation_id, user_id=started_by, tags=[store_id], metadata={…str ≤200})`.
-- **Graph steps:** `CallbackHandler()` from `langfuse.langchain` goes in `config["callbacks"]`.
-- **Model calls:** `start_as_current_observation(as_type="generation", model=…, input=…)`, then `.update(output=…, usage_details=…)`.
-- **Tools and guard:** tool calls are spans. Rejections and `blocked_action` are events.
+A-03 built these in `agent/app/tracing.py` and `shared/observability.py`. [observability.md](observability.md)
+has the settings, the privacy rules and the probe commands.
 
-A-03 now supplies these hooks in `agent/app/tracing.py`, with shared JSON logs in
-`shared/observability.py`. The callback and explicit observations export redacted
-projections without mutating graph state. Model message content and untrusted
-prose are withheld; only source-controlled `StaticPrompt` text is retained.
-Without keys, tracing is a no-op. Flush/shutdown runs during Agent lifespan cleanup.
-`LANGFUSE_BASE_URL` takes precedence over the legacy `LANGFUSE_HOST` alias.
-JSON logs carry `request_id`, `case_id`, `investigation_id` and the active `trace_id`.
-The B-02 runner must call `app.state.tracing.ainvoke` per run/resume and instrument
-its direct Claude adapter; see [the integration guide](observability.md#hooks-for-the-b-02-workflow).
-The A-03 read-only probe validates these hooks independently while B-02 is pending.
+- **Turning it on.** The lifespan builds `app.state.tracing` from `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` and `LANGFUSE_BASE_URL` (or the older `LANGFUSE_HOST`). Without both keys, or with `LANGFUSE_TRACING_ENABLED=false`, tracing does nothing. The lifespan flushes and shuts it down on exit.
+- **One trace per run.** The runner wraps each run in `tracing.ainvoke`. The trace is named `investigation`, its session ID is the `investigation_id`, and its metadata holds the correlation IDs. A redacting `CallbackHandler` in `config["callbacks"]` records each graph step. Exports never change graph state.
+- **Claude calls.** The streaming adapter records each call as a `reason.model` generation, with input, output and cache token counts.
+- **Domain calls.** In `http` mode, the scoped client records each call as a `tool` observation named after the last path segment, for example `domain.claim-breakdown`. The fixture client isn't traced.
+- **What stays out.** Model message content and untrusted text are withheld from traces and logs. Guard and gate rejections have no observation of their own.
+- **Logs.** JSON lines carry `request_id`, `case_id`, `investigation_id` and the active `trace_id`.
+- **Probe.** `agent/app/trace_poc.py` checks the same hooks on a small graph of its own.
 
 ## Doc updates and open items
 

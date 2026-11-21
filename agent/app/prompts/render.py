@@ -22,6 +22,8 @@ from agent.app.llm.base import RenderedPrompt
 from agent.app.tools.registry import describe_request, render_tool_catalog
 
 TEXT_CAP = 300
+NOTE_CAP = 500  # an analyst's decision note
+REPLY_CAP = 1500  # a merchant's reply
 SHOWN_EVIDENCE_IDS = 20
 SHOWN_HYPOTHESIS_IDS = 10
 # An item_id or modifier group counts the claims that name the value over the orders that contain it.
@@ -131,6 +133,8 @@ def render_case_facts(state: dict[str, Any]) -> str:
     prior = state.get("prior_hypotheses", [])
     if prior:
         lines.append("<prior_rulings>")
+        lines.append("The case was reopened: the action the earlier run recommended didn't bring the rate down. "
+                     "Its hypotheses, with their final status:")
         for h in prior:
             lines.append(f"{h['hypothesis_id']} | {h['cause_category']} | {h['status']} | {esc(h.get('rationale'))}")
         lines.append("</prior_rulings>")
@@ -298,7 +302,43 @@ def render_events(state: dict[str, Any]) -> list[str]:
     return lines
 
 
+QUESTION_OUTCOMES = {
+    "pending": "waiting for the analyst",
+    "approved": "approved and sent, waiting for the merchant",
+    "rejected": "the analyst rejected it",
+    "replied": "the merchant replied",
+    "no_reply": "the merchant did not reply",
+    "unavailable": "not sent, because Domain can't take merchant questions",
+}
+
+
+def render_questions(state: dict[str, Any]) -> list[str]:
+    questions = state.get("questions", [])
+    if not questions:
+        return []
+    lines = ["<questions>"]
+    for q in questions:
+        parts = [q.get("proposal_id") or "not saved", QUESTION_OUTCOMES.get(q["outcome"], q["outcome"]),
+                 "separates " + ", ".join(q.get("separates", [])),
+                 f'asked: <data kind="question">{esc(q.get("approved_text") or q["question_text"])}</data>']
+        if q.get("decision_note"):
+            parts.append(f'analyst note: <data kind="decision_note">{esc(q["decision_note"], NOTE_CAP)}</data>')
+        if q.get("reply_evidence_id"):
+            parts.append(f"evidence {q['reply_evidence_id']}")
+        if q.get("reply_text"):
+            parts.append(f'reply: <data kind="merchant_reply">{esc(q["reply_text"], REPLY_CAP)}</data>')
+        lines.append(" | ".join(parts))
+    lines.append("</questions>")
+    return lines
+
+
 def render_latest(state: dict[str, Any]) -> list[str]:
+    # A question outcome reason hasn't acted on yet is the latest finding; <questions> has its details.
+    if state.get("question_outcome") in ("rejected", "replied", "no_reply", "unavailable") and state.get("questions"):
+        q = state["questions"][-1]
+        return [f'<latest_result kind="question" proposal="{q.get("proposal_id") or "none"}">',
+                f"{QUESTION_OUTCOMES[q['outcome']]}. The details are in <questions>.",
+                "</latest_result>"]
     latest = next((c for c in state.get("checks", []) if c["check_id"] == state.get("latest_check_id")), None)
     if latest is None:
         return ["<latest_result>none</latest_result>"]
@@ -362,6 +402,7 @@ def render_turn_state(state: dict[str, Any]) -> str:
         *render_hypotheses(state),
         *render_checks(state),
         *render_events(state),
+        *render_questions(state),
         *render_latest(state),
         *render_feedback(state),
     ]

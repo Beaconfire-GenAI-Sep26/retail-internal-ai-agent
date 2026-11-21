@@ -8,6 +8,8 @@ import time
 from importlib.metadata import version
 from typing import Any
 
+from langgraph.types import Command
+
 from agent.app.config import Settings
 from agent.app.contracts.enums import TERMINAL_STATUSES
 from agent.app.contracts.models import InvestigationStatusUpdate
@@ -74,12 +76,20 @@ class Runner:
     def config(self, investigation_id: str) -> dict[str, Any]:
         return run_config(investigation_id, self.settings.recursion_limit)
 
-    def start(self, row: InvestigationRow, *, token: str, request_id: str) -> None:
-        task = asyncio.create_task(self._run(row, token=token, request_id=request_id))
+    def start(self, row: InvestigationRow, *, token: str, request_id: str, resume: bool = False) -> None:
+        task = asyncio.create_task(self._run(row, token=token, request_id=request_id, resume=resume))
         self.tasks[row.investigation_id] = task
         task.add_done_callback(lambda _: self.tasks.pop(row.investigation_id, None))
 
-    async def _run(self, row: InvestigationRow, *, token: str, request_id: str) -> None:
+    def resume(self, row: InvestigationRow, *, token: str, request_id: str) -> None:
+        """Continue a paused run with this request's token. Its time limit starts again; waiting doesn't count."""
+        self.start(row, token=token, request_id=request_id, resume=True)
+
+    def is_active(self, investigation_id: str) -> bool:
+        """A segment of this run is executing."""
+        return investigation_id in self.tasks
+
+    async def _run(self, row: InvestigationRow, *, token: str, request_id: str, resume: bool = False) -> None:
         investigation_id_var.set(row.investigation_id)
         case_id_var.set(row.case_id)
         request_id_var.set(request_id)
@@ -93,20 +103,13 @@ class Runner:
             request_id=request_id,
             deadline=time.monotonic() + self.settings.agent_run_timeout_seconds,
         )
-        state = initial_state(
-            investigation_id=row.investigation_id,
-            case_id=row.case_id,
-            store_id=row.store_id,
-            started_by=row.started_by,
-            started_at=row.started_at,
-            reopen_of=row.reopen_of,
-            run_config=run_config_record(self.settings, self.model),
-        )
         config = self.config(row.investigation_id)
-        log_event(logger, logging.INFO, "investigation started", store_id=row.store_id)
+        log_event(logger, logging.INFO, "investigation resumed" if resume else "investigation started",
+                  store_id=row.store_id)
         try:
+            graph_input = await self._graph_input(row, resume)
             await asyncio.wait_for(
-                self.tracing.ainvoke(self.graph, state, config=config, context=ctx, durability="sync",
+                self.tracing.ainvoke(self.graph, graph_input, config=config, context=ctx, durability="sync",
                     request_id=request_id, case_id=row.case_id, investigation_id=row.investigation_id),
                 timeout=self.settings.agent_run_timeout_seconds + BACKSTOP_SECONDS,
             )
@@ -122,6 +125,23 @@ class Runner:
             await self.sync_row(row.investigation_id)
             log_event(logger, logging.INFO, "investigation segment ended",
                       status=(self.store.get(row.investigation_id) or row).status)
+
+    async def _graph_input(self, row: InvestigationRow, resume: bool) -> Any:
+        if resume:
+            # The paused node re-reads Domain; the value only has to be a non-empty resume.
+            return Command(resume={"resumed_at": now_iso()})
+        # A reopened case starts from the earlier run's rulings (G6), read from that run's checkpoint.
+        prior = await self.state_values(row.reopen_of) if row.reopen_of else {}
+        return initial_state(
+            investigation_id=row.investigation_id,
+            case_id=row.case_id,
+            store_id=row.store_id,
+            started_by=row.started_by,
+            started_at=row.started_at,
+            reopen_of=row.reopen_of,
+            run_config=run_config_record(self.settings, self.model),
+            prior_hypotheses=prior.get("hypotheses", []),
+        )
 
     async def _record_failure(self, row: InvestigationRow, domain: Any, code: str, message: str) -> None:
         error = {"code": code, "message": message}
@@ -199,6 +219,11 @@ class Runner:
                           investigation_id=row.investigation_id, case_id=row.case_id)
                 return
         self.store.update(row.investigation_id, domain_sync_pending=False)
+        try:  # so a restart doesn't send it again
+            await self.graph.aupdate_state(self.config(row.investigation_id), {"domain_sync_pending": False},
+                                           as_node="report_status")
+        except Exception:
+            logger.exception("could not record the sent report in the checkpoint")
 
     async def shutdown(self) -> None:
         tasks = [*self.tasks.values(), *self.flush_tasks.values()]

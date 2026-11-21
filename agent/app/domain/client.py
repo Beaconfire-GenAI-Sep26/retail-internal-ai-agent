@@ -20,6 +20,7 @@ from agent.app.contracts.models import (
     EvidenceResolveResponse,
     InvestigationStatusUpdate,
     MenuItem,
+    MerchantReply,
     Proposal,
     ProposalCreate,
     ToolResult,
@@ -91,6 +92,8 @@ class DomainPort(Protocol):
     async def fraud_signals(self, store_id: str, start: str, end: str) -> ToolResult: ...
     async def resolve_evidence(self, store_id: str, evidence_ids: list[str]) -> EvidenceResolveResponse: ...
     async def create_proposal(self, case_id: str, body: ProposalCreate) -> Proposal: ...
+    async def get_proposal(self, proposal_id: str) -> Proposal: ...
+    async def list_merchant_replies(self, case_id: str) -> list[MerchantReply]: ...
     async def report_investigation_status(self, case_id: str, body: InvestigationStatusUpdate) -> None: ...
 
 
@@ -256,6 +259,13 @@ class _BoundHttpDomain:
             "POST", f"/internal/cases/{_p(case_id)}/proposals", body=body.model_dump(mode="json"), internal=True
         )
         return Proposal.model_validate(data)
+
+    async def get_proposal(self, proposal_id: str) -> Proposal:
+        return Proposal.model_validate(await self._call("GET", f"/proposals/{_p(proposal_id)}"))
+
+    async def list_merchant_replies(self, case_id: str) -> list[MerchantReply]:
+        data = await self._call("GET", f"/cases/{_p(case_id)}/merchant-replies")
+        return [MerchantReply.model_validate(reply) for reply in data]
 
     async def report_investigation_status(self, case_id: str, body: InvestigationStatusUpdate) -> None:
         await self._call(

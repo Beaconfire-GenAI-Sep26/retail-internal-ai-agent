@@ -2,17 +2,28 @@
 
 import json
 import logging
+import time
+
+import pytest
+from langgraph.types import Command
 
 from agent.app.domain.client import DomainError
 from agent.app.domain.fixtures import FixtureDomainClient
 from agent.app.errors import MODEL_REFUSED, RUN_TIMEOUT, UPSTREAM_UNAVAILABLE
+from agent.app.graph.build import build_graph, run_config
+from agent.app.graph.context import AgentContext
 from agent.app.graph.nodes.submit import NO_PROPOSALS_ROUTE_GAP
+from agent.app.graph.state import initial_state
+from agent.app.ids import CounterIdFactory
 from agent.app.llm.base import ModelError
 from agent.app.llm.scripted_model import ScriptedReasonModel
 from agent.app.logs import JsonFormatter
+from agent.app.prompts.render import render_turn_state
 from agent.tests.conftest import FIXTURES, capture_state, make_settings, run_investigation
 from agent.tests.scripts import (
+    B_QUESTION,
     FULL,
+    ask,
     breakdown,
     check,
     compare,
@@ -23,6 +34,7 @@ from agent.tests.scripts import (
     out,
     scope,
     store_a_turns,
+    store_b_question_turns,
     store_b_turns,
     upd,
 )
@@ -308,3 +320,176 @@ async def test_a_failed_status_report_stays_pending():
     final, _ = await run_investigation("STORE-A", ScriptedReasonModel(store_a_turns()), settings=make_settings(),
                                        domain=domain)
     assert final["status"] == "completed" and final["domain_sync_pending"] is True
+
+
+# --- B-04: a merchant question pauses the run until Domain shows the decision and the reply ---------------
+
+
+class PausedRun:
+    """One STORE-B run with questions on, resumed the way the runner resumes it."""
+
+    def __init__(self, turns, domain=None):
+        self.domain = domain or FixtureDomainClient(FIXTURES, replies=True)
+        self.model = ScriptedReasonModel(turns)
+        settings = make_settings(agent_max_questions=2)
+        self.graph = build_graph()
+        self.config = run_config("INV-TEST-STORE-B", settings.recursion_limit)
+        self.ctx = AgentContext(domain=self.domain, model=self.model, ids=CounterIdFactory(), settings=settings,
+                                user_id="USR-001", request_id="req-test", deadline=time.monotonic() + 600)
+
+    async def start(self):
+        case = self.domain.case_for_store("STORE-B")
+        state = initial_state(investigation_id="INV-TEST-STORE-B", case_id=case.case_id, store_id="STORE-B",
+                              started_by="USR-001", started_at="2026-11-18T15:00:00Z", reopen_of=None, run_config={})
+        await self.graph.ainvoke(state, self.config, context=self.ctx, durability="sync")
+        return await self.graph.aget_state(self.config)
+
+    async def resume(self):
+        await self.graph.ainvoke(Command(resume={"resumed_at": "test"}), self.config, context=self.ctx,
+                                 durability="sync")
+        return await self.graph.aget_state(self.config)
+
+    def reports(self):
+        return [u["status"] for u in self.domain.status_updates]
+
+    def question(self):
+        return next(p for p in self.domain.proposals.values() if p.kind == "merchant_question")
+
+
+def looking(seen, turn):
+    """A turn that keeps the prompt the model saw, then answers with `turn`."""
+    def answer(state):
+        seen.append(render_turn_state(state))
+        return turn
+    return answer
+
+
+async def test_a_question_waits_for_approval_and_the_reply_then_the_run_finishes():
+    seen = []
+    run = PausedRun(store_b_question_turns(
+        [looking(seen, out("The merchant's answer fits store-side packing.", store_b_turns()[-1]["next_action"]))]))
+    snap = await run.start()
+    question = run.question()
+    assert snap.next == ("wait_question_decision",) and snap.values["status"] == "awaiting_approval"
+    assert question.status == "pending" and question.dispatch is None and question.content["question_text"] == B_QUESTION
+    assert set(question.evidence_ids) <= set(snap.values["retrieved_evidence_ids"])
+    assert run.reports() == ["awaiting_approval"]
+    with pytest.raises(DomainError) as early:  # nothing reaches the merchant before the analyst approves
+        run.domain.record_reply(question.proposal_id, "replied", "Too early.")
+    assert early.value.code == "NOT_DISPATCHED"
+
+    snap = await run.resume()  # stale: nothing decided yet, so nothing happens
+    assert snap.next == ("wait_question_decision",) and len(run.domain.proposals) == 1
+    assert run.reports() == ["awaiting_approval"]
+
+    edited = "How are large dinner orders bagged, and does every bag reach the Dasher?"
+    run.domain.proposals[question.proposal_id] = question.model_copy(
+        update={"version": 2, "content": {**question.content, "question_text": edited}})
+    run.domain.decide(question.proposal_id, "approve")
+    snap = await run.resume()
+    assert snap.next == ("wait_merchant_reply",) and snap.values["status"] == "awaiting_merchant"
+    assert snap.values["questions"][0]["approved_text"] == edited  # the version the analyst approved
+    snap = await run.resume()  # stale: no reply yet
+    assert snap.next == ("wait_merchant_reply",) and run.reports() == ["awaiting_approval", "awaiting_merchant"]
+
+    reply = run.domain.record_reply(question.proposal_id, "replied", "Large orders go out in two bags. "
+                                    "The second one is sometimes left on the shelf at dinner.")
+    final = (await run.resume()).values
+    assert final["status"] == "completed" and final["result"]["outcome"] == "diagnosis"
+    assert reply.evidence_id in final["retrieved_evidence_ids"]
+    assert final["questions"][0]["outcome"] == "replied"
+    assert run.reports() == ["awaiting_approval", "awaiting_merchant", "running", "completed"]
+    # A reply nobody cited against the leader leaves the confidence alone (medium: dasher_handoff stays open),
+    # and the analyst sees what the merchant said, unverified.
+    assert final["result"]["confidence"] == "medium"
+    assert final["result"]["unverified_reply_claims"][0].startswith(f"{reply.evidence_id}: Large orders go out")
+    assert '<latest_result kind="question"' in seen[0] and "second one is sometimes left" in seen[0]
+
+
+async def test_a_rejected_question_is_recorded_and_isnt_asked_again():
+    conclusion = out("The analyst rejected the question.", store_b_turns()[-1]["next_action"])
+    repeat = out("The analyst rejected the question.",
+                 ask(B_QUESTION.lower(), "Same question again.", ["@hyp:packing", "@hyp:dasher_handoff"]))
+    run = PausedRun(store_b_question_turns([repeat, conclusion]))
+    await run.start()
+    question = run.question()
+    run.domain.decide(question.proposal_id, "reject", note="Don't ask about bags. Call 555-123-4567.")
+    final = (await run.resume()).values
+    # G16 rejected the repeat, so no second question was created and the run went on to its diagnosis.
+    assert final["status"] == "completed" and run.model.calls == len(run.model.turns)
+    assert [p.kind for p in run.domain.proposals.values()].count("merchant_question") == 1
+    record = final["questions"][0]
+    assert record["outcome"] == "rejected" and "555-123-4567" not in record["decision_note"]
+    assert run.reports() == ["awaiting_approval", "running", "completed"]
+
+
+async def test_no_reply_is_recorded_as_evidence_and_the_run_goes_on():
+    run = PausedRun(store_b_question_turns())
+    await run.start()
+    question = run.question()
+    run.domain.decide(question.proposal_id, "approve")
+    await run.resume()
+    reply = run.domain.record_reply(question.proposal_id, "no_reply")
+    final = (await run.resume()).values
+    assert final["status"] == "completed" and final["questions"][0]["outcome"] == "no_reply"
+    assert reply.evidence_id in final["retrieved_evidence_ids"] and final["questions"][0]["reply_text"] is None
+    # The question was about the leader, so the missing answer costs a level: medium becomes low.
+    assert final["result"]["confidence"] == "low"
+    assert any("didn't answer question" in g for g in final["result"]["evidence_gaps"])
+
+
+async def test_a_reply_already_in_domain_needs_no_second_resume():
+    run = PausedRun(store_b_question_turns())
+    await run.start()
+    question = run.question()
+    run.domain.decide(question.proposal_id, "approve")
+    # Domain's simulated merchant answers as soon as the question goes out, before the UI resumes.
+    reply = run.domain.record_reply(question.proposal_id, "replied", "Large orders go out in two bags.")
+    final = (await run.resume()).values
+    assert final["status"] == "completed" and final["questions"][0]["outcome"] == "replied"
+    assert reply.evidence_id in final["retrieved_evidence_ids"]
+    assert run.reports() == ["awaiting_approval", "awaiting_merchant", "running", "completed"]
+
+
+async def test_a_reply_that_conflicts_with_the_leader_lowers_confidence():
+    conclusion = store_b_turns()[-1]["next_action"]
+    weighed = out("The merchant says bags are never left behind, which the large-order rate contradicts.",
+                  conclusion, updates=[upd("@hyp:packing", "supported", "Platform data outweighs the reply.",
+                                           contradicting=["EV-RPL-000001"])])
+    run = PausedRun(store_b_question_turns([weighed]))
+    await run.start()
+    question = run.question()
+    run.domain.decide(question.proposal_id, "approve")
+    await run.resume()
+    run.domain.record_reply(question.proposal_id, "replied", "We never leave a bag behind.")
+    result = (await run.resume()).values["result"]
+    assert result["outcome"] == "diagnosis" and result["confidence"] == "low"
+    assert "EV-RPL-000001" in result["contradicting_evidence_ids"]
+
+
+async def test_domain_down_during_a_resume_keeps_the_run_paused():
+    run = PausedRun(store_b_question_turns())
+    await run.start()
+    question = run.question()
+    run.domain.decide(question.proposal_id, "approve")
+    run.domain.faults["get_proposal"] = DomainError(503, "UPSTREAM_UNAVAILABLE", "down")
+    snap = await run.resume()
+    assert snap.next == ("wait_question_decision",) and not snap.values.get("error")
+    del run.domain.faults["get_proposal"]
+    assert (await run.resume()).next == ("wait_merchant_reply",)
+
+
+async def test_without_the_reply_route_no_question_is_offered():
+    run = PausedRun(store_b_question_turns(), domain=FixtureDomainClient(FIXTURES))  # like today's Domain
+    final = (await run.start()).values
+    # load_case found no merchant-replies route, so G16 refused the question and the run concluded.
+    assert final["status"] == "completed" and final["questions"] == []
+    assert final["questions_asked"] == 2 and "Merchant questions: not available" in run.model.prompts[-1].control
+    assert all(p.kind != "merchant_question" for p in run.domain.proposals.values())
+
+
+async def test_without_the_proposals_route_the_question_is_unavailable():
+    run = PausedRun(store_b_question_turns(), domain=FixtureDomainClient(FIXTURES, replies=True, faults={
+        "create_proposal": ROUTE_MISSING}))
+    final = (await run.start()).values
+    assert final["questions"][0]["outcome"] == "unavailable" and final["questions_asked"] == 2

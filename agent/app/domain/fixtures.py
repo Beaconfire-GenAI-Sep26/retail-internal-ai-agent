@@ -27,6 +27,7 @@ from agent.app.contracts.models import (
     EvidenceResolveResponse,
     InvestigationStatusUpdate,
     MenuItem,
+    MerchantReply,
     Proposal,
     ProposalCreate,
     ToolResult,
@@ -119,8 +120,12 @@ class FixtureDomainClient:
         variants: dict[str, dict[str, str]] | None = None,
         faults: dict[str, DomainError] | None = None,
         catalog: list[ActionCatalogEntry] | None = None,
+        replies: bool = False,
     ):
         self.root = Path(root)
+        # Like today's Domain, no merchant-replies route unless asked: then a fixtures-mode service never drafts a
+        # question nobody could decide. Tests that exercise questions pass replies=True.
+        self.replies_route = replies
         self.catalog = list(catalog) if catalog is not None else load_bundled_catalog()
         self.stores: dict[str, _StoreFixtures] = {}
         for folder in sorted(p for p in self.root.iterdir() if p.is_dir()):
@@ -131,6 +136,7 @@ class FixtureDomainClient:
         self.misses: list[dict[str, Any]] = []
         self.status_updates: list[dict[str, Any]] = []
         self.proposals: dict[str, Proposal] = {}
+        self.replies: dict[str, MerchantReply] = {}  # by proposal_id: one reply per question
         for store_id, files in (variants or {}).items():
             for name, filename in files.items():
                 result = ToolResult.model_validate(_load(self.stores[store_id].folder / filename))
@@ -272,7 +278,9 @@ class FixtureDomainClient:
 
     async def resolve_evidence(self, store_id: str, evidence_ids: list[str]) -> EvidenceResolveResponse:
         self._record("resolve_evidence", store_id=store_id, evidence_ids=evidence_ids)
-        known = self._store(store_id).known_ids
+        store = self._store(store_id)
+        known = store.known_ids | {r.evidence_id for r in self.replies.values()
+                                   if self.proposals[r.proposal_id].case_id == store.case.case_id}
         valid = [e for e in evidence_ids if e in known]
         invalid = [{"evidence_id": e, "reason": "not_found"} for e in evidence_ids if e not in known]
         return EvidenceResolveResponse(valid=valid, invalid=invalid)
@@ -295,6 +303,51 @@ class FixtureDomainClient:
         self.proposals[proposal_id] = proposal
         return proposal
 
+    async def get_proposal(self, proposal_id: str) -> Proposal:
+        self._record("get_proposal", proposal_id=proposal_id)
+        if proposal_id not in self.proposals:
+            raise DomainError(404, "NOT_FOUND", f"Proposal {proposal_id} was not found.")
+        return self.proposals[proposal_id].model_copy(deep=True)
+
+    async def list_merchant_replies(self, case_id: str) -> list[MerchantReply]:
+        self._record("list_merchant_replies", case_id=case_id)
+        if not self.replies_route:
+            raise DomainError(404, "NOT_FOUND", "Not Found")  # the generic 404 of a route Domain doesn't have
+        return [r.model_copy() for r in self.replies.values() if self.proposals[r.proposal_id].case_id == case_id]
+
     async def report_investigation_status(self, case_id: str, body: InvestigationStatusUpdate) -> None:
         self._record("report_investigation_status", case_id=case_id, body=body.model_dump(mode="json"))
         self.status_updates.append({"case_id": case_id, **body.model_dump(mode="json")})
+
+    # Test helpers: what an analyst does in Domain (C-03 decisions, C-04 replies), with Domain's rules.
+    def decide(self, proposal_id: str, decision: str, note: str | None = None) -> Proposal:
+        proposal = self.proposals[proposal_id]
+        if proposal.status != "pending":
+            raise DomainError(409, "ALREADY_DECIDED", f"Proposal {proposal_id} was already {proposal.status}.")
+        update: dict[str, Any] = {"status": "approved" if decision == "approve" else "rejected",
+                                  "decided_by": "USR-001", "decided_at": "2026-11-20T15:00:00Z",
+                                  "decision_note": note}
+        if decision == "approve":
+            question = proposal.kind == "merchant_question"
+            update["dispatch"] = {
+                "dispatch_id": f"DSP-{len(self.proposals):06d}", "status": "dispatched",
+                "channel": "mock_merchant" if question else "mock_team_queue",
+                "owner_team": "merchant" if question else proposal.content.get("owner_team"),
+                "dispatched_at": "2026-11-20T15:00:00Z",
+            }
+        self.proposals[proposal_id] = proposal.model_copy(update=update)
+        return self.proposals[proposal_id]
+
+    def record_reply(self, proposal_id: str, outcome: str, text: str | None = None) -> MerchantReply:
+        proposal = self.proposals[proposal_id]
+        if proposal.kind != "merchant_question" or proposal.status != "approved":
+            raise DomainError(409, "NOT_DISPATCHED", f"Proposal {proposal_id} was not sent to the merchant.")
+        if proposal_id in self.replies:
+            raise DomainError(409, "REPLY_EXISTS", f"A reply is already recorded for {proposal_id}.")
+        if outcome == "replied" and not text:
+            raise DomainError(422, "VALIDATION_ERROR", "text: required when outcome is replied.")
+        reply = MerchantReply(evidence_id=f"EV-RPL-{len(self.replies) + 1:06d}", proposal_id=proposal_id,
+                              outcome=outcome, text=text if outcome == "replied" else None,
+                              recorded_by="USR-001", recorded_at="2026-11-20T16:00:00Z")
+        self.replies[proposal_id] = reply
+        return reply

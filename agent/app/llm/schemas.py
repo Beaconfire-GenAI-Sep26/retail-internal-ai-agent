@@ -259,8 +259,9 @@ class CheckAction(WireModel):
 
 class AskMerchantAction(WireModel):
     type: Annotated[Literal["ask_merchant"], BeforeValidator(_lower)]
-    question_text: str
-    why_asked: str = Field(description="Which hypotheses the answer separates")
+    question_text: str = Field(description="One short question the merchant can answer, with a question mark")
+    why_asked: str = Field(description="One sentence for the analyst: what the answer will tell apart")
+    separates: list[str] = Field(description="1 to 3 hypotheses the answer separates or confirms. Each is " + HYP_REF)
 
 
 class TargetWire(WireModel):

@@ -30,6 +30,7 @@ async def guard(state: InvestigationState, runtime: Runtime[AgentContext]) -> di
         max_steps=settings.agent_max_steps,
         max_questions=settings.agent_max_questions,
         ids=ctx.ids,
+        max_reason_calls=settings.max_reason_calls,
     )
     if not decision.accepted:
         rejections = state.get("consecutive_rejections", 0) + 1
@@ -57,6 +58,7 @@ async def guard(state: InvestigationState, runtime: Runtime[AgentContext]) -> di
         "guard_feedback": None,
         "gate_feedback": None,
         "next_action": decision.action,
+        "question_outcome": None,  # reason has acted on the latest question outcome
     }
     latest_id = state.get("latest_check_id")
     latest = next((c for c in state.get("checks", []) if c["check_id"] == latest_id), None)

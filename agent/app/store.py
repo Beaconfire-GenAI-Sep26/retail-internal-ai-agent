@@ -1,4 +1,4 @@
-"""The investigation index. In memory until the agent.investigations table lands (M2)."""
+"""The investigation index, in memory. With Postgres checkpoints it is rebuilt from them at startup (persistence.py)."""
 
 from __future__ import annotations
 
@@ -45,6 +45,10 @@ class InvestigationStore:
         existing = self.active_for_case(row.case_id)
         if existing is not None:
             raise ActiveInvestigationError(existing)
+        self._rows[row.investigation_id] = row
+
+    def restore(self, row: InvestigationRow) -> None:
+        """Puts back a row rebuilt from its checkpoint after a restart."""
         self._rows[row.investigation_id] = row
 
     def get(self, investigation_id: str) -> InvestigationRow | None:

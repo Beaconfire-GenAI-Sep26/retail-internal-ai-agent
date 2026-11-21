@@ -663,24 +663,18 @@ flowchart TB
 
 - **`data_sufficient`** follows the per-tool rules in [contracts.md](contracts.md#when-a-result-has-enough-data).
 
-## Tracing and logs (hooks for A-03)
+## Tracing and logs
 
-`langfuse` isn't in the lockfile; M2 adds it with tracing. These are the v4 calls; confirm each against the version it adds:
-- **Trace attributes:** each run segment is wrapped in `propagate_attributes(trace_name, session_id=investigation_id, user_id=started_by, tags=[store_id], metadata={…str ≤200})`.
-- **Graph steps:** `CallbackHandler()` from `langfuse.langchain` goes in `config["callbacks"]`.
-- **Model calls:** `start_as_current_observation(as_type="generation", model=…, input=…)`, then `.update(output=…, usage_details=…)`.
-- **Tools and guard:** tool calls are spans. Rejections and `blocked_action` are events.
+A-03 built these in `agent/app/tracing.py` and `shared/observability.py`. [observability.md](observability.md)
+has the settings, the privacy rules and the probe commands.
 
-A-03 now supplies these hooks in `agent/app/tracing.py`, with shared JSON logs in
-`shared/observability.py`. The callback and explicit observations export redacted
-projections without mutating graph state. Model message content and untrusted
-prose are withheld; only source-controlled `StaticPrompt` text is retained.
-Without keys, tracing is a no-op. Flush/shutdown runs during Agent lifespan cleanup.
-`LANGFUSE_BASE_URL` takes precedence over the legacy `LANGFUSE_HOST` alias.
-JSON logs carry `request_id`, `case_id`, `investigation_id` and the active `trace_id`.
-The B-02 runner must call `app.state.tracing.ainvoke` per run/resume and instrument
-its direct Claude adapter; see [the integration guide](observability.md#hooks-for-the-b-02-workflow).
-The A-03 read-only probe validates these hooks independently while B-02 is pending.
+- **Turning it on.** The lifespan builds `app.state.tracing` from `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` and `LANGFUSE_BASE_URL` (or the older `LANGFUSE_HOST`). Without both keys, or with `LANGFUSE_TRACING_ENABLED=false`, tracing does nothing. The lifespan flushes and shuts it down on exit.
+- **One trace per run.** The runner wraps each run in `tracing.ainvoke`. The trace is named `investigation`, its session ID is the `investigation_id`, and its metadata holds the correlation IDs. A redacting `CallbackHandler` in `config["callbacks"]` records each graph step. Exports never change graph state.
+- **Claude calls.** The streaming adapter records each call as a `reason.model` generation, with input, output and cache token counts.
+- **Domain calls.** In `http` mode, the scoped client records each call as a `tool` observation named after the last path segment, for example `domain.claim-breakdown`. The fixture client isn't traced.
+- **What stays out.** Model message content and untrusted text are withheld from traces and logs. Guard and gate rejections have no observation of their own.
+- **Logs.** JSON lines carry `request_id`, `case_id`, `investigation_id` and the active `trace_id`.
+- **Probe.** `agent/app/trace_poc.py` checks the same hooks on a small graph of its own.
 
 ## Doc updates and open items
 

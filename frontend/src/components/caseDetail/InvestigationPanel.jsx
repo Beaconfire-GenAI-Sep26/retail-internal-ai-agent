@@ -7,6 +7,7 @@
 //   │ 2. The shared spot (one at a time):                              │
 //   │      question (6) · reply (7) · result (8) + action (9) · error (10) │
 //   │      or, with no run from the agent, the case's saved action (9)  │
+//   │    Did the fix work? — the recheck (13), once an action is sent   │
 //   │ 3. Checks (11)  |  Possible causes (12)                          │
 //   └──────────────────────────────────────────────────────────────────┘
 //
@@ -34,6 +35,7 @@ import ResultPanel from './ResultPanel';
 import RecommendationReview from './RecommendationReview';
 import QuestionReview from './QuestionReview';
 import MerchantReplyCard from './MerchantReplyCard';
+import RecheckPanel from './RecheckPanel';
 import PreviousInvestigation from './PreviousInvestigation';
 import ErrorPanel from './ErrorPanel';
 import CheckTimeline from './CheckTimeline';
@@ -162,6 +164,9 @@ const InvestigationPanel = ({ caseId }) => {
 
       {/* ── Part 2: the shared spot (boxes 6–10) ── */}
       <Slot view={view} caseId={caseId} investigation={investigation} timeZone={timeZone} />
+
+      {/* Did the fix work? (box 13) — under the action it checks; hides itself until a recheck exists */}
+      <RecheckPanel caseId={caseId} />
 
       {/* ── Part 3: checks (box 11) | possible causes (box 12) ── */}
       {view.showTimeline && (

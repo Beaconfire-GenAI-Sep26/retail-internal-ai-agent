@@ -13,7 +13,7 @@
 //
 // Scheduled: the analyst can run it now ("Run recheck now").
 // Shown at steps 6 and 7 and the ends after them (getCaseView.showRecheck).
-// Sits under InvestigationPanel, outside it (page map).
+// Sits inside InvestigationPanel, under the recommendation it checks and above the checks.
 
 
 // ═══════════════════════════════════════════════════════════════════

@@ -88,7 +88,7 @@ Key rules:
 | 12 | `HypothesisList` | Possible causes, and where each stands | Agent `hypotheses[]` | To build |
 | 13 | `RecheckPanel` | Did the fix work? Compared with untouched orders. | Domain rechecks | To build |
 | 14 | `EvidenceDrawer` | The record behind an evidence ID | Domain `GET /evidence/{id}` | To build |
-| 15 | `PreviousInvestigation` | The first run, folded: cause, action, failed recheck | Agent `GET /investigations/{reopen_of}`, Domain rechecks | To build |
+| 15 | `PreviousInvestigation` | The first run, folded: cause, merchant questions and replies, action, failed recheck | Agent `GET /investigations/{reopen_of}`, Domain rechecks | To build |
 | 16 | `AuditLog` | Who did what, and when | Domain `GET /cases/{id}/audit` | To build |
 
 Layout:

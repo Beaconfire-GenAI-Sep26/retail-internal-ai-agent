@@ -4,10 +4,13 @@
 // The first run stays visible for the whole second run (getCaseView.showPrevious).
 //
 //   ▸ First investigation · Packing → Add a bag check for large orders → Recheck [Not improved] 26 / 193 (13.5%)
-//     (open) the full result, the action that was sent, and the recheck numbers
+//     (open) the full result, its merchant questions and replies, the action that was
+//     sent, and the recheck numbers
 //
 // Data: Agent GET /investigations/{reopen_of}; its action and recheck come from
-// CaseDetail (proposals, rechecks), matched by the first run's proposal_id.
+// CaseDetail (proposals, rechecks), matched by the first run's proposal_id. Its
+// questions come from CaseDetail.proposals by investigation_id, their replies from
+// Domain merchant-replies (QuestionReview's read-only history).
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -20,6 +23,7 @@ import { selectPrevious } from '../../store/investigations/investigationsSelecto
 import { selectCaseDetail } from '../../store/cases/casesSelectors';
 import { findRecheck } from './caseSteps';
 import ResultPanel from './ResultPanel';
+import QuestionReview from './QuestionReview';
 import { RecheckFacts, RecheckPill } from './RecheckPanel';
 import { formatRateWindow, labelOf, CAUSE_LABELS, OWNER_TEAM_LABELS } from '../../api/format';
 
@@ -28,7 +32,8 @@ import { formatRateWindow, labelOf, CAUSE_LABELS, OWNER_TEAM_LABELS } from '../.
 // 2. PreviousInvestigation component
 // ═══════════════════════════════════════════════════════════════════
 // investigation: the current (second) run — its reopen_of names the first
-const PreviousInvestigation = ({ investigation }) => {
+// timeZone: the store's, for the question and reply times
+const PreviousInvestigation = ({ investigation, timeZone }) => {
   const dispatch = useDispatch();
   const previousId = investigation.reopen_of;
   const previous = useSelector(selectPrevious);
@@ -79,6 +84,8 @@ const PreviousInvestigation = ({ investigation }) => {
       <div className='previous-body'>
         <p className='muted'>{view.investigation_id} · started by {view.started_by}</p>
         {result && <ResultPanel result={result} checks={view.checks} hypotheses={view.hypotheses} />}
+        {/* The first run's merchant questions and replies; nothing if it asked none */}
+        <QuestionReview mode='history' investigation={view} timeZone={timeZone} />
         {action && (
           <div className='previous-action'>
             <h4>Action sent</h4>

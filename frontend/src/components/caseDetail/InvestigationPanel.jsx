@@ -124,7 +124,7 @@ const InvestigationPanel = ({ caseId }) => {
       </div>
 
       {/* Second run: the first one, folded (box 15) */}
-      {view.showPrevious && <PreviousInvestigation investigation={investigation} />}
+      {view.showPrevious && <PreviousInvestigation investigation={investigation} timeZone={timeZone} />}
 
       {/* ── Part 1: Start (box 4) and/or progress (box 5) ── */}
       {/* A poll got 404: the agent restarted while this page was open */}

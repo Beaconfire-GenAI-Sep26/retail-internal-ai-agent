@@ -19,6 +19,7 @@ if not (make_url(os.environ["DOMAIN_TEST_DATABASE_URL"]).database or "").startsw
 os.environ["DATABASE_URL"] = os.environ["DOMAIN_TEST_DATABASE_URL"]
 os.environ.setdefault("JWT_SECRET", "domain-test-signing-secret-at-least-32-bytes")
 os.environ.setdefault("INTERNAL_SERVICE_TOKEN", "domain-test-service-token")
+os.environ.setdefault("MOCK_REPLY_DELAY_SECONDS", "0")  # replies arrive at once; test_replies_rechecks covers the delay
 
 from domain.app.db import SessionLocal
 from domain.app.main import app

@@ -16,13 +16,13 @@ WORKFLOW_SCENARIOS = [
     dict(
         scenario_id="W-01",
         title="No merchant reply",
-        based_on="GS-05",
-        store_id="STORE-K",
+        based_on="GS-12",
+        store_id="STORE-R",
         tickets=["C-05", "B-04", "D-05"],
         steps=[
-            "the agent proposes a merchant_question on the STORE-K case",
+            "the agent proposes a merchant_question on the STORE-R case (only the merchant knows if the modifier prints)",
             "an analyst approves the current version",
-            "the merchant never answers (STORE-K has no mock merchant answer)",
+            "the merchant never answers (STORE-R has no mock merchant answer)",
             "the analyst records that the merchant did not reply (outcome no_reply)",
             "the investigation resumes",
             "the no_reply is recorded again",

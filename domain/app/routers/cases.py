@@ -1,10 +1,13 @@
-from fastapi import APIRouter, Depends, Query
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, Header, Query, Request
 from sqlalchemy.orm import Session
 
 from domain.app.deps import get_session
-from domain.app.models import CaseStatus
+from domain.app.errors import ApiError, request_id
+from domain.app.models import CaseStatus, IdempotencyRecord
 from domain.app.schemas import AuditEntryOut, CaseDetail, CaseSummary, MerchantReply, Recheck
-from domain.app.security import CurrentUser, current_user
+from domain.app.security import CurrentUser, current_user, require_analyst
 from domain.app.services import cases, proposals, replies
 from domain.app.services.audit import list_audit
 
@@ -51,3 +54,31 @@ def get_merchant_replies(case_id: str, user: CurrentUser = Depends(current_user)
     """
     proposals.visible_case(session, user, case_id)
     return replies.case_replies(session, case_id)
+
+
+@router.post("/cases/{case_id}/close", response_model=CaseSummary)
+def close_case(
+    case_id: str,
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    user: CurrentUser = Depends(require_analyst),
+    session: Session = Depends(get_session),
+):
+    """Mark a case resolved ("Mark as resolved"): analyst_review -> closed. Analyst only.
+
+    Any other status gets 409 CASE_NOT_CLOSABLE. Writes a case.closed audit row. Requires an
+    Idempotency-Key header; a repeat returns the first result and writes nothing.
+    """
+    if not idempotency_key or len(idempotency_key) > 64:
+        raise ApiError(422, "VALIDATION_ERROR", "An Idempotency-Key header of 1 to 64 characters is required.")
+    route = f"POST /cases/{case_id}/close"
+    case = proposals.visible_case(session, user, case_id, lock=True)
+    stored = session.get(IdempotencyRecord, {"key": idempotency_key, "route": route})
+    if stored is not None:
+        session.rollback()
+        return CaseSummary.model_validate(stored.response)
+    out = cases.close_case(session, user, case, request_id(request))
+    session.add(IdempotencyRecord(key=idempotency_key, route=route, status_code=200,
+                                  response=out.model_dump(mode="json"), created_at=datetime.now(timezone.utc)))
+    session.commit()
+    return out

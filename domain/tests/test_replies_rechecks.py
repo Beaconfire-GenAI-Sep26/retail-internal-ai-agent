@@ -4,6 +4,7 @@ import uuid
 import pytest
 
 from domain.tests.conftest import auth
+from domain.tests.test_proposals import claim_id
 
 STORES = [f"STORE-{c}" for c in "ABCDEFGHIJKLM"]
 ANALYST = auth(store_ids=STORES)  # the conftest default only covers A-J
@@ -45,7 +46,8 @@ def propose(client, case_id, store_id, content, kind=None):
                     else "intervention" if content["owner_team"] == "merchant" else "handoff")
     headers = {**ANALYST, "X-Investigation-ID": "INV-C05", "X-Store-ID": store_id}
     r = client.post(f"/internal/cases/{case_id}/proposals", headers=headers,
-                    json={"investigation_id": "INV-C05", "kind": kind, "content": content, "evidence_ids": []})
+                    json={"investigation_id": "INV-C05", "kind": kind, "content": content,
+                          "evidence_ids": [] if kind == "merchant_question" else [claim_id(store_id)]})
     assert r.status_code == 201, r.text
     return r.json()["proposal_id"]
 

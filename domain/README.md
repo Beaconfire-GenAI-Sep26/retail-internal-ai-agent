@@ -77,6 +77,14 @@ python -m pytest -q domain/tests
 
 ## Migrate and seed
 
+For an existing Docker Compose database, run `make up` to apply pending migrations
+and restore runtime grants without clearing data. For the demo seed, run `make reset`
+from the repository root. It stops
+active application services, clears Agent checkpoints, reseeds Domain, restores
+permissions, and restarts the stack while preserving Auth accounts. See the
+[Make commands](../README.md#make-commands-for-the-demo). The manual commands below
+are for individual administrative operations.
+
 Migrations and evaluation data require an administrative database identity.
 Runtime Domain deliberately has no access to `eval`. Starting the API does not
 run administrative migrations or reset data.

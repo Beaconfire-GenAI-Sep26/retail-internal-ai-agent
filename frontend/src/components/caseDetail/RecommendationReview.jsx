@@ -115,6 +115,9 @@ const DecisionOutcome = ({ proposal, timeZone }) => {
   );
 };
 
+// proposal_kind of an action → the small label above its title
+const KIND_LABELS = { intervention: 'Intervention', handoff: 'Handoff to another team' };
+
 const STATUS_PILLS = {
   pending: <Pill tone='warn'>Waiting for a decision</Pill>,
   approved: <Pill tone='ok'>Approved</Pill>,
@@ -164,46 +167,61 @@ const RecommendationReview = ({ proposalId, timeZone }) => {
   const alreadyDecided = !pending && write?.error?.code === 'ALREADY_DECIDED';
 
   return (
-    <div className='recommendation-review'>
-      <div className='recommendation-head'>
-        <h3>Recommended action</h3>
-        {STATUS_PILLS[proposal.status]}
-        <span className='muted'>version {proposal.version}</span>
+    <div className={`recommendation-review recommendation-${proposal.status}`}>
+      {/* Band on top: red while it waits for the analyst, quiet once decided */}
+      <div className='recommendation-band'>
+        <h3>
+          <svg viewBox='0 0 24 24' aria-hidden='true' fill='none' stroke='currentColor' strokeWidth='2.4'
+            strokeLinecap='round' strokeLinejoin='round'>
+            <path d='M22 2L11 13M22 2l-7 20-4-9-9-4z' />
+          </svg>
+          Recommended action{pending && <span className='recommendation-band-note'> · nothing is sent until you approve</span>}
+        </h3>
+        <span className='recommendation-band-meta'>
+          {!pending && STATUS_PILLS[proposal.status]} version {proposal.version}
+        </span>
       </div>
 
-      {editing && pending ? (
-        <EditForm proposal={proposal} onDone={() => setEditing(false)} />
-      ) : (
-        <>
-          <p className='recommendation-title'>{content.title}</p>
-          <p className='recommendation-instructions'>{content.instructions}</p>
-        </>
-      )}
+      <div className='recommendation-body'>
+        {editing && pending ? (
+          <EditForm proposal={proposal} onDone={() => setEditing(false)} />
+        ) : (
+          <>
+            <span className='eyebrow'>{labelOf(KIND_LABELS, proposal.kind)}</span>
+            <p className='recommendation-title'>{content.title}</p>
+            <p className='recommendation-instructions'>{content.instructions}</p>
+          </>
+        )}
 
-      <dl className='recommendation-facts'>
-        <div><dt>Goes to</dt><dd>{labelOf(OWNER_TEAM_LABELS, content.owner_team)}</dd></div>
-        <div><dt>Orders</dt><dd>{formatTarget(content.target)}</dd></div>
-        <div><dt>Recheck</dt><dd>{content.recheck_after_days} days after it is sent</dd></div>
-      </dl>
-      {content.rationale && <p className='muted'>Why: {content.rationale}</p>}
-      <EvidenceLinks label='Evidence' ids={proposal.evidence_ids} />
+        {/* The three facts the analyst checks before approving, as a row of cells */}
+        <dl className='recommendation-facts'>
+          <div><dt className='eyebrow'>Goes to</dt><dd>{labelOf(OWNER_TEAM_LABELS, content.owner_team)}</dd></div>
+          <div><dt className='eyebrow'>Orders</dt><dd>{formatTarget(content.target)}</dd></div>
+          <div><dt className='eyebrow'>Recheck</dt><dd>{content.recheck_after_days} days after it is sent</dd></div>
+        </dl>
+        {content.rationale && <p className='recommendation-why'><strong>Why:</strong> {content.rationale}</p>}
+        <EvidenceLinks label='Evidence' ids={proposal.evidence_ids} tone='support' />
 
-      {/* ── Decide (pending) or what was decided ── */}
-      {pending ? (
-        <>
-          {isAnalyst && !editing && (
-            <button type='button' className='button-secondary recommendation-edit' onClick={() => setEditing(true)} disabled={busy}>
-              Edit
-            </button>
-          )}
-          <DecisionControls proposal={proposal} approveLabel='Approve and send' disabled={editing} />
-        </>
-      ) : (
-        <>
-          {alreadyDecided && <p className='error' role='alert'>{write.error.message}</p>}
-          <DecisionOutcome proposal={proposal} timeZone={timeZone} />
-        </>
-      )}
+        {/* ── Decide (pending) or what was decided ── */}
+        {pending ? (
+          <DecisionControls
+            proposal={proposal}
+            approveLabel='Approve and send'
+            disabled={editing}
+            // Edit sits next to Approve; hidden while the edit form is open
+            extra={isAnalyst && !editing && (
+              <button type='button' className='button-secondary' onClick={() => setEditing(true)} disabled={busy}>
+                Edit
+              </button>
+            )}
+          />
+        ) : (
+          <>
+            {alreadyDecided && <p className='error' role='alert'>{write.error.message}</p>}
+            <DecisionOutcome proposal={proposal} timeZone={timeZone} />
+          </>
+        )}
+      </div>
     </div>
   );
 };

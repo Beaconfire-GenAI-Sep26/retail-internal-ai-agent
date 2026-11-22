@@ -110,7 +110,7 @@ describe('getNextAction', () => {
 
   it('asks for a decision at steps 3 and 5', () => {
     expect(next(inv('awaiting_approval'), caseIn('awaiting_decision'))).toMatchObject({ cta: 'Review question' });
-    expect(next(inv('completed'), caseIn('awaiting_decision'))).toMatchObject({ cta: 'Review action' });
+    expect(next(inv('completed'), caseIn('awaiting_decision'))).toMatchObject({ cta: 'Review action', target: 'decide' });
   });
 
   it('nothing while the agent works or after the action is sent', () => {

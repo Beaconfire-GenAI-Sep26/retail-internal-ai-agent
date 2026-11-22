@@ -136,7 +136,8 @@ export const getCaseStages = ({ view, investigation, caseDetail }) => {
 // ═══════════════════════════════════════════════════════════════════
 // The one thing the analyst should do now, for the banner at the top of the
 // page, or null (nothing to do, the agent is working, or a viewer is signed in).
-// → { title, text, cta }
+// → { title, text, cta, target? } — target: the anchor to jump to when it isn't
+//   the investigation chapter ('decide' = the recommended action, chapter 3)
 const NEXT_ACTIONS = {
   1: {
     title: 'Start the investigation',
@@ -157,6 +158,7 @@ const NEXT_ACTIONS = {
     title: 'Your decision is needed',
     text: 'The agent recommends an action. Nothing is sent until you approve it.',
     cta: 'Review action',
+    target: 'decide',
   },
   7: {
     title: "The fix didn't work",

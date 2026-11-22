@@ -2,7 +2,8 @@
 //   (!)  Your decision is needed                                [Review action ↓]
 //        The agent recommends an action. Nothing is sent until you approve it.
 // Shown only to analysts, only when the case waits for them (caseStages.js
-// getNextAction). The button jumps to the investigation, where the action is.
+// getNextAction). The button jumps to the chapter where the analyst acts:
+// the recommended action ('decide') or else the investigation (target prop).
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -34,7 +35,7 @@ const NextActionBanner = ({ view, caseDetail, target }) => {
         <strong>{next.title}</strong>
         <span>{next.text}</span>
       </div>
-      <a className='next-action-cta' href={`#${target}`}>{next.cta} ↓</a>
+      <a className='next-action-cta' href={`#${next.target ?? target}`}>{next.cta} ↓</a>
     </div>
   );
 };

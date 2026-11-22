@@ -169,6 +169,9 @@ div.error button:hover:not(:disabled) { border-color: var(--border-strong); }
 div.error button:hover:not(:disabled) { background: var(--surface-soft); }
 
 input,
+select,
+textarea { box-sizing: border-box; }
+input,
 select {
   font: inherit;
   font-size: 0.9rem;
@@ -549,9 +552,11 @@ h4 { font-size: 0.8rem; margin: 0; font-weight: 600; letter-spacing: 0.04em; tex
 .investigation-progress h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .evidence-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.88rem; }
 
-/* Shared spot (boxes 6–10): a tinted block so it reads as "the answer" */
+/* The investigation card: the agent's run — a faint purple edge marks agent output */
+.investigation-panel { border-color: var(--agent-line); }
+
+/* Shared spot (boxes 6, 7, 10): a tinted block so it reads as "the answer" */
 .slot-placeholder,
-.result-panel,
 .error-panel {
   display: grid;
   gap: 10px;
@@ -560,25 +565,57 @@ h4 { font-size: 0.8rem; margin: 0; font-weight: 600; letter-spacing: 0.04em; tex
   border: 1px solid var(--border);
   background: var(--surface-soft);
 }
-.result-panel { border-left: 4px solid var(--ok); }
-.result-unsure { border-left-color: var(--warn); }
 .error-panel { border-color: transparent; border-left: 4px solid var(--danger); background: var(--danger-soft); }
 .error-panel details { font-size: 0.85rem; color: var(--text-muted); }
 .error-panel dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 6px 0 0; }
 .error-panel dd { margin: 0; overflow-wrap: anywhere; }
-.result-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.result-head h3 { font-size: 1.1rem; }
-.result-section { display: grid; gap: 4px; }
-.result-section ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
-.result-section .evidence-links { margin-top: 2px; }
 
-/* Checks | Possible causes — two columns, one on narrow screens */
+/* Result (box 8): the card itself is the frame; the verdict is the largest text */
+.result-panel { display: grid; gap: 14px; }
+.agent-tag { display: inline-flex; align-items: center; gap: 6px; justify-self: start; font-size: 0.78rem; font-weight: 600; color: var(--agent); }
+.agent-tag svg { width: 14px; height: 14px; }
+.result-verdict { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 8px 16px; }
+.result-verdict > div:first-child { display: grid; gap: 4px; min-width: 0; }
+.result-verdict h3 { font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; }
+.confidence { display: grid; justify-items: end; gap: 6px; }
+.confidence-bars { display: inline-flex; gap: 3px; }
+.confidence-bars i { width: 18px; height: 6px; border-radius: 2px; background: var(--border-strong); }
+.confidence-ok i.on { background: var(--ok); }
+.confidence-accent i.on { background: var(--info); }
+.confidence-warn i.on { background: var(--warn); }
+.result-summary { max-width: 70ch; font-size: 0.97rem; line-height: 1.6; color: var(--text-2); }
+.result-foot { font-size: var(--fs-sm); color: var(--text-muted); }
+/* The proof: supporting / contradicting records, and the challenge it survived */
+.result-proof { display: grid; gap: 8px; padding: 14px 16px; border-radius: 12px; background: var(--surface-soft); }
+.result-held { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--text-2); }
+.result-held svg { width: 14px; height: 14px; color: var(--ok); }
+/* Ruled out · Couldn't check · Merchant said — side by side, each with its color */
+.result-sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.result-side { display: grid; align-content: start; gap: 8px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; min-width: 0; }
+.result-side h4 { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; letter-spacing: 0; text-transform: none; color: var(--text); }
+.result-side h4::before { content: ''; flex: none; width: 8px; height: 8px; border-radius: 2px; background: var(--text-faint); }
+.result-side-gap h4::before { background: var(--warn); }
+.result-side-said h4::before { background: var(--agent); }
+.result-side ul { margin: 0; padding: 0; list-style: none; display: grid; }
+.result-side li { padding: 8px 0; border-top: 1px dashed var(--border); font-size: 0.86rem; color: var(--text-2); }
+.result-side li:first-child { padding-top: 0; border-top: none; }
+.result-side li .evidence-links { margin-top: 6px; }
+.result-side-out li strong { color: var(--text-muted); text-decoration: line-through; text-decoration-color: var(--text-faint); }
+.result-side-said q { font-style: italic; }
+
+/* Checks | Possible causes — own card (chapter "How the agent got there"),
+   two columns, one on narrow screens */
+.reasoning-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  box-shadow: var(--shadow);
+}
 .investigation-columns {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   gap: 20px;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
 }
 .check-timeline,
 .hypothesis-list { display: grid; align-content: start; gap: 10px; }
@@ -616,30 +653,60 @@ h4 { font-size: 0.8rem; margin: 0; font-weight: 600; letter-spacing: 0.04em; tex
 .hypothesis-ruled_out { opacity: 0.75; }
 .hypothesis-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 
-/* Stack by the panel's own width, not the window's: with the side nav and the
-   activity sidebar, the panel can be ~400px wide on a 1000px window.
+/* Stack by the card's own width, not the window's: with the side nav and the
+   activity sidebar, the card can be ~400px wide on a 1000px window.
    Nothing inside the panel is position:fixed (a container would capture it). */
-.investigation-panel { container: investigation / inline-size; }
+.reasoning-card { container: investigation / inline-size; }
 @container investigation (max-width: 600px) {
   .investigation-columns { grid-template-columns: 1fr; }
 }
 
-/* ═══ 10. Recommended action + decisions — box 9 (D-03) ═══ */
+/* ═══ 10. Recommended action + decisions — box 9 (D-03, D-06) ═══ */
+/* Its own chapter. While pending it is the one big red thing on the page:
+   red frame + red band. Once decided it is a plain card with a quiet band. */
 .recommendation-review {
-  display: grid;
-  gap: 10px;
-  padding: 16px 18px;
+  overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--surface);
+  box-shadow: var(--shadow);
 }
-.recommendation-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
-.recommendation-head .muted { font-size: 0.82rem; }
-.recommendation-title { font-size: 1.05rem; font-weight: 600; }
-.recommendation-instructions { white-space: pre-wrap; }
-.recommendation-facts { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0; font-size: 0.9rem; }
-.recommendation-facts dt { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
-.recommendation-facts dd { margin: 0; }
+.recommendation-review > .muted,
+.recommendation-review > .error { margin: 16px 22px; }
+.recommendation-pending { border: 2px solid var(--brand); box-shadow: 0 6px 24px rgba(235, 23, 0, 0.08); }
+.recommendation-band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 11px 22px;
+  background: var(--surface-soft);
+  border-bottom: 1px solid var(--border);
+}
+.recommendation-band h3 { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
+.recommendation-band svg { width: 16px; height: 16px; flex: none; }
+.recommendation-band-note { font-weight: 500; }
+.recommendation-band-meta { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text-muted); }
+.recommendation-pending .recommendation-band { background: var(--brand); border-bottom-color: var(--brand); color: #fff; }
+.recommendation-pending .recommendation-band-meta { color: #fff; opacity: 0.85; }
+.recommendation-body { display: grid; gap: 14px; padding: 18px 22px 22px; }
+.recommendation-body > .eyebrow { margin-bottom: -10px; }
+.recommendation-title { font-size: 1.2rem; font-weight: 700; letter-spacing: -0.015em; line-height: 1.3; }
+.recommendation-instructions {
+  padding: 12px 16px;
+  border-left: 3px solid var(--text);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--surface-soft);
+  color: var(--text-2);
+  white-space: pre-wrap;
+}
+/* Goes to · Orders · Recheck — a row of cells */
+.recommendation-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.recommendation-facts > div { padding: 10px 14px; box-shadow: -1px 0 0 var(--border); }
+.recommendation-facts dd { margin: 4px 0 0; font-weight: 600; }
+.recommendation-why { font-size: 0.88rem; color: var(--text-muted); }
+.recommendation-why strong { color: var(--text-2); }
 button.recommendation-edit { justify-self: start; }
 
 /* Text fields used by the edit form and the decision note */
@@ -659,7 +726,9 @@ button.recommendation-edit { justify-self: start; }
 
 .proposal-edit { display: grid; gap: 10px; }
 .proposal-edit label { display: grid; gap: 4px; font-size: 0.9rem; font-weight: 500; }
-.decision-controls { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+.decision-controls { display: grid; gap: 6px; padding-top: 14px; border-top: 1px solid var(--border); }
+.decision-controls .decision-buttons { justify-content: flex-start; margin-top: 6px; }
+button.decision-reject { margin-left: auto; }
 .decision-controls > label { font-size: 0.9rem; font-weight: 500; }
 .decision-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .decision-outcome { display: grid; gap: 2px; padding-top: 10px; border-top: 1px solid var(--border); }

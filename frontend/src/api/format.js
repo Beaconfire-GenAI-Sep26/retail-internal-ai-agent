@@ -320,6 +320,7 @@ export const formatInvestigationError = (code) =>
 // investigation.started is written only by the mock.
 export const AUDIT_ACTION_LABELS = {
   'case.opened': 'Case opened',
+  'case.closed': 'Case closed by analyst',
   // Domain writes investigation.<status> when the agent reports one (C-03);
   // the start arrives as investigation.running. investigation.started is the mock's.
   'investigation.running': 'Investigation started',

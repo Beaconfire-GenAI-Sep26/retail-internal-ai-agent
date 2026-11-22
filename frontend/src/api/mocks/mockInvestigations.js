@@ -18,6 +18,7 @@
 //     POST /domain/proposals/{id}/decision          → mockDecideProposal
 //     POST /domain/proposals/{id}/merchant-reply    → mockRecordReply
 //     POST /domain/rechecks/{id}/run                → mockRunRecheck
+//     POST /domain/cases/{id}/close                 → mockCloseCase
 //
 // Every function resolves to the same body the real endpoint returns, and
 // rejects with an axios-like error carrying the contract error envelope:
@@ -804,6 +805,28 @@ export const mockRunRecheck = async (recheckId, { user, idempotencyKey } = {}) =
     } else setCase(recheck.case_id, { status: 'analyst_review' });
 
     return clone(done);
+  });
+  save();
+  return result;
+};
+
+
+// POST /domain/cases/{id}/close → CaseSummary-like { case_id, status }
+// Only from analyst_review (409 CASE_NOT_CLOSABLE otherwise).
+export const mockCloseCase = async (caseId, { user, idempotencyKey } = {}) => {
+  await delay(300);
+  requireAnalyst(user);
+  requireCase(caseId, user);
+
+  const result = await withIdempotency(`close:${caseId}`, idempotencyKey, async () => {
+    const { status } = caseState(caseId);
+    if (status !== 'analyst_review') {
+      throw mockError(409, 'CASE_NOT_CLOSABLE', `Case ${caseId} is ${status}; only a case in analyst review can be closed.`,
+        { case_status: status });
+    }
+    setCase(caseId, { status: 'closed' });
+    audit(caseId, user, 'case.closed');
+    return { case_id: caseId, status: 'closed' };
   });
   save();
   return result;

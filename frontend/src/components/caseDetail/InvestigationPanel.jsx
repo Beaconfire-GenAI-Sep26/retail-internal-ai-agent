@@ -36,6 +36,7 @@ import RecommendationReview from './RecommendationReview';
 import QuestionReview from './QuestionReview';
 import MerchantReplyCard from './MerchantReplyCard';
 import RecheckPanel from './RecheckPanel';
+import CloseCaseButton from './CloseCaseButton';
 import PreviousInvestigation from './PreviousInvestigation';
 import ErrorPanel from './ErrorPanel';
 import CheckTimeline from './CheckTimeline';
@@ -174,6 +175,9 @@ const InvestigationPanel = ({ caseId }) => {
           reopenOf={investigation.investigation_id}
         />
       )}
+
+      {/* Analyst review (rejected action, unsure, second fix failed): close it once handled */}
+      {view.showClose && <CloseCaseButton caseId={caseId} />}
 
       {/* ── Part 3: checks (box 11) | possible causes (box 12) ── */}
       {view.showTimeline && (

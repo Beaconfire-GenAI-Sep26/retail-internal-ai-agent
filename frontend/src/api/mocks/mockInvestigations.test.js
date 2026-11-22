@@ -239,6 +239,17 @@ describe('other endings', () => {
     expect(m.applyMockCase(realCase('CASE-0001')).rechecks).toHaveLength(0);
   });
 
+  it('analyst_review → Mark as resolved closes it, once', async () => {
+    expect((await fail(m.mockCloseCase, 'CASE-0001', { ...ctx, idempotencyKey: 'k0' })).data.error.code).toBe('CASE_NOT_CLOSABLE');
+    const start = await call(m.mockStartInvestigation, { case_id: 'CASE-0001', reopen_of: null }, ctx);
+    const done = await pollToRest(start.investigation_id);
+    await decide(await call(m.mockGetProposal, done.result.proposal_id, ctx), 'reject');
+    expect((await fail(m.mockCloseCase, 'CASE-0001', { user: viewer, idempotencyKey: 'k1' })).status).toBe(403);
+    expect(await call(m.mockCloseCase, 'CASE-0001', { ...ctx, idempotencyKey: 'k2' })).toMatchObject({ status: 'closed' });
+    expect(caseStatus('CASE-0001')).toBe('closed');
+    expect((await fail(m.mockCloseCase, 'CASE-0001', { ...ctx, idempotencyKey: 'k3' })).data.error.code).toBe('CASE_NOT_CLOSABLE');
+  });
+
   it('insufficient data → paused', async () => {
     const start = await call(m.mockStartInvestigation, { case_id: 'CASE-0001', reopen_of: null }, ctx);
     const done = await pollToRest(start.investigation_id);

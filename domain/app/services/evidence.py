@@ -1,4 +1,6 @@
 """Evidence records (contracts.md `Evidence`): one claim, cancellation, operational event or merchant reply."""
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -117,7 +119,7 @@ def load_evidence(session: Session, evidence_ids: list[str]) -> dict[str, Eviden
         for r, store_id in session.execute(
             select(MerchantReply, Case.store_id)
             .join(Case, Case.case_id == MerchantReply.case_id)
-            .where(MerchantReply.evidence_id.in_(ids))
+            .where(MerchantReply.evidence_id.in_(ids), MerchantReply.recorded_at <= datetime.now(timezone.utc))
         ):
             found[r.evidence_id] = reply_evidence(r, store_id)
     return found

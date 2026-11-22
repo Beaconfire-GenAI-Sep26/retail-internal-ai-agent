@@ -1,11 +1,14 @@
 """C-05: merchant replies (mock merchant + no_reply) and running rechecks on the future snapshot."""
+import dataclasses
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from domain.tests.conftest import auth
+from domain.tests.test_proposals import claim_id
 
-STORES = [f"STORE-{c}" for c in "ABCDEFGHIJKLM"]
+STORES = [f"STORE-{c}" for c in "ABCDEFGHIJKLMQR"]
 ANALYST = auth(store_ids=STORES)  # the conftest default only covers A-J
 QUESTION = {"question_text": "How are large dinner orders bagged?", "why_asked": "Missing items rose on dinner orders."}
 
@@ -23,7 +26,7 @@ M_FIX = action("send_to_fraud_review", "fraud_review", days=7)
 
 
 def open_cases(client) -> dict[str, str]:
-    """Open the seeded cases (A, B, K, L, M) and return {store_id: case_id}."""
+    """Open the seeded cases (A, B, K, L, M, Q, R) and return {store_id: case_id}."""
     r = client.post("/monitor/run", headers={**ANALYST, "Idempotency-Key": "t-c05"}, json={"as_of": "2026-11-15"})
     assert r.status_code == 200
     return {c["store_id"]: c["case_id"] for c in client.get("/cases", headers=ANALYST).json()}
@@ -45,7 +48,8 @@ def propose(client, case_id, store_id, content, kind=None):
                     else "intervention" if content["owner_team"] == "merchant" else "handoff")
     headers = {**ANALYST, "X-Investigation-ID": "INV-C05", "X-Store-ID": store_id}
     r = client.post(f"/internal/cases/{case_id}/proposals", headers=headers,
-                    json={"investigation_id": "INV-C05", "kind": kind, "content": content, "evidence_ids": []})
+                    json={"investigation_id": "INV-C05", "kind": kind, "content": content,
+                          "evidence_ids": [] if kind == "merchant_question" else [claim_id(store_id)]})
     assert r.status_code == 201, r.text
     return r.json()["proposal_id"]
 
@@ -136,6 +140,64 @@ def test_no_reply_is_recorded_once_and_replays_return_the_first_result(client, c
     assert reply(client, pid, key="click-1").json() == first.json()  # replay: same result, nothing new
     assert len(replies(client, case_k)) == 1
     assert reply(client, pid, key="click-2").json()["error"]["code"] == "REPLY_EXISTS"
+
+
+def test_a_delayed_mock_answer_stays_hidden_until_it_arrives(client, cases, monkeypatch):
+    """MOCK_REPLY_DELAY_SECONDS: the answer is saved at approval but shows up only at recorded_at."""
+    from domain.app.services import replies as svc
+    monkeypatch.setattr(svc, "settings", dataclasses.replace(svc.settings, mock_reply_delay_seconds=60))
+    case_b = cases["STORE-B"]
+    pid = propose(client, case_b, "STORE-B", QUESTION)
+    before = datetime.now(timezone.utc)
+    approve(client, pid)
+    assert replies(client, case_b) == []  # not arrived: the agent pauses on awaiting_merchant
+
+    # 60 seconds later (moved forward in the database instead of waiting)
+    from sqlalchemy import update
+    from domain.app.db import SessionLocal
+    from domain.app.models import MerchantReply
+    with SessionLocal() as s:
+        arrives = s.query(MerchantReply).filter_by(proposal_id=pid).one().recorded_at
+        assert timedelta(seconds=59) < arrives - before < timedelta(seconds=70)
+        s.execute(update(MerchantReply).where(MerchantReply.proposal_id == pid)
+                  .values(recorded_at=datetime.now(timezone.utc) - timedelta(seconds=1)))
+        s.commit()
+    [r] = replies(client, case_b)
+    assert r["recorded_by"] == "svc_mock_merchant" and "two bags" in r["text"]
+    ev = client.get(f"/evidence/{r['evidence_id']}", headers=ANALYST)
+    assert ev.status_code == 200
+
+
+def test_evidence_and_no_reply_before_the_mock_answer_arrives(client, cases, monkeypatch):
+    from domain.app.services import replies as svc
+    monkeypatch.setattr(svc, "settings", dataclasses.replace(svc.settings, mock_reply_delay_seconds=60))
+    case_b = cases["STORE-B"]
+    pid = propose(client, case_b, "STORE-B", QUESTION)
+    approve(client, pid)
+    from domain.app.db import SessionLocal
+    from domain.app.models import MerchantReply
+    with SessionLocal() as s:
+        hidden = s.query(MerchantReply).filter_by(proposal_id=pid).one().evidence_id
+    assert client.get(f"/evidence/{hidden}", headers=ANALYST).status_code == 404
+    resolved = client.post("/evidence/resolve", headers=ANALYST,
+                           json={"store_id": "STORE-B", "evidence_ids": [hidden]}).json()
+    assert resolved["valid"] == []  # can't be cited before it arrives
+
+    # The analyst gives up waiting: no_reply replaces the answer that hasn't arrived
+    r = reply(client, pid)
+    assert r.status_code == 201 and r.json()["outcome"] == "no_reply"
+    assert [x["outcome"] for x in replies(client, case_b)] == ["no_reply"]
+    assert reply(client, pid).json()["error"]["code"] == "REPLY_EXISTS"
+
+
+def test_store_q_answers_and_store_r_never_does(client, cases):
+    """The merchant-question pair: same problem, Q's merchant replies, R's never does (W-01)."""
+    q, r = (propose(client, cases[s], s, QUESTION) for s in ("STORE-Q", "STORE-R"))
+    approve(client, q)
+    approve(client, r)
+    [answer] = replies(client, cases["STORE-Q"])
+    assert answer["proposal_id"] == q and "prints on the kitchen ticket" in answer["text"]
+    assert replies(client, cases["STORE-R"]) == []
 
 
 def test_only_merchant_questions_take_replies(client, cases):

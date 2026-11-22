@@ -135,19 +135,19 @@ def test_w05_dispatch_without_approval(client, case_a, monkeypatch):
 
 
 def test_w01_no_merchant_reply(client, clean_cases):
-    case_k = c05.open_cases(client)["STORE-K"]
-    pid = c05.propose(client, case_k, "STORE-K", c05.QUESTION)
+    case_r = c05.open_cases(client)["STORE-R"]
+    pid = c05.propose(client, case_r, "STORE-R", c05.QUESTION)
     c05.approve(client, pid)
-    obs = [{"case_status": c05.case_view(client, case_k)["status"]}]
+    obs = [{"case_status": c05.case_view(client, case_r)["status"]}]
     dispatch = client.get(f"/proposals/{pid}", headers=c05.ANALYST).json()["dispatch"]
-    obs.append({"dispatches": counts(case_k)["dispatches"], "channel": dispatch["channel"]})
-    obs.append({"replies": len(c05.replies(client, case_k))})
+    obs.append({"dispatches": counts(case_r)["dispatches"], "channel": dispatch["channel"]})
+    obs.append({"replies": len(c05.replies(client, case_r))})
 
     r = c05.reply(client, pid, "no_reply")
     ev = client.get(f"/evidence/{r.json()['evidence_id']}", headers=c05.ANALYST).json()
     obs.append(seen(r, evidence_type=ev["type"], outcome=r.json()["outcome"]))
     obs.append({})  # the agent's conclusion: checked by the B-05 runner
-    obs.append(seen(c05.reply(client, pid, "no_reply"), replies=len(c05.replies(client, case_k))))
+    obs.append(seen(c05.reply(client, pid, "no_reply"), replies=len(c05.replies(client, case_r))))
     check("W-01", obs)
 
 

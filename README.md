@@ -55,7 +55,11 @@ docker compose config --quiet
 ```
 
 The localhost example enables demo accounts:
-`analyst` / `Password123!` for STORE-A/B, and `viewer` / `Password123!` for STORE-A.
+`analyst` / `Password123!` for all demo/optional holdout stores (STORE-A through
+STORE-R), and `viewer` / `Password123!` for STORE-A. With `SEED_AUTH_ACCOUNTS=true`,
+restarting Auth also upgrades the existing demo analyst's store grants while
+preserving its password and sessions. Sign in again or refresh the session to get
+an access token with the expanded grants.
 Use `COOKIE_SECURE=true` and `PUBLIC_ORIGIN` for HTTPS deployments; the example
 uses HTTP on localhost.
 

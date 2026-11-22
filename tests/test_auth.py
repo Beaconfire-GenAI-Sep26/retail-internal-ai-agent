@@ -9,7 +9,7 @@ from auth.app.main import create_app
 from auth.app.repository import sessions, users, digest_token, password_hash
 
 PASSWORD = "Password123!"
-ALL_DEMO_STORES = [f"STORE-{letter}" for letter in "ABCDEFGHIJKLMNOPQR"]
+ALL_DEMO_STORES = [f"STORE-{letter}" for letter in "ABCDEFGHIJKLMQR"]
 
 
 @pytest.fixture
@@ -119,14 +119,18 @@ def test_seed_is_idempotent(auth):
     assert app.state.repo.login("viewer", PASSWORD).store_ids == ["STORE-A"]
 
 
-def test_seed_upgrades_existing_demo_analyst_without_resetting_account_or_session(auth):
+@pytest.mark.parametrize("previous_stores", [
+    ["STORE-A", "STORE-B"],
+    [f"STORE-{letter}" for letter in "ABCDEFGHIJKLMNOPQR"],
+])
+def test_seed_reconciles_demo_analyst_without_resetting_account_or_session(auth, previous_stores):
     app, client = auth
     login(client)
     raw = client.cookies.get("refresh_token")
     original_hash = password_hash("ExistingPassword!")
     with app.state.repo.engine.begin() as conn:
         conn.execute(update(users).where(users.c.user_id == "USR-001").values(
-            store_ids=["STORE-A", "STORE-B"], display_name="Existing analyst", password_hash=original_hash))
+            store_ids=previous_stores, display_name="Existing analyst", password_hash=original_hash))
         conn.execute(users.insert().values(user_id="USR-003", username="other-analyst", display_name="Other analyst",
                      password_hash=original_hash, role="loe_analyst", store_ids=["STORE-B"], active=True))
     app.state.repo.seed("different-password", "different-password")
@@ -140,6 +144,22 @@ def test_seed_upgrades_existing_demo_analyst_without_resetting_account_or_sessio
     refreshed = client.post("/auth/refresh")
     assert refreshed.status_code == 200
     assert refreshed.json()["user"]["store_ids"] == ALL_DEMO_STORES
+
+
+@pytest.mark.parametrize("holdout_store", ["STORE-N", "STORE-O", "STORE-P"])
+def test_demo_analyst_is_denied_holdout_store_reads(auth, domain_engine, settings, holdout_store):
+    from domain.app.main import create_app as domain_app
+
+    _, client = auth
+    data = login(client).json()
+    assert holdout_store not in data["user"]["store_ids"]
+    headers = {"Authorization": "Bearer " + data["access_token"]}
+    app = domain_app(domain_engine, settings, "test-service-token", business_routes=False)
+    with TestClient(app) as domain_client:
+        assert domain_client.get("/stores/STORE-C", headers=headers).status_code == 200
+        denied = domain_client.get("/stores/" + holdout_store, headers=headers)
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "STORE_NOT_PERMITTED"
 
 
 @pytest.mark.parametrize("role,active,expected_stores", [

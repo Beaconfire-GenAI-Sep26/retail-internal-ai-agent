@@ -11,9 +11,9 @@ from sqlalchemy import (JSON, Boolean, Column, ForeignKey, Integer, MetaData, St
 
 from shared.security import APIError, User, unauthenticated
 
-# All demo stores (A-M and Q/R) plus the optional holdout seed (N-P).
+# Demo stores only (A-M and Q/R). Holdout stores N-P are evaluation-only.
 # Keep grants explicit in JWTs; Auth does not read Domain's store/evaluation tables.
-DEMO_ANALYST_STORE_IDS = [f"STORE-{letter}" for letter in "ABCDEFGHIJKLMNOPQR"]
+DEMO_ANALYST_STORE_IDS = [f"STORE-{letter}" for letter in "ABCDEFGHIJKLMQR"]
 
 metadata = MetaData(schema="auth")
 users = Table("users", metadata,
@@ -75,7 +75,7 @@ class AuthRepository:
                 existing = conn.execute(select(users.c.user_id).where(users.c.username == username)).first()
                 if existing:
                     if username == "analyst" and existing.user_id == user_id:
-                        # Upgrade the known demo analyst on existing volumes. Preserve
+                        # Reconcile demo-only grants on existing volumes. Preserve
                         # passwords, sessions, profile, active flag, and any role change.
                         conn.execute(update(users).where(
                             users.c.user_id == user_id, users.c.username == username, users.c.role == role,

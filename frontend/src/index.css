@@ -656,3 +656,179 @@ button.audit-more { justify-self: start; font-size: 0.82rem; padding: 4px 10px; 
 
 /* Mock mode: "Reset demo" in the nav — dashed so it reads as a dev tool */
 button.nav-reset { border-style: dashed; color: var(--warn); font-size: 0.82rem; padding: 4px 10px; }
+
+/* ═══ 14. App shell — side bar when logged in (D-06) ═══ */
+/* Nav keeps its top-bar markup (section 2); inside .app-shell it becomes a column */
+.app-shell { display: grid; grid-template-columns: 216px minmax(0, 1fr); min-height: 100vh; }
+/* main keeps section 2's max-width + auto margins. In a grid, auto margins stop
+   the item from stretching (it would shrink to its content and change width
+   from page to page), so give it the full column; border-box keeps the padding inside. */
+.app-shell > main { width: 100%; max-width: calc(1120px + 48px); box-sizing: border-box; min-width: 0; }
+.app-shell > .nav {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  box-sizing: border-box;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  justify-content: space-between;
+  padding: 20px 12px;
+  border-bottom: none;
+  border-right: 1px solid var(--border);
+}
+.app-shell .nav-left { flex-direction: column; align-items: stretch; gap: 4px; }
+.app-shell .nav-brand { padding: 0 10px 14px; }
+.app-shell .nav-left a { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; }
+.app-shell .nav-left a:hover { background: var(--surface-soft); text-decoration: none; }
+.app-shell .nav-left a.active { background: #eaf0fd; }
+.nav-icon { width: 18px; height: 18px; flex: none; }
+.app-shell .nav-user { flex-direction: column; align-items: stretch; gap: 8px; padding: 14px 10px 0; border-top: 1px solid var(--border); }
+.app-shell .nav-name { font-weight: 600; }
+.app-shell .nav-role { align-self: flex-start; }
+/* Narrow screens: back to a top bar, links in a row */
+@media (max-width: 960px) {
+  .app-shell { grid-template-columns: minmax(0, 1fr); }
+  .app-shell > .nav {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 10px 16px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .app-shell .nav-left { flex-direction: row; align-items: center; }
+  .app-shell .nav-brand { padding: 0 8px 0 0; }
+  .app-shell .nav-user { flex-direction: row; align-items: center; padding: 0; border-top: none; }
+}
+
+/* ═══ 15. Monitor dashboard (D-06) ═══ */
+/* Store colors — categorical, colorblind-checked order; a store keeps its color in every view */
+:root {
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+}
+.monitor { grid-template-columns: minmax(0, 1fr); } /* a wide SVG must not widen the page */
+.monitor .page-header { align-items: flex-end; }
+.monitor .page-header p.muted { font-size: 0.9rem; }
+.monitor-filters { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* Segmented buttons (stores, range, smoothing) */
+.segmented { display: inline-flex; gap: 2px; padding: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.segmented button { padding: 4px 12px; border: none; border-radius: 6px; background: none; color: var(--text-muted); font-size: 0.85rem; font-weight: 500; }
+.segmented button:hover:not(:disabled) { background: var(--surface-soft); }
+.segmented button[aria-pressed='true'] { background: var(--primary); color: #fff; }
+
+.swatch { display: inline-block; flex: none; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%; }
+
+/* KPI cards */
+.kpi-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.kpi-card {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.kpi-big { font-size: 1.9rem; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.kpi-line { display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+.kpi-line .swatch { margin-right: 0; }
+.kpi-value { min-width: 72px; font-size: 1.35rem; font-weight: 650; }
+.kpi-delta { color: var(--text-muted); font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
+.kpi-delta-bad { color: var(--danger); }
+.kpi-delta-good { color: var(--ok); }
+.kpi-foot { color: var(--text-muted); font-size: 0.8rem; }
+
+/* Cards */
+.monitor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.monitor-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.monitor-card-wide { grid-column: 1 / -1; }
+.monitor-card-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; }
+.monitor-card-head .muted { font-size: 0.82rem; }
+.monitor-card-tools { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; }
+/* Legend: store dots come from .swatch, so hide section 6's square — except for the goal line */
+.monitor-legend span::before { display: none; }
+.monitor-legend span.legend-goal::before { display: inline-block; }
+.case-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; font-size: 0.9rem; }
+.case-links a { display: inline-flex; align-items: center; font-weight: 500; }
+
+/* Charts (SVG drawn in real pixels; shared .chart-grid / .chart-goal from section 6) */
+.trend-chart { position: relative; }
+.trend-chart svg,
+.bar-list svg { display: block; }
+.monitor .chart-label { font-size: 11px; }
+.bar-label { fill: var(--text); font-size: 12px; }
+.chart-axis { stroke: #c3c8d2; }
+.chart-goal-label { fill: var(--warn); font-size: 11px; font-weight: 600; }
+.chart-end-label { fill: var(--text); font-size: 12px; font-weight: 600; }
+.chart-crosshair { stroke: var(--text-muted); stroke-opacity: 0.6; }
+.chart-lane { stroke: var(--border); stroke-dasharray: 2 3; }
+.chart-dim { fill: var(--surface); opacity: 0.55; }
+.chart-range-edge { stroke: var(--primary); stroke-opacity: 0.6; stroke-dasharray: 3 3; }
+.chart-tip {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  gap: 2px;
+  max-width: 280px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(20, 30, 50, 0.12);
+  font-size: 0.8rem;
+  pointer-events: none;
+  transform: translate(14px, 14px);
+}
+.chart-tip-left { transform: translate(calc(-100% - 14px), 14px); }
+.chart-tip-row { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.chart-tip-row .swatch { margin-right: 0; }
+.chart-tip-event { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--border); color: var(--text-muted); }
+
+/* Top items */
+.top-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; }
+.top-items h3 { display: flex; align-items: center; margin: 0 0 4px; font-size: 0.9rem; }
+.top-items table { width: 100%; border-collapse: collapse; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.top-items th { padding: 6px 4px; border-bottom: 1px solid var(--border); color: var(--text-muted); font-weight: 500; text-align: left; }
+.top-items td { padding: 6px 4px; border-bottom: 1px solid var(--surface-soft); }
+.top-items .num { text-align: right; }
+.top-modifier { margin-top: 8px; color: var(--text-muted); font-size: 0.82rem; }
+
+/* Claim review status — one 100% bar per store */
+.review-bars { display: grid; gap: 10px; }
+.review-row { display: grid; grid-template-columns: 80px minmax(0, 1fr); align-items: center; gap: 8px; font-size: 0.85rem; }
+.review-track { display: flex; gap: 2px; min-height: 24px; }
+.review-seg {
+  overflow: hidden;
+  min-width: 3px;
+  padding: 0 8px;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 24px;
+  white-space: nowrap;
+}
+.review-store_fault { background: #1baf7a; }
+.review-not_store_fault { background: #6250d6; }
+.review-fraud { background: var(--danger); }
+.review-pending { background: #c9ccd3; color: var(--text); }
+
+@media (max-width: 1100px) { .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 860px) { .monitor-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 520px) { .kpi-row { grid-template-columns: minmax(0, 1fr); } }

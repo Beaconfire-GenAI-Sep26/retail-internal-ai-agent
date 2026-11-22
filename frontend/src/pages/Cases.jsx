@@ -6,7 +6,8 @@
 // ═══════════════════════════════════════════════════════════════════
 // 1. Imports
 // ═══════════════════════════════════════════════════════════════════
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchCases } from '../store/cases/casesThunks';
 import { selectIsAnalyst, selectStoreIds } from '../store/auth/authSelectors';
@@ -27,9 +28,20 @@ const NO_STORES = [];
 // 2. Cases component
 // ═══════════════════════════════════════════════════════════════════
 const Cases = () => {
-  // ── 2a. Filter state (local — only this page cares) ─────────────
+  // ── 2a. Filter state ────────────────────────────────────────────
   // '' = all. Each change reloads the list from the backend.
-  const [filters, setFilters] = useState({ store_id: '', status: '' });
+  // The store lives in the URL (?store_id=STORE-A), so the Monitor page's
+  // "View cases" links open the queue already filtered (D-06). Status stays local.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const storeId = searchParams.get('store_id') ?? '';
+  const [statusFilter, setStatusFilter] = useState('');
+  const filters = useMemo(() => ({ store_id: storeId, status: statusFilter }), [storeId, statusFilter]);
+  const setFilters = (next) => {
+    setStatusFilter(next.status);
+    if (next.store_id !== storeId) {
+      setSearchParams(next.store_id ? { store_id: next.store_id } : {}, { replace: true });
+    }
+  };
 
   // ── 2b. Hooks + case state from Redux ───────────────────────────
   const dispatch = useDispatch();

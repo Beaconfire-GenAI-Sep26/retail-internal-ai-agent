@@ -43,7 +43,7 @@ const Login = () => {
   // ── 2d. Render ──────────────────────────────────────────────────
   // Logged in — just now, or already (typed /login, back button)
   // → back to the page AuthGuard bounced them from, else the case queue
-  if (isLoggedIn) return <Navigate to={location.state?.from ?? '/cases'} replace />;
+  if (isLoggedIn) return <Navigate to={location.state?.from ?? '/monitor'} replace />;
 
   const loading = status === 'loading';
 

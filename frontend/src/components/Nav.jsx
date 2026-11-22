@@ -1,8 +1,9 @@
-// [10b] Nav — top bar
-//   logged out:  brand only
-//   logged in:   brand · Cases  ...  [Reset demo] · display_name · role (LOE Analyst / Viewer) · Logout
+// [10b] Nav — side bar when logged in, top bar when logged out (D-06)
+//   logged out:  brand only (top bar)
+//   logged in:   brand · Monitor · Cases  ...  [Reset demo] · display_name · role · Logout
+//                a column on the left; a top bar again on small screens (index.css section 14)
 //   Reset demo shows only with VITE_USE_MOCKS=true
-//   left group = where to go, right group = who is signed in (index.css section 2)
+//   first group = where to go, second group = who is signed in
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -18,6 +19,17 @@ import {
   selectIsAnalyst,
   selectUser,
 } from '../store/auth/authSelectors';
+
+
+// Line icons for the nav links (decorative — the link text names the page)
+const Icon = ({ d }) => (
+  <svg className='nav-icon' viewBox='0 0 24 24' aria-hidden='true' fill='none' stroke='currentColor'
+    strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+    <path d={d} />
+  </svg>
+);
+const MONITOR_ICON = 'M3 3v18h18M7 14l4-4 3 3 5-6';
+const CASES_ICON = 'M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM3 9h18M8 14h8';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -53,7 +65,12 @@ const Nav = () => {
     <nav className='nav'>
       <div className='nav-left'>
         <strong className='nav-brand'>M&amp;I Diagnosis</strong>
-        {isLoggedIn && <NavLink to='/cases'>Cases</NavLink>}
+        {isLoggedIn && (
+          <>
+            <NavLink to='/monitor'><Icon d={MONITOR_ICON} />Monitor</NavLink>
+            <NavLink to='/cases'><Icon d={CASES_ICON} />Cases</NavLink>
+          </>
+        )}
       </div>
 
       {isLoggedIn && (
@@ -63,7 +80,7 @@ const Nav = () => {
               Reset demo
             </button>
           )}
-          <span>{user?.display_name ?? user?.username}</span>
+          <span className='nav-name'>{user?.display_name ?? user?.username}</span>
           <span className='nav-role'>{isAnalyst ? 'LOE Analyst' : 'Viewer'}</span>
           <button type='button' className='button-secondary' onClick={handleLogout}>Logout</button>
         </div>

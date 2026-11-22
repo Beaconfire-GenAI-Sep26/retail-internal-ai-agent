@@ -37,7 +37,7 @@ def case_summary(case: Case, store: Store) -> CaseSummary:
         opened_at=case.opened_at,
         updated_at=case.updated_at,
         active_investigation_id=case.active_investigation_id,
-        reopen_count=0,  # C-04
+        reopen_count=case.reopen_count,  # C-05
         last_error=case.last_error,
     )
 

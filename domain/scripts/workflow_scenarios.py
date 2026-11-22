@@ -4,9 +4,9 @@ The data scenarios (GS-xx) check what the agent concludes. These check what the 
 lists the steps and what must be true afterwards (sprint plan page 5, "Evidence exceptions" and
 "Workflow and safety"). `tickets` names the code that makes the row pass.
 
-- W-03, W-04 and W-05 run today in domain/tests/test_workflow_scenarios.py.
-- W-01 (no reply) and W-02 (failed recheck) need C-05 (replies and rechecks) and B-04 (pause and
-  resume). Their expected results come from the sprint plan and contracts.md.
+- All five run in domain/tests/test_workflow_scenarios.py (W-01 and W-02 since C-05).
+- An expected entry with `checked_by` is checked elsewhere (B-05: the eval runner, for what the
+  agent concludes); the domain test skips it.
 
 Each expected entry is a dict: `then` says what is checked, plus the values a test or the B-05 runner
 compares (`status`, `code`, `case_status`, `dispatches`, ...).
@@ -16,49 +16,58 @@ WORKFLOW_SCENARIOS = [
     dict(
         scenario_id="W-01",
         title="No merchant reply",
-        based_on="GS-02",
-        store_id="STORE-B",
-        tickets=["C-05", "B-04", "D-04"],
+        based_on="GS-05",
+        store_id="STORE-K",
+        tickets=["C-05", "B-04", "D-05"],
         steps=[
-            "the agent proposes a merchant_question on the STORE-B case",
+            "the agent proposes a merchant_question on the STORE-K case",
             "an analyst approves the current version",
+            "the merchant never answers (STORE-K has no mock merchant answer)",
             "the analyst records that the merchant did not reply (outcome no_reply)",
             "the investigation resumes",
+            "the no_reply is recorded again",
         ],
         expected=[
             {"then": "after approval the case waits for the merchant", "case_status": "awaiting_merchant"},
             {"then": "the question is mock-sent to the merchant once", "dispatches": 1, "channel": "mock_merchant"},
-            {"then": "the no_reply is stored as evidence linked to the question", "evidence_type": "merchant_reply"},
-            {"then": "the agent does not treat the missing answer as confirmation",
+            {"then": "no answer comes in by itself", "replies": 0},
+            {"then": "the no_reply is stored as evidence linked to the question", "status": 201,
+             "evidence_type": "merchant_reply", "outcome": "no_reply"},
+            {"then": "the agent does not treat the missing answer as confirmation", "checked_by": "B-05",
              "outcome_in": ["unsure", "diagnosis_with_lower_confidence"]},
-            {"then": "recording the reply again changes nothing", "status": 409, "code": "REPLY_EXISTS"},
+            {"then": "recording the reply again changes nothing", "status": 409, "code": "REPLY_EXISTS", "replies": 1},
         ],
-        notes="Sprint plan B-04: a missing or conflicting answer lowers confidence or yields unsure.",
+        notes="Domain part runs in domain/tests/test_workflow_scenarios.py; the agent part (checked_by B-05) "
+              "in the eval runner. Sprint plan B-04: a missing answer lowers confidence or yields unsure.",
     ),
     dict(
         scenario_id="W-02",
         title="Failed recheck, reopen once, then analyst handoff",
-        based_on="GS-01",
-        store_id="STORE-A",
+        based_on="GS-06",
+        store_id="STORE-L",
         tickets=["C-05", "B-04"],
         steps=[
-            "an analyst approves fix_modifier_mapping on the STORE-A case",
-            "the recheck runs on a snapshot where the Extra sauce rate does not improve",
-            "the agent investigates again and a second action is approved",
+            "an analyst approves review_dasher_handoff on the STORE-L case",
+            "the recheck runs on the future snapshot, where the wrong-order rate stays high",
+            "the agent investigates again (reopen_of) and a second action is approved",
             "the second recheck does not improve either",
+            "on STORE-K, a recheck runs while the store has too few orders",
+            "the same recheck is run again",
         ],
         expected=[
             {"then": "the recheck shows before and after rates, counts and windows, and data_sufficient",
-             "recheck_fields": ["before", "after", "control", "data_sufficient"]},
+             "recheck_fields": ["after", "before", "control", "data_sufficient"]},
             {"then": "the first adequate-volume failure reopens the case", "recheck_status": "not_improved",
              "case_status": "reopened", "reopen_count": 1},
-            {"then": "the second failure hands the case to an analyst", "case_status": "analyst_review"},
+            {"then": "the second failure hands the case to an analyst", "recheck_status": "not_improved",
+             "case_status": "analyst_review"},
             {"then": "no third investigation is allowed", "reopen_count_max": 1},
             {"then": "a recheck with too few orders pauses instead", "recheck_status": "insufficient_data",
              "case_status": "paused"},
             {"then": "running the same recheck again changes nothing", "status": 409, "code": "RECHECK_ALREADY_RUN"},
         ],
-        notes="Sprint plan C-05 acceptance criteria and contracts.md Status model.",
+        notes="Runs in domain/tests/test_workflow_scenarios.py. The agent refusing a second reopen_of "
+              "(409 REOPEN_NOT_ALLOWED) is B-04. Sprint plan C-05 acceptance criteria.",
     ),
     dict(
         scenario_id="W-03",

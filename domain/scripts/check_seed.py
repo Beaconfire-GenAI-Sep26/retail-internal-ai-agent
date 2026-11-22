@@ -1,4 +1,4 @@
-"""Sanity checks for the seeded Domain database (C-01 and C-04 acceptance criteria).
+"""Sanity checks for the seeded Domain database (C-01, C-04 and C-05 acceptance criteria).
 
 Usage (from the repository root):
     python -m domain.scripts.check_seed
@@ -29,6 +29,12 @@ CHECKS = {
         WHERE NOT EXISTS (SELECT 1 FROM domain.mi_claims c WHERE c.evidence_id = k.eid AND c.store_id = g.store_id)
           AND NOT EXISTS (SELECT 1 FROM domain.cancellations x WHERE x.evidence_id = k.eid AND x.store_id = g.store_id)
           AND NOT EXISTS (SELECT 1 FROM domain.operational_events e WHERE e.evidence_id = k.eid AND e.store_id = g.store_id)""",
+    "future snapshot orders on or before the last day of data": """
+        SELECT count(*) FROM domain.future_orders f
+        WHERE f.placed_at <= (SELECT max(placed_at) FROM domain.orders o WHERE o.store_id = f.store_id)""",
+    "future claims on another store's order": """
+        SELECT count(*) FROM domain.future_claims c JOIN domain.future_orders o USING (order_id)
+        WHERE o.store_id <> c.store_id""",
     "diagnosis scenarios with no key_evidence_ids": """
         SELECT count(*) FROM eval.golden_scenarios
         WHERE expected_outcome = 'diagnosis' AND json_array_length(key_evidence_ids) = 0""",
@@ -64,6 +70,8 @@ def main() -> None:
         splits = dict(conn.execute(text("SELECT split, count(*) FROM eval.golden_scenarios GROUP BY split")).all())
         print(f"  eval.golden_scenarios      {sum(splits.values())} (dev {splits.get('dev', 0)}, "
               f"holdout {splits.get('holdout', 0)})")
+        for t in ["future_orders", "future_claims", "mock_merchant_inbox"]:
+            print(f"  domain.{t:<20} {conn.execute(text(f'SELECT count(*) FROM domain.{t}')).scalar()}  (C-05)")
         print(f"  eval.workflow_scenarios    {conn.execute(text('SELECT count(*) FROM eval.workflow_scenarios')).scalar()}")
 
         print("\nIntegrity checks (all should be 0)")

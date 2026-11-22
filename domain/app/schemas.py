@@ -352,6 +352,28 @@ class Recheck(BaseModel):
     ran_at: datetime | None
 
 
+class MerchantReplyCreate(Strict):
+    outcome: Literal["replied", "no_reply"]
+    text: str | None = Field(default=None, max_length=4000)  # required when outcome is "replied"
+
+    @model_validator(mode="after")
+    def text_matches_outcome(self):
+        if self.outcome == "replied" and not (self.text or "").strip():
+            raise ValueError('text is required when outcome is "replied"')
+        if self.outcome == "no_reply" and self.text is not None:
+            raise ValueError('text must be null when outcome is "no_reply"')
+        return self
+
+
+class MerchantReply(BaseModel):
+    evidence_id: str  # EV-RPL-000001
+    proposal_id: str
+    outcome: Literal["replied", "no_reply"]
+    text: str | None  # untrusted merchant text
+    recorded_by: str
+    recorded_at: datetime
+
+
 class AuditEntryOut(BaseModel):
     audit_id: str
     case_id: str

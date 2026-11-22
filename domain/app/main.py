@@ -54,7 +54,7 @@ def create_app(engine=None, settings=None, service_token=None, *, business_route
     app.add_api_route("/stores/{store_id}", store, methods=["GET"])
     app.add_api_route("/stores/{store_id}/menu", menu, methods=["GET"])
     if business_routes:
-        from .routers import cases, catalog, evidence, internal, monitor, proposals, stores
+        from .routers import cases, catalog, evidence, internal, monitor, proposals, rechecks, stores
         from .errors import ApiError
         app.include_router(cases.router)
         app.include_router(evidence.router)
@@ -62,6 +62,7 @@ def create_app(engine=None, settings=None, service_token=None, *, business_route
         app.include_router(proposals.router)  # C-03
         app.include_router(catalog.router)  # C-03
         app.include_router(internal.router)  # C-03, agent only
+        app.include_router(rechecks.router)  # C-05
         # Preserve the existing lightweight store/menu reads; include all C-02 diagnostics.
         for route in stores.router.routes:
             if route.path not in {"/stores/{store_id}", "/stores/{store_id}/menu"}:

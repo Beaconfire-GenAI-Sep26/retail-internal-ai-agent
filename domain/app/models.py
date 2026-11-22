@@ -239,7 +239,7 @@ class OperationalEvent(Base):
 class Case(Base):
     """Case opened by the C-02 monitor; empty after seeding.
 
-    C-03 adds the investigation columns. C-04 adds reopen_count.
+    C-03 adds the investigation columns. C-05 adds reopen_count.
     """
 
     __tablename__ = "cases"
@@ -262,6 +262,8 @@ class Case(Base):
     active_investigation_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
     investigation_ids: Mapped[list] = mapped_column(JSON, default=list, server_default=text("'[]'"))  # oldest first
     last_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # C-05: 1 after a failed recheck reopened the case. A second failure goes to analyst_review instead.
+    reopen_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
 
 
 class IdempotencyRecord(Base):
@@ -308,6 +310,7 @@ PROPOSAL_SEQ = Sequence("proposal_id_seq", schema=DOMAIN_SCHEMA, metadata=Base.m
 DISPATCH_SEQ = Sequence("dispatch_id_seq", schema=DOMAIN_SCHEMA, metadata=Base.metadata)
 RECHECK_SEQ = Sequence("recheck_id_seq", schema=DOMAIN_SCHEMA, metadata=Base.metadata)
 AUDIT_SEQ = Sequence("audit_id_seq", schema=DOMAIN_SCHEMA, metadata=Base.metadata)
+REPLY_SEQ = Sequence("reply_id_seq", schema=DOMAIN_SCHEMA, metadata=Base.metadata)  # C-05, EV-RPL-
 
 
 class Proposal(Base):
@@ -369,7 +372,7 @@ class Dispatch(Base):
 
 
 class Recheck(Base):
-    """Planned follow-up after an approved intervention or handoff. C-03 schedules it; C-04 runs it."""
+    """Planned follow-up after an approved intervention or handoff. C-03 schedules it; C-05 runs it."""
 
     __tablename__ = "rechecks"
     __table_args__ = {"schema": DOMAIN_SCHEMA}
@@ -387,6 +390,86 @@ class Recheck(Base):
     control: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     data_sufficient: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     ran_at: Mapped[datetime | None] = mapped_column(TZ, nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# Merchant replies and the future snapshot for rechecks (C-05)
+# ---------------------------------------------------------------------------
+class ReplyOutcome(str, enum.Enum):
+    REPLIED = "replied"
+    NO_REPLY = "no_reply"
+
+
+class MerchantReply(Base):
+    """The answer to one approved, dispatched merchant question. It is evidence (EV-RPL-...).
+
+    Written by the mock merchant when the question is dispatched (seeded inbox), or by an analyst
+    who records that the merchant did not reply. One reply per question.
+    """
+
+    __tablename__ = "merchant_replies"
+    __table_args__ = {"schema": DOMAIN_SCHEMA}
+
+    evidence_id: Mapped[str] = mapped_column(String(20), primary_key=True)  # EV-RPL-000001
+    proposal_id: Mapped[str] = mapped_column(ForeignKey(f"{DOMAIN_SCHEMA}.proposals.proposal_id"), unique=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey(f"{DOMAIN_SCHEMA}.cases.case_id"), index=True)
+    outcome: Mapped[ReplyOutcome] = mapped_column(str_enum(ReplyOutcome, "reply_outcome"))
+    text: Mapped[str | None] = mapped_column(Text, nullable=True)  # untrusted merchant text
+    recorded_by: Mapped[str] = mapped_column(String(20))  # svc_mock_merchant or an analyst's user ID
+    recorded_at: Mapped[datetime] = mapped_column(TZ)
+
+
+class MockMerchantInbox(Base):
+    """Seeded answer each store's mock merchant sends back to a dispatched question.
+
+    A store with no row never answers, so an analyst records no_reply. Read only by the dispatch code.
+    """
+
+    __tablename__ = "mock_merchant_inbox"
+    __table_args__ = {"schema": DOMAIN_SCHEMA}
+
+    store_id: Mapped[str] = mapped_column(ForeignKey(f"{DOMAIN_SCHEMA}.stores.store_id"), primary_key=True)
+    reply_text: Mapped[str] = mapped_column(Text)
+
+
+class FutureOrder(Base):
+    """Seeded orders AFTER the last day of data (the "future snapshot").
+
+    Only a recheck reads these tables. The monitor, the diagnostics and the agent never do, so for them
+    the data still ends on its last day. IDs (FUT-...) are not evidence.
+    """
+
+    __tablename__ = "future_orders"
+    __table_args__ = {"schema": DOMAIN_SCHEMA}
+
+    order_id: Mapped[str] = mapped_column(String(20), primary_key=True)  # FUT-ORD-000001
+    store_id: Mapped[str] = mapped_column(ForeignKey(f"{DOMAIN_SCHEMA}.stores.store_id"), index=True)
+    placed_at: Mapped[datetime] = mapped_column(TZ, index=True)
+    daypart: Mapped[Daypart] = mapped_column(str_enum(Daypart, "daypart"))
+    item_count: Mapped[int] = mapped_column(Integer)
+
+
+class FutureOrderItem(Base):
+    __tablename__ = "future_order_items"
+    __table_args__ = {"schema": DOMAIN_SCHEMA}
+
+    future_item_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_id: Mapped[str] = mapped_column(ForeignKey(f"{DOMAIN_SCHEMA}.future_orders.order_id"), index=True)
+    item_id: Mapped[str] = mapped_column(ForeignKey(f"{DOMAIN_SCHEMA}.menu_items.item_id"))
+    modifiers: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class FutureClaim(Base):
+    __tablename__ = "future_claims"
+    __table_args__ = {"schema": DOMAIN_SCHEMA}
+
+    claim_id: Mapped[str] = mapped_column(String(20), primary_key=True)  # FUT-CLM-000001
+    order_id: Mapped[str] = mapped_column(ForeignKey(f"{DOMAIN_SCHEMA}.future_orders.order_id"), index=True)
+    store_id: Mapped[str] = mapped_column(ForeignKey(f"{DOMAIN_SCHEMA}.stores.store_id"), index=True)
+    item_id: Mapped[str | None] = mapped_column(ForeignKey(f"{DOMAIN_SCHEMA}.menu_items.item_id"), nullable=True)
+    error_category: Mapped[ErrorCategory] = mapped_column(str_enum(ErrorCategory, "error_category"))
+    modifier_detail: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    review_label: Mapped[ReviewLabel] = mapped_column(str_enum(ReviewLabel, "review_label"))
 
 
 class AuditEntry(Base):

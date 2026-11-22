@@ -252,6 +252,7 @@ Actors are a user ID, `svc_agent`, `svc_monitor` or (C-05) `svc_mock_merchant`.
 | `GET /cases/{case_id}/merchant-replies` | any user, agent | Replies to the case's questions, oldest first. `text` is untrusted merchant text |
 | `POST /proposals/{proposal_id}/merchant-reply` | analyst | `{"outcome": "no_reply", "text": null}` + `Idempotency-Key`. 409 `NOT_DISPATCHED` / `REPLY_EXISTS` |
 | `POST /rechecks/{recheck_id}/run` | analyst | Manual demo trigger + `Idempotency-Key`. 409 `RECHECK_ALREADY_RUN` |
+| `POST /cases/{case_id}/close` | analyst | "Mark as resolved": `analyst_review` → `closed`, audit `case.closed`, + `Idempotency-Key`. Any other status: 409 `CASE_NOT_CLOSABLE` |
 
 ### Merchant replies
 

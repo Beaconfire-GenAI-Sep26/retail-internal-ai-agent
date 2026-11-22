@@ -95,7 +95,7 @@ class DomainAccess:
                 request.state.case_id = safe_id(resource_id, "case_id")
                 bind_context(case_id=request.state.case_id)
             readable = method == "GET" and (suffix == "" or kind == "cases" and suffix in {"/audit", "/merchant-replies", "/rechecks"})
-            writable = method == "POST" and ((kind == "proposals" and suffix in {"/versions", "/decision", "/merchant-reply"}) or (kind == "rechecks" and suffix == "/run"))
+            writable = method == "POST" and ((kind == "proposals" and suffix in {"/versions", "/decision", "/merchant-reply"}) or (kind == "rechecks" and suffix == "/run") or (kind == "cases" and suffix == "/close"))
             if not readable and not writable:
                 raise APIError(403, "FORBIDDEN", "Operation is not permitted.")
             if writable:

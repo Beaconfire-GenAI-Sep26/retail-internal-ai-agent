@@ -480,7 +480,7 @@ async def test_domain_down_during_a_resume_keeps_the_run_paused():
 
 
 async def test_without_the_reply_route_no_question_is_offered():
-    run = PausedRun(store_b_question_turns(), domain=FixtureDomainClient(FIXTURES))  # like today's Domain
+    run = PausedRun(store_b_question_turns(), domain=FixtureDomainClient(FIXTURES))  # like a Domain before C-05
     final = (await run.start()).values
     # load_case found no merchant-replies route, so G16 refused the question and the run concluded.
     assert final["status"] == "completed" and final["questions"] == []

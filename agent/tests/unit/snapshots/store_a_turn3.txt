@@ -151,7 +151,7 @@ Each tool lists its request as the JSON you write, as a string, in plan.request.
 
 - G1: Cite only evidence IDs that a check returned. Every returned ID is citable, including ones not shown. To cite records from another group, run sample_evidence filtered to that group.
 - G2: Updates name existing HYP- ids. New hypotheses come only from new_hypotheses, with unique refs. other needs a specific statement of at least five words.
-- G3: supported needs a test or challenge check with enough data, from a tool that returns rates, whose result matched the hypothesis's if_true. event_log and sample_evidence never count.
+- G3: supported needs a test or challenge check with enough data, from a tool that returns rates, whose result matched the hypothesis's if_true, and at least one supporting evidence ID that isn't a merchant reply (EV-RPL). event_log and sample_evidence never count.
 - G4: ruled_out needs a check with enough data, from a tool that returns rates, that listed the hypothesis in discriminates and matched its if_false, plus a rationale.
 - G4b: inconclusive needs a check on it that had too little data or matched neither, or a cause platform data can't test (dasher_handoff), plus a rationale stating the gap.
 - G5: dasher_handoff is never supported or ruled_out.

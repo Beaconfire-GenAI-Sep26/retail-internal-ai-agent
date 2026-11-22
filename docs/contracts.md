@@ -87,7 +87,7 @@ Seed data uses stable IDs from `SEED = 24`.
 | Operational event (evidence) | `EV-EVT-<6 digits>`, `EV-EVT-000010`                 | `evidence_id`                           | domain seed    | C-01                           |
 | Case                         | `CASE-<4 digits>`, `CASE-0001`                       | `case_id`                               | domain         | C-01                           |
 | Golden scenario (hidden)     | `GS-<2 digits>`, `GS-01`                             | `scenario_id`                           | eval only      | C-01. Never sent to the agent. |
-| Merchant reply (evidence)    | `EV-RPL-<6 digits>`, `EV-RPL-000001`                 | `evidence_id`                           | domain         | B-01, for C-04                 |
+| Merchant reply (evidence)    | `EV-RPL-<6 digits>`, `EV-RPL-000001`                 | `evidence_id`                           | domain         | B-01, for C-05                 |
 | Proposal                     | `PROP-<4 digits>`, `PROP-0001`                       | `proposal_id`                           | domain         | B-01                           |
 | Dispatch, recheck, audit     | `DSP-<6 digits>`, `RCK-<4 digits>`, `AUD-<6 digits>` | `dispatch_id`, `recheck_id`, `audit_id` | domain         | B-01                           |
 | User                         | `USR-<3 digits>`, `USR-001`                          | `user_id`                               | auth           | B-01                           |
@@ -219,6 +219,7 @@ Domain sets `cases.status`, a `case_status`, from these events:
 | Investigation reports `running`                   | `investigating`               |
 | Merchant question proposed, pending decision      | `awaiting_decision`           |
 | Question approved and dispatched                  | `awaiting_merchant`           |
+| Merchant reply or `no_reply` recorded             | unchanged, until the agent reports `running` |
 | Question rejected, so the investigation continues | `investigating`               |
 | Investigation `completed`, recommendation pending | `awaiting_decision`           |
 | Investigation `unsure`                            | `analyst_review`              |
@@ -229,6 +230,11 @@ Domain sets `cases.status`, a `case_status`, from these events:
 | Recheck `insufficient_data`                       | `paused`                      |
 | Recheck `not_improved`, first time                | `reopened`                    |
 | Recheck `not_improved`, second time               | `analyst_review`              |
+
+C-05's mock merchant answers a question in the same transaction that approves and dispatches it, with
+`recorded_by` `svc_mock_merchant`, for every store that has a seeded answer (STORE-A, B, L and M). The agent then
+reads the reply on the resume that follows the decision. A store without one, STORE-K, never answers, and the
+analyst records `no_reply`.
 
 ## Shared DTOs
 
@@ -298,7 +304,7 @@ interface CaseSummary {
   opened_at: string;
   updated_at: string;
   active_investigation_id: string | null; // addition, C-02/C-03
-  reopen_count: 0 | 1; // addition, C-04
+  reopen_count: 0 | 1; // addition, C-05
   last_error: string | null; // addition
 }
 
@@ -320,7 +326,7 @@ interface Evidence {
   type: evidence_type;
   store_id: string;
   occurred_at: string; // copy of reported_at, canceled_at, started_at or recorded_at
-  summary: string; // one line written by Domain
+  summary: string; // one line written by Domain; a reply's includes its untrusted text
   attributes:
     | ClaimAttributes
     | CancellationAttributes
@@ -363,10 +369,12 @@ interface EventAttributes {
 }
 
 interface ReplyAttributes {
-  // C-04 merchant replies
+  // C-05 merchant replies
   proposal_id: string;
+  case_id: string;
   outcome: "replied" | "no_reply";
   text: string | null; // untrusted merchant text
+  recorded_by: string; // svc_mock_merchant, or the analyst who recorded it (the UI records only no_reply)
   recorded_at: string;
 }
 
@@ -557,6 +565,9 @@ interface InvestigationView {
   pending_proposal_id: string | null; // the question while awaiting_approval or awaiting_merchant; the recommendation once completed
   result: InvestigationResult | null;
   error: { code: string; message: string } | null;
+  run_config: Record<string, unknown>; // addition, B-05: model, effort, prompt_hash, schema_hash, versions
+  usage: Record<string, number>; // addition, B-05: summed input, output and cache token counts
+  model_calls: { turn: number; model: string; stop_reason: string; usage: Record<string, number>; latency_ms: number }[]; // addition, B-05
 }
 
 interface Hypothesis {
@@ -740,7 +751,7 @@ interface InvestigationStatusUpdate {
 interface AuditEntry {
   audit_id: string;
   case_id: string;
-  actor_id: string; // a user_id, or "svc_agent" / "svc_monitor"
+  actor_id: string; // a user_id, or "svc_agent" / "svc_monitor" / "svc_mock_merchant" (C-05)
   actor_role: role | "service";
   action: string; // e.g. "proposal.created", "proposal.approved", "dispatch.sent"
   proposal_id: string | null;
@@ -834,8 +845,8 @@ read-only and never change data.
 | `GET /proposals/{proposal_id}`                                      | viewer, analyst, agent | —                                                       | 200 `Proposal`                                                                          | 403, 404                                                               |
 | `POST /proposals/{proposal_id}/versions`                            | analyst                | `ProposalEdit`                                          | 201 `Proposal` with the next version                                                    | 403, 409 `ALREADY_DECIDED`                                             |
 | `POST /proposals/{proposal_id}/decision`                            | analyst                | `DecisionRequest`, `Idempotency-Key`                    | 200 `Proposal`, with `dispatch` set on approve                                          | 403, 409 `STALE_VERSION`, 409 `ALREADY_DECIDED`, 502 `DISPATCH_FAILED` |
-| `POST /proposals/{proposal_id}/merchant-reply`                      | analyst                | `MerchantReplyCreate`, `Idempotency-Key`                | 201 `MerchantReply`                                                                     | 403, 409 `NOT_DISPATCHED`, 409 `REPLY_EXISTS`, 422                     |
-| `POST /rechecks/{recheck_id}/run`                                   | analyst                | empty, `Idempotency-Key`                                | 200 `Recheck`                                                                           | 403, 409 `RECHECK_ALREADY_RUN`                                         |
+| `POST /proposals/{proposal_id}/merchant-reply`                      | analyst                | `MerchantReplyCreate`, `Idempotency-Key`                | 201 `MerchantReply`                                                                     | 403, 404, 409 `NOT_DISPATCHED`, 409 `REPLY_EXISTS`, 422                |
+| `POST /rechecks/{recheck_id}/run`                                   | analyst                | empty, `Idempotency-Key`                                | 200 `Recheck`                                                                           | 403, 404, 409 `RECHECK_ALREADY_RUN`, 422                               |
 
 No Domain route ever reads the `eval` schema.
 

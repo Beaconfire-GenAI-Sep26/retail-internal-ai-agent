@@ -65,7 +65,7 @@ async def draft_question(state: InvestigationState, runtime: Runtime[AgentContex
         return {"error": timeout_error()}
     action = state["next_action"]
     # load_case already checked that Domain has the merchant-replies route. Reply IDs stay out of the
-    # evidence: Domain's proposal check resolves only claims, cancellations and events.
+    # evidence, which shows the analyst the platform data behind the causes the question separates.
     hypotheses = {h["hypothesis_id"]: h for h in state.get("hypotheses", [])}
     evidence = list(dict.fromkeys(
         e for hid in action["separates"] for e in hypotheses.get(hid, {}).get("supporting_evidence_ids", [])

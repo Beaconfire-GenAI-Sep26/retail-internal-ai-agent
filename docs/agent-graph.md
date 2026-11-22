@@ -104,12 +104,15 @@ The model never calls write endpoints. Proposals are created only by the determi
 and `submit_recommendation` nodes, after validation. Every terminal path reports its status: through
 `report_status`, or from the runner when a run times out, crashes or is stopped by a shutdown. If that report
 fails, an analyst's next read or list of the run resends it, and a newer run on the case supersedes it. Until
-then, an `unsure` or `failed` run can leave the case `investigating`. A report still unsent when the agent
-stops is lost with the in-memory index, and the case stays that way until an analyst starts a new run.
+then, an `unsure` or `failed` run can leave the case `investigating`. In memory mode, a report still unsent
+when the agent stops is lost with the index, and the case stays that way until an analyst starts a new run.
+With Postgres checkpoints, startup marks the case's newest run for a report, and an analyst's next read or list
+sends it.
 
 ### Routes Domain doesn't have
 
-The catalog route, the proposals route and the status route can be missing from a Domain build. Domain's access
+The catalog route, the proposals route, the status route and the merchant-replies route can be missing from a
+Domain build. Domain's access
 policy already allows them, so once a call passes authorization and finds no handler, Domain answers with its
 generic 404: code `NOT_FOUND`, the message exactly "Not Found" and empty or null `details`. The agent treats only
 that answer as a missing route. A 404 for a missing resource, such as `CASE_NOT_FOUND`, never matches, and a
@@ -120,6 +123,7 @@ route outside Domain's policy gets 403.
 | `GET /catalog/actions` | `load_case` uses the bundled catalog (`app/data/catalog.json`) and sets `run_config.catalog_source` to `bundled`. |
 | `POST /internal/cases/{case_id}/proposals` | The diagnosis still completes. `proposal_id` stays null and `evidence_gaps` says the recommendation wasn't saved as a proposal. |
 | `PUT /internal/cases/{case_id}/investigation` | The status isn't reported and isn't retried. |
+| `GET /cases/{case_id}/merchant-replies` | `load_case` turns merchant questions off for the run: the control message says they aren't available, and G16 refuses them. This is a Domain build without C-05. |
 
 Any other error on these calls is handled as usual. When the routes exist, the agent uses them with no
 configuration change, as long as Domain and the agent share `INTERNAL_SERVICE_TOKEN`.
@@ -245,7 +249,7 @@ under its rule ID.
 | --- | ---- | --- |
 | G1  | Cited evidence IDs are in `retrieved_evidence_ids` | No invented evidence |
 | G2  | Updates name existing hypotheses. New ones come only from `new_hypotheses`, each with a unique `ref`. `other` needs a specific statement. A cause that is already open or supported isn't opened twice; its statement is narrowed instead. | Hypotheses stay distinct and traceable |
-| G3  | `supported` needs a sufficient `test` or `challenge` check from a tool that returns rates, whose result matched the hypothesis's `if_true`. `event_log` and `sample_evidence` never count. | No support from thin data or from exploration alone |
+| G3  | `supported` needs a sufficient `test` or `challenge` check from a tool that returns rates, whose result matched the hypothesis's `if_true`, and at least one supporting evidence ID that isn't a merchant reply. `event_log` and `sample_evidence` never count. | No support from thin data or from exploration alone, and no diagnosis an analyst can't check against records (B-05) |
 | G4  | `ruled_out` needs a sufficient check from a tool that returns rates that listed the hypothesis in `discriminates` and matched its `if_false`, plus a rationale | No silent drops. A flat result cites the check, since no rows sit behind it. |
 | G4b | `inconclusive` needs a discriminating check that was insufficient or matched `neither`, or a data-limit cause such as `dasher_handoff`, plus a rationale stating the gap | An open question is written down, not dropped |
 | G5  | `dasher_handoff` is never `supported` or `ruled_out` | There is no Dasher data. A merchant reply plus consistent platform data can only move it to `inconclusive` or into the result's gaps. |
@@ -312,7 +316,7 @@ confirm it.
 - **How many.** At most two per run, and one open at a time. Every question still needs analyst approval before it is sent.
 - **What a reply does.** It becomes evidence with an `EV-RPL` ID, and its text appears in the prompt's `<questions>` block, quoted as data. `reason` tests what platform data can check next. For example, if a merchant says "we fixed the mapping on Nov 10", the agent compares the periods before and after Nov 10. The reply text also goes to `reply_claims`, which the result lists as `unverified_reply_claims` for the analyst.
 - **Conflicts.** `reason` cites a reply that conflicts with platform data as contradicting evidence on the leader. The platform data wins, and finalize lowers the confidence one level.
-- **No reply or rejection.** A `no_reply` to a question whose `separates` includes the leader lowers the confidence one level. Either case lowers it once, and the evidence gaps say why. A rejected question is recorded with the analyst's note, and `reason` continues without asking it again.
+- **No reply or rejection.** A `no_reply` to a question whose `separates` includes the leader lowers the confidence one level. Either case lowers it once, and the evidence gaps say why. A rejected question is recorded with the analyst's note, and `reason` continues without asking it again. The model can still cite a `no_reply` record among a cause's supporting evidence, but it never makes the cause `supported`: G7 needs a check, and G3 doesn't count reply IDs as evidence.
 
 ## Pause and resume
 
@@ -323,8 +327,8 @@ schema. With `memory`, the default for local runs and tests, they live in the pr
 - **Pausing.** `wait_question_decision` calls `interrupt()` before anything else. `wait_merchant_reply` reads the replies first, so a reply that's already in Domain needs no pause, and calls `interrupt()` only while there's none. A pause saves the checkpoint. The view's status is `awaiting_approval`, then `awaiting_merchant`, and `pending_proposal_id` is the question in both.
 - **Resuming.** The frontend calls `POST /investigations/{id}/resume` after the analyst decides the question, confirms the merchant's reply has arrived, or records `no_reply`. The request carries a fresh JWT, which runs the next segment. The node re-reads the proposal or replies from Domain and never reads the resume body. Each segment gets the full `AGENT_RUN_TIMEOUT_SECONDS`; time spent waiting doesn't count. While a segment executes, the view says `running`.
 - **No duplicate effects.** Resume starts a segment only when Domain shows the decision or the reply. Otherwise, and while a segment is already executing, it returns the current view and starts nothing. This holds whatever the `Idempotency-Key`. A resume on a finished investigation returns 409 `INVESTIGATION_FINISHED`.
-- **Restarts.** With Postgres checkpoints, the service rebuilds its list of investigations from them at startup; there is no separate table. A paused run comes back paused, and a resume carries on with the new request's token. A run that was mid-segment, or past finalize but before its proposal was saved, can't carry on, because its task and token are gone. A clean stop reports it to Domain as `failed` with `AGENT_RESTARTED`; if that report fails, nothing resends it. After a crash, startup marks it `failed` with `AGENT_RESTARTED`, and an analyst's next read or list reports that to Domain, once. Only a case's newest run reports after a restart, so an older run never overwrites a newer one's case status. In memory mode nothing survives: the list comes back empty, old IDs return 404, and Domain keeps a paused case `awaiting_decision` or `awaiting_merchant`.
-- **Reopening.** Start accepts `reopen_of` once per case, only for a `reopened` case and an earlier run of it that the agent still holds. Anything else gets 409 `REOPEN_NOT_ALLOWED`. The new run starts from the earlier run's rulings, and G6 keeps a cause that run ruled out from coming back without new evidence. Reopening the case after a failed recheck, and sending it to `analyst_review` after a second, are Domain's (C-04).
+- **Restarts.** With Postgres checkpoints, the service rebuilds its list of investigations from them at startup; there is no separate table. A paused run comes back paused, and a resume carries on with the new request's token. A run that was mid-segment, or past finalize but before its proposal was saved, can't carry on, because its task and token are gone. A clean stop reports it to Domain as `failed` with `AGENT_RESTARTED`; if that report fails, the restart marks it for a report, which an analyst's next read or list sends. After a crash, startup marks it `failed` with `AGENT_RESTARTED`, and an analyst's next read or list reports that to Domain, once. Only a case's newest run reports after a restart, so an older run never overwrites a newer one's case status. In memory mode nothing survives: the list comes back empty, old IDs return 404, and Domain keeps a paused case `awaiting_decision` or `awaiting_merchant`.
+- **Reopening.** Start accepts `reopen_of` once per case, only for a `reopened` case and an earlier run of it that the agent still holds. Anything else gets 409 `REOPEN_NOT_ALLOWED`. The new run starts from the earlier run's rulings, and G6 keeps a cause that run ruled out from coming back without new evidence. Reopening the case after a failed recheck, and sending it to `analyst_review` after a second, are Domain's (C-05). If the `reopen_of` run fails, Domain moves the case back to `open`, so **Start again** begins a fresh run: it doesn't get the earlier rulings, G6 doesn't apply to it, and its prompt says it's the case's first investigation.
 
 ## Diagnostic tools
 
@@ -341,7 +345,7 @@ can't show, because that is what the model chooses from.
 | `sample_evidence`        | Up to 10 claim or cancellation records for a filter, with `customer_comments`                                                                                                                    | Frequency. Samples illustrate and don't measure.       | `POST /stores/{id}/diagnostics/evidence-sample`        | mi_claims, cancellations       |
 | `cancellation_breakdown` | Cancellations grouped by `cancellation_category`, `item_id`, `daypart`, weekday or day. Categories are `item_out_of_stock`, `too_busy`, `menu_data_mismatch`, `pos_technical_error` and `other`. | M&I claims. Canceled orders never have claims.         | `POST /stores/{id}/diagnostics/cancellation-breakdown` | cancellations, orders          |
 | `fraud_signals`          | `customer_ref` values with at least `FRAUD_MIN_PENDING_CLAIMS` (default 4) pending claims in the window                                                                                          | Whether a claim is fraudulent. It flags, never judges. | `GET /stores/{id}/diagnostics/fraud-signals`           | mi_claims, orders              |
-| `merchant_replies`       | Replies to this case's approved questions. Read by `wait_merchant_reply`, not chosen by the model.                                                                                               | Whether a reply is true                                | `GET /cases/{case_id}/merchant-replies`                | C-04                           |
+| `merchant_replies`       | Replies to this case's approved questions. Read by `wait_merchant_reply`, not chosen by the model.                                                                                               | Whether a reply is true                                | `GET /cases/{case_id}/merchant-replies`                | C-05                           |
 | `action_catalog`         | Allowed interventions and handoffs                                                                                                                                                               | —                                                      | `GET /catalog/actions`                                 | C-03                           |
 
 `claim_breakdown` groups by `item_id`, `modifier`, `daypart`, `weekday`, `item_count`, `error_category`,
@@ -516,13 +520,16 @@ LangGraph's `recursion_limit` is set to `5 * reasoning turns + 10`, as a backsto
 
 ## Evaluation
 
-These go into the B-05 runner, which scores each run against C-01's `eval.golden_scenarios` as mapped in
-[contracts.md](contracts.md#golden-dataset-labels):
+The B-05 runner, `agent/scripts/golden_eval.py`, runs the agent and a fixed-rule baseline on the seeded scenarios
+and grades both with the same code checks against `eval.golden_scenarios`, as mapped in
+[contracts.md](contracts.md#golden-dataset-labels). The command and its outputs are in
+[agent/README.md](../agent/README.md#golden-dataset-evaluation-b-05).
 
-- **Dev and holdout kept apart.** Each scenario has a `split` of `dev` or `holdout`. Prompt tuning uses `dev` scenarios only, and the scorecard reports `holdout` separately. C-05 adds three holdout stores.
-- **Different paths for different stores.** STORE-A and STORE-B should reach their causes through different check sequences, and both should differ from the fixed-rule baseline.
-- **Distractors handled.** For each entry in a scenario's `distractors`, the result should show it ruled out or explained. In the C-01 seed these are the Oct 20 `store_downtime`, the Oct 24–26 `item_out_of_stock` burst, the same-day drink rename, the Nov 1 dessert price `menu_change`, the Nov 3–9 `promotion`, and the Friday `too_busy` cancellations.
+- **Same data, same permissions.** Each round reseeds Domain, clears the agent's runs and runs the monitor. The agent runs through the gateway with questions on, and the runner plays the analyst: it approves each question, records `no_reply` when a merchant stays silent, and resumes. The baseline uses the same token and read-only diagnostics, and never writes to Domain. The answer key is read inside the Postgres container and never reaches the agent.
+- **The baseline.** Fixed thresholds over the case's 7-day window, first match wins: a fraud cluster (flagged customers hold at least 25% of claims), a POS modifier or an item (the top group holds at least 50% of claims at 3x the rate of other orders), packing (5+ item orders hold at least 50% of claims at a lift of 2, and `missing_item` at least 50%), a Dasher handoff (`wrong_order` at least 50%), else unsure.
+- **What's scored.** Outcome, then cause, owner and action by exact match. An `unsure` on a diagnosis case counts as an abstention, a wrong cause as a wrong guess; on a case labeled `unsure`, any diagnosis is a wrong guess. Every cited ID must resolve to the case's own store; another store's record or an unknown ID is a release blocker. Key-evidence precision is the share of supporting IDs in the scenario's key evidence, and a diagnosis with no supporting ID scores 0. Distractors count as handled when the run cites a distractor's record as contradicting evidence, rules out its cause, or cites it as support for a hypothesis it ruled out or left inconclusive. A "fraud-labeled claims" distractor counts as handled when the diagnosis cites no fraud-labeled claim as support.
+- **How rates add up.** Each rate is averaged over a scenario's runs first, then over scenarios with equal weight, so a scenario run more often doesn't tilt it. The 95% Wilson intervals treat the scenario as the unit.
+- **Workflow and safety.** Questions are reported two ways: asked where one was needed (only GS-02, from its notes; a B-05 judgment, not a label), and asked where none was needed. W-01: after a `no_reply` at STORE-K, the result is `unsure` or one confidence level lower; this counts only when the agent asks there. Every dispatch in the audit trail must follow an analyst approval of that proposal. `--final` adds the STORE-B recheck and reopen chain, up to 15 permission probes through the gateway, and a check that the probes changed no approval or dispatch.
+- **Dev and holdout kept apart.** Each scenario has a `split` of `dev` or `holdout`. Prompt tuning uses `dev` scenarios only, and the scorecard reports `holdout` separately. C-04 adds three holdout stores, built only with `--holdout`.
 - **No case for borderline stores.** STORE-I and STORE-J shouldn't open a case. That's a monitor check, but it belongs on the same scorecard.
-- **Plan quality.** Count the share of `test` and `challenge` checks whose result matched one of their stated expectations.
-- **Challenge rate.** Count the share of diagnoses whose leading cause survived a challenge check.
-- **Trace review.** For the demo, keep the two Langfuse traces for STORE-A and STORE-B, with each step's stated purpose visible.
+- **Not scored.** Check sequences, plan quality and whether the leader survived a challenge check aren't scored; read them from the traces. Each run's Langfuse session is its investigation ID.

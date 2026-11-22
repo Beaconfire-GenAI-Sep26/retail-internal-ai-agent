@@ -1,11 +1,15 @@
 # Agent Service
 
 The FastAPI entry point is `agent.app.main:app`. It runs B-02's investigation API,
-LangGraph, bounded runner and in-memory checkpoints behind A-02's shared JWT
+LangGraph, bounded runner and checkpoints (in memory by default) behind A-02's shared JWT
 boundary. The typed HTTP tools use the request-scoped Domain capability. No JWT
 or Domain client belongs in checkpoint state. Merchant questions pause a run until
 `POST /investigations/{id}/resume`; they are off while `AGENT_MAX_QUESTIONS=0`, and
-a Domain without the merchant-replies route gets none. With
+a Domain without the merchant-replies route (C-05) gets none. With C-05's mock merchant,
+a question on STORE-A, B, L or M is answered when it's approved, so the resume after the
+decision carries the run on without stopping at `awaiting_merchant` (a second question
+pauses it again); STORE-K never answers, and the analyst records `no_reply`.
+The CLI never asks, and fixtures mode never offers questions. With
 `AGENT_CHECKPOINTER=postgres` (the Compose default), a paused run survives a
 restart. The live restart test runs with `AGENT_IT_DATABASE_URL` set to a test
 database it may empty: `uv run --project agent pytest agent/tests/live/test_live_postgres.py`.
@@ -55,6 +59,7 @@ Run these from the repository root unless the row says `agent/`.
 | M0 spike, offline checks only | `uv run --project agent python -m agent.scripts.m0_spike` |
 | M0 spike, plus 8 real calls (about $1) | `uv run --project agent python -m agent.scripts.m0_spike --yes` |
 | Rebuild the Domain fixtures | `uv run --project agent python agent/scripts/make_fixtures.py` |
+| Golden Dataset evaluation (B-05), Compose stack running | `uv run --project agent python -m agent.scripts.golden_eval --reps 3 --final` (see below) |
 | Image | `docker build -f agent/Dockerfile .` |
 
 The CLI and the spike write their reports to `agent/scripts/out/`, which is git-ignored. Settings come from
@@ -82,8 +87,8 @@ Once the case's store is known, the scoped client adds `X-Store-ID` and `X-Inves
    `JWT_ISSUER`, `INTERNAL_SERVICE_TOKEN` and a database URL. Point the database URL at `127.0.0.1`, not
    `localhost`: on Windows, `localhost` can try IPv6 first and stall every new connection.
 2. Open the cases: from the repository root, get a token with `python -m domain.scripts.make_demo_token`, then
-   `POST /monitor/run` with `{"as_of": "2026-11-15"}` and an `Idempotency-Key` header. That opens CASE-0001
-   (STORE-A) and CASE-0002 (STORE-B).
+   `POST /monitor/run` with `{"as_of": "2026-11-15"}` and an `Idempotency-Key` header. That opens five cases,
+   CASE-0001 to CASE-0005, for STORE-A, B, K, L and M.
 3. In `agent/.env`, set `AGENT_DOMAIN_MODE=http`, `DOMAIN_SERVICE_URL` to Domain's address (for example
    `http://127.0.0.1:8010`), and the same `JWT_SECRET`, `JWT_ISSUER` and `INTERNAL_SERVICE_TOKEN` as Domain.
 4. Run one investigation with the CLI (`--domain http --case CASE-0001 --token <jwt>`), or start the API
@@ -108,6 +113,29 @@ AGENT_IT_DOMAIN_URL=http://127.0.0.1:8010 AGENT_IT_JWT_SECRET=<Domain's JWT_SECR
 
 `AGENT_IT_SERVICE_TOKEN` defaults to `INTERNAL_SERVICE_TOKEN`. The suite mints its own test tokens and runs the
 monitor itself, acting as Auth and the frontend.
+
+## Golden Dataset evaluation (B-05)
+
+`agent/scripts/golden_eval.py` runs the agent and a fixed-rule baseline on the seeded scenarios and grades both
+with the same code checks ([agent-graph.md](../docs/agent-graph.md#evaluation)). It drives the running Compose
+stack through the gateway, so set `AGENT_EFFORT=medium` in the root `.env` first. Each round reseeds Domain and
+clears the agent's runs, which wipes Domain's data.
+
+- `--reps 3 --final` is the full run: three rounds of the agent on the dev scenarios (the baseline runs once; it's
+  deterministic), then the STORE-B recheck and reopen chain and the permission probes. A dev run took about 30
+  minutes and $4.50 at medium effort.
+- `--self-check` grades the answer key and an empty answer through the same grader, with no Claude call.
+- `--cases GS-02 --reps 1 --variant v2` reruns chosen scenarios into a new folder, for example after a fix.
+- `--split holdout` runs the holdout scenarios into `agent/scripts/out/golden-holdout/`, so they never pool with
+  dev. The runner reseeds with `--holdout` every round, which needs C-04's `domain/scripts/holdout_stores.py`: add
+  it and rebuild the Domain image first.
+
+Results go to `agent/scripts/out/golden/`. `baseline/` and `v1/` each hold `results.jsonl`, `traces/`, `run.json`
+(one header per session: git SHA, seed, label hash, agent settings) and, only when a run can't be scored,
+`errors.jsonl`. `--final` adds `chain.json` and `probes.json` to the agent's folder. `summary.md` holds the baseline
+and the variant from the latest run. The HTML report is built from the same folder by the claude-api skill's report
+builder (`build-report-lite.mjs`), so rerun the builder after the command. Each result's `langfuse_session` is the
+investigation ID, which is the run's Langfuse session.
 
 ## Layout
 

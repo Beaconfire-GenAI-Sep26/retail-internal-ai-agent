@@ -409,9 +409,14 @@ def evaluate_output(
         cause = h["cause_category"]
         if cause in DATA_LIMIT_CAUSES and new in ("supported", "ruled_out"):
             v.append(Violation("G5", f"{hid} is {cause}, which platform data can't support or rule out"))
-        elif new == "supported" and not any(can_support(hid, c) for c in checks_after):
-            v.append(Violation("G3", f"{hid} can't be supported: no sufficient test or challenge check from a "
-                                     f"rate tool has matched {hid} = if_true"))
+        elif new == "supported":  # both conditions are checked, so one rejection lists everything to fix
+            if not any(can_support(hid, c) for c in checks_after):
+                v.append(Violation("G3", f"{hid} can't be supported: no sufficient test or challenge check from a "
+                                         f"rate tool has matched {hid} = if_true"))
+            if all(e.startswith("EV-RPL-") for e in h["supporting_evidence_ids"]):  # a reply alone isn't evidence
+                v.append(Violation("G3", f"{hid} can't be supported without evidence: cite at least one evidence "
+                                         f"ID that a check returned, in add_supporting (a merchant reply doesn't "
+                                         f"count)"))
         elif new == "ruled_out":
             if not any(can_rule_out(hid, c) for c in checks_after):
                 v.append(Violation("G4", f"{hid} can't be ruled out: no sufficient rate-tool check that lists it in "

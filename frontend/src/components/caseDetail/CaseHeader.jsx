@@ -1,20 +1,42 @@
-// [10f] CaseHeader — top of the case page: which store, how bad, compared to what
-//   title row:  CASE-0001 · Golden Wok Kitchen  [Open]
-//   facts row:  Store STORE-A | City Chicago | Trigger Over goal | Trigger window Nov 9 – Nov 15, 2026
-//   3 cards:    M&I rate (this week) · Baseline · Goal
+// [10f] CaseHeader — top of the case page: which case, which store, why it opened
+//   CASE-0001  [● Awaiting decision]
+//   Golden Wok Kitchen                                          ← h1
+//   ⌂ STORE-A   ⌖ Chicago   △ Trigger Over goal   ▦ Window Nov 9 – Nov 15, 2026
+// The three numbers (rate, baseline, goal) are in CaseKpis, chapter 1.
 
 
 // ═══════════════════════════════════════════════════════════════════
-// 1. Imports
+// 1. Imports + icons
 // ═══════════════════════════════════════════════════════════════════
 import StatusBadge from '../StatusBadge';
 import {
-  formatRate,
-  formatRatio,
   formatDateRange,
   formatInvestigationError,
   TRIGGER_LABELS,
 } from '../../api/format';
+
+// Line icons in front of each fact (decorative — the label names the fact)
+const ICONS = {
+  store: 'M3 9l1-5h16l1 5M4 9v11h16V9M9 20v-6h6v6',
+  city: 'M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12zM12 6.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z',
+  trigger: 'M12 3l9 16H3zM12 10v4',
+  window: 'M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM3 10h18M8 3v4M16 3v4',
+};
+const Icon = ({ d }) => (
+  <svg viewBox='0 0 24 24' aria-hidden='true' fill='none' stroke='currentColor' strokeWidth='2'
+    strokeLinecap='round' strokeLinejoin='round'>
+    <path d={d} />
+  </svg>
+);
+
+// One fact: icon · label · value. Store and city are obvious from the value, so
+// their label is for screen readers only (sr-only).
+const Fact = ({ icon, label, showLabel = true, children }) => (
+  <div>
+    <dt><Icon d={ICONS[icon]} /><span className={showLabel ? undefined : 'sr-only'}>{label}</span></dt>
+    <dd>{children}</dd>
+  </div>
+);
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -26,31 +48,22 @@ const CaseHeader = ({ caseDetail }) => {
 
   return (
     <header className='case-header'>
-      {/* ── Title row ── */}
-      <div className='case-title'>
-        <h1>{caseDetail.case_id} · {caseDetail.store_name}</h1>
+      <div className='case-id-row'>
+        <span className='mono'>{caseDetail.case_id}</span>
         <StatusBadge status={caseDetail.status} />
       </div>
+      <h1>{caseDetail.store_name}</h1>
 
-      {/* ── Case facts — small label above each value ── */}
       <dl className='case-facts'>
-        <div>
-          <dt>Store</dt>
-          <dd>{store.store_id}</dd>
-        </div>
-        <div>
-          <dt>City</dt>
-          <dd>{store.city}</dd>
-        </div>
-        <div>
-          <dt>Trigger</dt>
-          <dd>{TRIGGER_LABELS[caseDetail.trigger_rule] ?? caseDetail.trigger_rule}</dd>
-        </div>
-        <div>
-          {/* The 7 days that triggered the case, in the store's timezone */}
-          <dt>Trigger window</dt>
-          <dd>{formatDateRange(caseDetail.window_start, caseDetail.window_end, store.timezone)}</dd>
-        </div>
+        <Fact icon='store' label='Store' showLabel={false}>{store.store_id}</Fact>
+        <Fact icon='city' label='City' showLabel={false}>{store.city}</Fact>
+        <Fact icon='trigger' label='Trigger'>
+          {TRIGGER_LABELS[caseDetail.trigger_rule] ?? caseDetail.trigger_rule}
+        </Fact>
+        {/* The 7 days that triggered the case, in the store's timezone */}
+        <Fact icon='window' label='Window'>
+          {formatDateRange(caseDetail.window_start, caseDetail.window_end, store.timezone)}
+        </Fact>
       </dl>
 
       {/* Set by the Domain Service when the last investigation failed. It holds the
@@ -60,27 +73,6 @@ const CaseHeader = ({ caseDetail }) => {
           Last investigation failed: {formatInvestigationError(caseDetail.last_error)}
         </p>
       )}
-
-      {/* ── Stat cards ── */}
-      <div className='stat-cards'>
-        <div className='stat-card stat-card-alert'>
-          <span className='stat-label'>M&amp;I rate (trigger window)</span>
-          <strong className='stat-value'>{formatRate(caseDetail.mi_rate)}</strong>
-          <span className='muted'>
-            {formatRatio(caseDetail.attributable_claims, caseDetail.eligible_orders)} claims / orders
-          </span>
-        </div>
-        <div className='stat-card'>
-          <span className='stat-label'>Baseline</span>
-          <strong className='stat-value'>{formatRate(caseDetail.baseline_rate)}</strong>
-          <span className='muted'>the store's usual level, prior 28 days</span>
-        </div>
-        <div className='stat-card'>
-          <span className='stat-label'>Goal</span>
-          <strong className='stat-value'>{formatRate(caseDetail.goal_rate)}</strong>
-          <span className='muted'>above this opens a case</span>
-        </div>
-      </div>
     </header>
   );
 };

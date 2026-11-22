@@ -2,7 +2,8 @@
 // Which boxes show is decided in one place, getCaseView (caseSteps.js); this
 // component only lays them out, in three parts:
 //
-//   ┌ Investigation ───────────────────────────── INV-… · started by … ┐
+//   ② INVESTIGATION ─────────────────────────── INV-… · started by …   ← Chapter, above the card
+//   ┌──────────────────────────────────────────────────────────────────┐
 //   │ 1. Start button (4) and/or progress (5)                          │
 //   │ 2. The shared spot (one at a time):                              │
 //   │      question (6) · reply (7) · result (8) + action (9) · error (10) │
@@ -28,6 +29,7 @@ import { selectCaseDetail } from '../../store/cases/casesSelectors';
 import usePollInvestigation from '../../hooks/usePollInvestigation';
 import { formatDateTime } from '../../api/format';
 import { getCaseView } from './caseSteps';
+import Chapter from '../common/Chapter';
 import StartInvestigationButton from './StartInvestigationButton';
 import InvestigationProgress from './InvestigationProgress';
 import ResultPanel from './ResultPanel';
@@ -94,15 +96,27 @@ const InvestigationPanel = ({ caseId }) => {
 
   // ── 3c. Loading, or the Agent Service couldn't be reached ─────────
   // Only this panel shows the error; the rest of the case page still works.
+  // The chapter title sits above the card; id='investigation' is where the
+  // next-action banner jumps (CaseDetail)
+  const chapter = (meta) => (
+    <Chapter number={2} title='Investigation' meta={meta} id='investigation' />
+  );
   if (loadStatus === 'loading' || loadStatus === 'idle') {
-    return <section className='investigation-panel'><p>Loading investigation…</p></section>;
+    return (
+      <>
+        {chapter()}
+        <section className='investigation-panel'><p>Loading investigation…</p></section>
+      </>
+    );
   }
   if (loadStatus === 'failed') {
     return (
-      <section className='investigation-panel'>
-        <h2>Investigation</h2>
-        <p className='error'>{loadError}</p>
-      </section>
+      <>
+        {chapter()}
+        <section className='investigation-panel'>
+          <p className='error'>{loadError}</p>
+        </section>
+      </>
     );
   }
 
@@ -111,17 +125,15 @@ const InvestigationPanel = ({ caseId }) => {
   const timeZone = caseDetail?.store?.timezone;
 
   return (
+    <>
+    {/* Chapter title + which run this is */}
+    {chapter(investigation && (
+      <>
+        <span className='mono'>{investigation.investigation_id}</span> · started by {investigation.started_by} ·{' '}
+        {formatDateTime(investigation.started_at, timeZone)}
+      </>
+    ))}
     <section className='investigation-panel' data-step={view.step ?? undefined}>
-      {/* Title + which run this is */}
-      <div className='investigation-title'>
-        <h2>Investigation</h2>
-        {investigation && (
-          <span className='muted'>
-            {investigation.investigation_id} · started by {investigation.started_by} ·{' '}
-            {formatDateTime(investigation.started_at, timeZone)}
-          </span>
-        )}
-      </div>
 
       {/* Second run: the first one, folded (box 15) */}
       {view.showPrevious && <PreviousInvestigation investigation={investigation} />}
@@ -171,6 +183,7 @@ const InvestigationPanel = ({ caseId }) => {
         </div>
       )}
     </section>
+    </>
   );
 };
 

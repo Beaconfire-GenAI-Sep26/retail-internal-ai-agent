@@ -1,12 +1,15 @@
 // [10g] DailyRateChart — the case "history": one bar per day for 42 days
-// Plain SVG, no chart library. Bars inside the trigger window are highlighted,
-// and a dashed line marks the goal, so the analyst sees when the rate jumped.
+// Plain SVG, no chart library. Bars inside the trigger window are red on a
+// tinted band, and a dashed line marks the goal, so the analyst sees when the
+// rate jumped. Once the agent has a diagnosis, a purple line marks the day it
+// says the cause started (InvestigationResult.cause_started_at) — data the page
+// already has, so no events call.
 
 
 // ═══════════════════════════════════════════════════════════════════
 // 1. Imports + chart size
 // ═══════════════════════════════════════════════════════════════════
-import { formatRate } from '../../api/format';
+import { formatDay, formatRate } from '../../api/format';
 
 // The SVG is drawn in these units and scales to the container's width (CSS)
 const WIDTH = 640;
@@ -41,7 +44,9 @@ const buildTicks = (top, step) =>
 //                    dates are already store-local, oldest first
 //   windowStartDate  first day of the trigger window, 'YYYY-MM-DD' (format.toStoreDate)
 //   goalRate         CaseDetail.goal_rate — drawn as the dashed line
-const DailyRateChart = ({ dailyRates, windowStartDate, goalRate }) => {
+//   causeStartedAt   InvestigationResult.cause_started_at, 'YYYY-MM-DD' (store-local), or null.
+//                    No line when it is null or outside the chart's days.
+const DailyRateChart = ({ dailyRates, windowStartDate, goalRate, causeStartedAt = null }) => {
   // ── 3a. Scale ───────────────────────────────────────────────────
   // rate: null (too few orders that day) counts as 0 for the scale
   const highest = Math.max(goalRate, ...dailyRates.map((d) => d.rate ?? 0));
@@ -52,15 +57,25 @@ const DailyRateChart = ({ dailyRates, windowStartDate, goalRate }) => {
   const barSlot = PLOT_W / dailyRates.length; // width each day gets
   const y = (rate) => PAD.top + PLOT_H - (rate / top) * PLOT_H; // rate → SVG y
 
+  // Trigger window: from its first day to the end of the chart ('YYYY-MM-DD' compares as text)
+  const windowIndex = dailyRates.findIndex((d) => d.date >= windowStartDate);
+  // Cause line: the left edge of that day's bar. Label on the left side when the
+  // line is in the right part of the chart, so it never runs off the edge.
+  const causeIndex = causeStartedAt ? dailyRates.findIndex((d) => d.date === causeStartedAt) : -1;
+  const causeX = PAD.left + causeIndex * barSlot;
+  const causeLabel = `Likely cause started · ${formatDay(causeStartedAt).replace(/, \d{4}$/, '')}`;
+  const labelOnLeft = causeIndex > dailyRates.length * 0.6;
+
   // ── 3b. Render ──────────────────────────────────────────────────
   return (
-    <section className='daily-chart'>
+    <div className='daily-chart'>
       <div className='daily-chart-head'>
-        <h2>Daily M&amp;I rate · last {dailyRates.length} days</h2>
+        <h3>Daily M&amp;I rate · last {dailyRates.length} days</h3>
         <div className='chart-legend'>
           <span className='legend-day'>Daily rate</span>
           <span className='legend-window'>Trigger window</span>
           <span className='legend-goal'>Goal {formatRate(goalRate)}</span>
+          {causeIndex >= 0 && <span className='legend-cause'>Likely cause started</span>}
         </div>
       </div>
 
@@ -69,6 +84,18 @@ const DailyRateChart = ({ dailyRates, windowStartDate, goalRate }) => {
         role='img'
         aria-label={`Daily M&I rate from ${dailyRates[0]?.date} to ${dailyRates.at(-1)?.date}`}
       >
+        {/* ── Trigger window band, behind everything ── */}
+        {windowIndex >= 0 && (
+          <rect
+            className='chart-window-band'
+            x={PAD.left + windowIndex * barSlot}
+            y={PAD.top}
+            width={(dailyRates.length - windowIndex) * barSlot}
+            height={PLOT_H}
+            rx='4'
+          />
+        )}
+
         {/* ── Grid lines + y-axis labels ── */}
         {ticks.map((t) => (
           <g key={t}>
@@ -118,10 +145,25 @@ const DailyRateChart = ({ dailyRates, windowStartDate, goalRate }) => {
 
         {/* ── Goal line, drawn last so it sits on top of the bars ── */}
         <line className='chart-goal' x1={PAD.left} x2={WIDTH - PAD.right} y1={y(goalRate)} y2={y(goalRate)} />
+
+        {/* ── When the agent says the cause started ── */}
+        {causeIndex >= 0 && (
+          <g>
+            <line className='chart-cause' x1={causeX} x2={causeX} y1={PAD.top} y2={PAD.top + PLOT_H} />
+            <text
+              className='chart-cause-label'
+              x={labelOnLeft ? causeX - 5 : causeX + 5}
+              y={PAD.top + 9}
+              textAnchor={labelOnLeft ? 'end' : 'start'}
+            >
+              {causeLabel}
+            </text>
+          </g>
+        )}
       </svg>
 
-      <p className='muted'>Hover a bar for that day's numbers. Dashed outlines are days with too few orders to rate.</p>
-    </section>
+      <p className='chart-note'>Hover a bar for that day's numbers. Dashed outlines are days with too few orders to rate.</p>
+    </div>
   );
 };
 

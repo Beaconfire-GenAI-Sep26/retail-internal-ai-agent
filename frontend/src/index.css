@@ -196,9 +196,6 @@ main > form p:last-child { font-size: 0.8rem; color: var(--text-muted); }
 /* Every white card on any page gets the same soft shadow */
 main > form,
 .table-scroll,
-.case-header,
-.daily-chart,
-.investigation-panel,
 .recheck-panel,
 .audit-log,
 .kpi-card,
@@ -269,12 +266,13 @@ main > section > p.muted { padding: 32px 0; text-align: center; }
 .badge-closed { color: var(--ok); background: var(--ok-soft); }
 .badge-paused { color: var(--text-muted); background: var(--bg); }
 
-/* ═══ 6. Case detail — header cards, daily chart, investigation panel (D-02) ═══ */
-.case-detail > a { font-size: 0.9rem; }
+/* ═══ 6. Case detail — header, banner, stepper, chapters, chapter 1 (D-02, D-06) ═══ */
+/* Back link above the title */
+.crumb { justify-self: start; font-size: var(--fs-sm); font-weight: 500; color: var(--text-muted); }
+.crumb:hover { color: var(--text); text-decoration: none; }
 
-/* The three blocks of the page are cards */
-.case-header,
-.daily-chart,
+/* Cards on the case page: chapter 1, the investigation */
+.case-card,
 .investigation-panel {
   display: grid;
   gap: 12px;
@@ -282,47 +280,121 @@ main > section > p.muted { padding: 32px 0; text-align: center; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 20px 22px;
+  box-shadow: var(--shadow);
 }
+.case-card { gap: 20px; }
 
-/* Header */
-.case-title { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+/* Header: case ID + status, store name, facts with icons — no card */
+.case-header { display: grid; gap: 6px; }
+.case-id-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; color: var(--text-muted); }
+.case-header h1 { font-size: var(--fs-2xl); letter-spacing: -0.025em; line-height: 1.15; }
+.case-facts { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 4px 0 0; font-size: var(--fs-sm); color: var(--text-muted); }
+.case-facts > div { display: flex; align-items: center; gap: 6px; }
+.case-facts dt { display: flex; align-items: center; gap: 6px; }
+.case-facts svg { width: 14px; height: 14px; flex: none; }
+.case-facts dd { margin: 0; font-weight: 600; color: var(--text-2); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
-/* Facts row: label on top, value below, thin divider between items */
-.case-facts { display: flex; flex-wrap: wrap; gap: 8px 0; margin: 0; }
-.case-facts > div { padding: 0 20px; border-left: 1px solid var(--border); }
-.case-facts > div:first-child { padding-left: 0; border-left: none; }
-.case-facts dt { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
-.case-facts dd { margin: 0; font-weight: 500; }
-.stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 4px; }
-.stat-card {
-  display: grid;
-  gap: 2px;
-  padding: 12px 16px;
-  border-radius: 8px;
-  background: var(--surface-soft);
-  border: 1px solid var(--border);
+/* Next-action banner — dark, so it stands apart from the white cards */
+.next-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 14px;
+  margin-top: 6px;
+  padding: 12px 14px 12px 16px;
+  border-radius: 12px;
+  background: var(--text);
+  color: #fff;
 }
-.stat-label { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
-.stat-value { font-size: 1.75rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
-.stat-card .muted { font-size: 0.85rem; }
-.stat-card-alert { background: var(--danger-soft); border-color: transparent; }
-.stat-card-alert .stat-value { color: var(--danger); }
+.next-action-icon { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--brand); }
+.next-action-icon svg { width: 18px; height: 18px; }
+.next-action-text { display: grid; flex: 1 1 260px; min-width: 0; }
+.next-action-text strong { font-size: 0.95rem; }
+.next-action-text span { font-size: var(--fs-sm); color: #c9c9c9; }
+a.next-action-cta {
+  flex: none;
+  padding: 7px 16px;
+  border-radius: 99px;
+  background: #fff;
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+a.next-action-cta:hover { background: var(--bg); text-decoration: none; }
+a.next-action-cta:focus-visible { outline-color: #fff; }
+
+/* Stepper — 5 stages, a bar on top of each */
+.case-stepper { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin: 6px 0 0; padding: 0; list-style: none; }
+.stage { display: grid; align-content: start; padding-top: 10px; border-top: 3px solid var(--border-strong); min-width: 0; }
+.stage-label { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); }
+.stage-note { font-size: var(--fs-sm); color: var(--text-faint); overflow-wrap: anywhere; }
+.stage-done { border-top-color: var(--text); }
+.stage-done .stage-label { color: var(--text); }
+.stage-done .stage-note { color: var(--text-muted); }
+.stage-now { border-top-color: var(--agent); }
+.stage-now .stage-label { color: var(--agent); }
+.stage-now .stage-note { color: var(--text-2); }
+.stage-attention { border-top-color: var(--brand); }
+.stage-attention .stage-label { color: var(--brand); }
+
+/* Chapter — ① TITLE ──────── meta */
+.chapter { display: flex; align-items: center; gap: 10px; margin-top: 18px; scroll-margin-top: 16px; }
+.case-main > .chapter:first-child { margin-top: 0; }
+.chapter-number { display: grid; place-items: center; flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--text); color: #fff; font-size: 0.7rem; font-weight: 700; }
+.chapter h2 { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+.chapter-rule { flex: 1; min-width: 16px; height: 1px; background: var(--border-strong); }
+.chapter-meta { font-size: var(--fs-sm); color: var(--text-muted); text-align: right; }
+.chapter-brand .chapter-number { background: var(--brand); }
+.chapter-brand h2 { color: var(--brand); }
+.chapter-brand .chapter-rule { background: var(--brand-line); }
+
+/* Chapter 1: KPI cards — only the triggering rate is red */
+.case-kpis { display: grid; grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(0, 1fr)); gap: 12px; }
+.case-kpi { display: grid; align-content: start; gap: 2px; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-soft); min-width: 0; }
+.case-kpi-value { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 4px 0 2px; font-size: var(--fs-2xl); font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.case-kpi-foot { font-size: var(--fs-sm); color: var(--text-muted); }
+.case-kpi-alert { background: var(--brand-soft); border-color: var(--brand-line); }
+.case-kpi-alert .case-kpi-value { color: var(--brand); }
+.case-kpi-delta { padding: 1px 7px; border-radius: 6px; background: var(--surface); font-size: 0.75rem; font-weight: 700; letter-spacing: 0; }
+/* Rate bar: green up to the baseline, amber up to the goal, red above it */
+.rate-bar {
+  position: relative;
+  height: 8px;
+  margin-top: 12px;
+  border-radius: 99px;
+  background: linear-gradient(90deg,
+    var(--ok-soft) 0 var(--baseline),
+    var(--warn-soft) var(--baseline) var(--goal),
+    var(--brand-line) var(--goal) 100%);
+}
+.rate-bar i { position: absolute; top: -4px; width: 2px; height: 16px; border-radius: 1px; }
+.rate-bar-baseline { left: var(--baseline); background: var(--text); }
+.rate-bar-goal { left: var(--goal); background: var(--warn); }
+.rate-bar-value { position: absolute; top: -3px; width: 14px; height: 14px; border-radius: 50%; background: var(--brand); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--brand); transform: translateX(-50%); }
+.rate-bar-labels { display: flex; justify-content: space-between; margin-top: 4px; font-size: 0.7rem; color: var(--text-muted); }
 
 /* Daily chart — SVG scales to the card width */
+.daily-chart { display: grid; gap: 8px; }
+.daily-chart h3 { font-size: 0.95rem; }
 .daily-chart svg { display: block; width: 100%; height: auto; }
-.daily-chart > p.muted { font-size: 0.82rem; }
+.chart-note { font-size: var(--fs-sm); color: var(--text-muted); }
 .daily-chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; align-items: baseline; }
-.chart-grid { stroke: #e9ecf1; }
-.chart-label { fill: var(--text-muted); font-size: 10px; }
-.chart-bar { fill: #aab1be; }
-.chart-bar-window { fill: var(--danger); }
-.chart-bar-nodata { fill: none; stroke: var(--border); stroke-dasharray: 3 2; }
+.chart-grid { stroke: var(--border); }
+.chart-label { fill: var(--text-faint); font-size: 10px; }
+.chart-bar { fill: var(--border-strong); }
+.chart-bar-window { fill: var(--brand); }
+.chart-bar-nodata { fill: none; stroke: var(--border-strong); stroke-dasharray: 3 2; }
+.chart-window-band { fill: var(--brand-soft); }
 .chart-goal { stroke: var(--warn); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.chart-cause { stroke: var(--agent); stroke-width: 1.5; stroke-dasharray: 2 3; }
+.chart-cause-label { fill: var(--agent); font-size: 10px; font-weight: 600; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 0.8rem; color: var(--text-muted); }
 .chart-legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; vertical-align: -1px; }
-.legend-day::before { background: #aab1be; }
-.legend-window::before { background: var(--danger); }
+.legend-day::before { background: var(--border-strong); }
+.legend-window::before { background: var(--brand); }
 .legend-goal::before { height: 0 !important; border-top: 2px dashed var(--warn); border-radius: 0 !important; vertical-align: 3px !important; }
+.legend-cause::before { width: 0 !important; height: 12px !important; border-left: 2px dotted var(--agent); border-radius: 0 !important; vertical-align: -2px !important; }
 
 /* Investigation panel */
 .investigation-panel { gap: 10px; }
@@ -348,12 +420,14 @@ main > section > p.muted { padding: 32px 0; text-align: center; }
   .nav { padding: 10px 16px; }
   main { padding: 20px 16px 40px; }
   h1 { font-size: 1.3rem; }
-  /* Facts row → 2 columns; dividers would land at odd places once items wrap */
-  .case-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
-  .case-facts > div { padding: 0; border-left: none; }
-  .case-header,
-  .daily-chart,
+  .case-header h1 { font-size: 1.5rem; }
+  .case-card,
   .investigation-panel { padding: 16px; }
+  /* KPIs stack; the stepper scrolls sideways instead of squeezing 5 labels */
+  .case-kpis { grid-template-columns: minmax(0, 1fr); }
+  .case-stepper { grid-template-columns: repeat(5, minmax(96px, 1fr)); overflow-x: auto; padding-bottom: 4px; }
+  .chapter-meta { display: none; }
+  .next-action-cta { margin-left: 46px; }
 }
 
 /* ═══ 8. Pills, evidence links, evidence drawer (D-03) ═══ */
@@ -706,7 +780,7 @@ button.recommendation-edit { justify-self: start; }
 }
 
 /* ═══ 13. Case page layout + activity sidebar — box 16 (D-05) ═══ */
-.case-layout { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 16px; align-items: start; }
+.case-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; align-items: start; margin-top: 12px; }
 .case-main { display: grid; gap: 16px; min-width: 0; }
 .audit-log {
   position: sticky;
@@ -734,7 +808,7 @@ button.recommendation-edit { justify-self: start; }
 .audit-who { color: var(--text-muted); overflow-wrap: anywhere; }
 button.audit-more { justify-self: start; font-size: 0.82rem; padding: 4px 10px; }
 /* Sidebar drops below when the page column (not the window) is under 880px:
-   250px sidebar + 16px gap leaves the main column at least ~615px */
+   280px sidebar + 24px gap leaves the main column at least ~575px */
 .case-layout-wrap { container: case-page / inline-size; }
 @container case-page (max-width: 880px) {
   .case-layout { grid-template-columns: 1fr; }

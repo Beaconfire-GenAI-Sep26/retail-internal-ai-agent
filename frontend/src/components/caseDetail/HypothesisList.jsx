@@ -17,7 +17,9 @@ import { labelOf, CAUSE_LABELS, HYPOTHESIS_STATUS_LABELS } from '../../api/forma
 // ═══════════════════════════════════════════════════════════════════
 // 2. Helpers
 // ═══════════════════════════════════════════════════════════════════
-const STATUS_TONES = { supported: 'ok', open: 'accent', inconclusive: 'warn', ruled_out: 'bad' };
+// Ruled out is an outline, not red: it no longer counts, it isn't a problem.
+// The card's left bar repeats the color (index.css .hypothesis-*).
+const STATUS_TONES = { supported: 'ok', open: 'accent', inconclusive: 'warn', ruled_out: 'ghost' };
 const STATUS_ORDER = { supported: 0, open: 1, inconclusive: 2, ruled_out: 3 };
 
 // Stable sort: equal statuses keep the agent's order
@@ -43,8 +45,8 @@ const HypothesisList = ({ hypotheses = [] }) => (
             </div>
             <p>{h.statement}</p>
             <p className='muted'>{h.rationale}</p>
-            <EvidenceLinks label='Supports' ids={h.supporting_evidence_ids} />
-            <EvidenceLinks label='Against' ids={h.contradicting_evidence_ids} />
+            <EvidenceLinks label='Supports' ids={h.supporting_evidence_ids} tone='support' />
+            <EvidenceLinks label='Against' ids={h.contradicting_evidence_ids} tone='against' />
           </li>
         ))}
       </ul>

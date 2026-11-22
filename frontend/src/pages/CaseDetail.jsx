@@ -1,7 +1,7 @@
 // [12b] Case detail page — /cases/:caseId — any logged-in user
 // D-02: header (rate vs baseline and goal) · daily history · start + track the investigation
 // D-06: next-action banner and 5-stage stepper under the header; the page is
-// split into numbered chapters (1 What happened · 2 Investigation).
+// split into numbered chapters (1 What happened · 2 the agent's run · …).
 // D-03 adds the diagnosis and approve/reject inside InvestigationPanel, and the
 // evidence drawer (box 14) that any evidence ID on the page opens.
 // caseId is a string like "CASE-0001" (C-01 convention) — never parse it as a number
@@ -36,7 +36,6 @@ import CaseKpis from '../components/caseDetail/CaseKpis';
 import DailyRateChart from '../components/caseDetail/DailyRateChart';
 import InvestigationPanel from '../components/caseDetail/InvestigationPanel';
 import EvidenceDrawer from '../components/caseDetail/EvidenceDrawer';
-import RecheckPanel from '../components/caseDetail/RecheckPanel';
 import AuditLog from '../components/caseDetail/AuditLog';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 
@@ -127,7 +126,7 @@ const CaseDetail = () => {
         <div className='case-layout'>
           <div className='case-main'>
             {/* Chapter 1: store facts — the numbers and the 42-day history */}
-            <Chapter number={1} title='What happened' meta='Store and order data' />
+            <Chapter title='What happened' meta='Store and order data' />
             <section className='case-card' aria-label='What happened'>
               <CaseKpis caseDetail={caseDetail} />
               <DailyRateChart
@@ -137,10 +136,9 @@ const CaseDetail = () => {
                 causeStartedAt={causeStartedAt}
               />
             </section>
-            {/* Chapter 2 and its card */}
+            {/* Chapters 2 onwards: the run, the action, the recheck, the merchant
+                conversation, the checks (InvestigationPanel lays them out) */}
             <InvestigationPanel caseId={caseId} />
-            {/* Box 13 sits outside the investigation panel (page map); it hides itself until a recheck exists */}
-            <RecheckPanel caseId={caseId} />
           </div>
           <AuditLog caseId={caseId} timeZone={caseDetail.store.timezone} />
         </div>

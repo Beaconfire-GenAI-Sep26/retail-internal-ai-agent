@@ -344,6 +344,10 @@ a.next-action-cta:focus-visible { outline-color: #fff; }
 /* Chapter — ① TITLE ──────── meta */
 .chapter { display: flex; align-items: center; gap: 10px; margin-top: 18px; scroll-margin-top: 16px; }
 .case-main > .chapter:first-child { margin-top: 0; }
+/* Numbers count the chapters that actually show (Chapter.jsx) */
+.case-main { counter-reset: chapter; }
+.chapter { counter-increment: chapter; }
+.chapter-number::before { content: counter(chapter); }
 .chapter-number { display: grid; place-items: center; flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--text); color: #fff; font-size: 0.7rem; font-weight: 700; }
 .chapter h2 { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
 .chapter-rule { flex: 1; min-width: 16px; height: 1px; background: var(--border-strong); }
@@ -620,37 +624,53 @@ h4 { font-size: 0.8rem; margin: 0; font-weight: 600; letter-spacing: 0.04em; tex
 .check-timeline,
 .hypothesis-list { display: grid; align-content: start; gap: 10px; }
 
-.check-timeline ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
-.check-item { display: grid; grid-template-columns: 26px 1fr; gap: 10px; scroll-margin-top: 16px; }
-.check-item:target .check-body { background: var(--info-soft); border-radius: 6px; }
+/* Checks: a vertical line through numbered dots, oldest first */
+.check-timeline ol { position: relative; list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; }
+.check-timeline ol::before { content: ''; position: absolute; left: 13px; top: 8px; bottom: 8px; width: 2px; background: var(--border); }
+.check-item { position: relative; display: grid; grid-template-columns: 28px 1fr; gap: 12px; scroll-margin-top: 16px; }
+.check-item:target .check-headline { background: var(--info-soft); }
 .check-number {
+  position: relative;
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  background: var(--surface-soft);
-  border: 1px solid var(--border);
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--text-muted);
+  background: var(--surface);
+  border: 2px solid var(--border-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-2);
 }
-.check-body { display: grid; gap: 4px; min-width: 0; font-size: 0.92rem; }
+.check-body { display: grid; gap: 4px; min-width: 0; font-size: 0.9rem; }
 .check-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
-.check-headline { padding-left: 10px; border-left: 2px solid var(--border); }
+.check-head strong { font-weight: 650; }
+/* Purpose (why the check ran) is quiet; the finding stands out in a grey block */
+.check-body > p:not(.check-headline):not(.evidence-links) { font-size: var(--fs-sm); color: var(--text-muted); }
+.check-headline { margin-top: 2px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-soft); color: var(--text); font-weight: 500; }
 .check-matched summary { cursor: pointer; font-size: 0.85rem; color: var(--link); }
 .check-matched ul { margin: 6px 0 0; padding-left: 0; list-style: none; display: grid; gap: 4px; font-size: 0.86rem; }
 
 .hypothesis-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .hypothesis {
+  position: relative;
   display: grid;
   gap: 4px;
-  padding: 10px 12px;
+  padding: 12px 14px 12px 18px;
+  overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 0.92rem;
+  border-radius: 12px;
+  font-size: 0.9rem;
 }
-.hypothesis-ruled_out { opacity: 0.75; }
+/* Left bar = status: green supported · blue open · amber inconclusive · grey ruled out */
+.hypothesis::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--border-strong); }
+.hypothesis-supported::before { background: var(--ok); }
+.hypothesis-open::before { background: var(--info); }
+.hypothesis-inconclusive::before { background: var(--warn); }
+.hypothesis > p.muted { font-size: var(--fs-sm); }
+.hypothesis-ruled_out { background: var(--surface-soft); }
+.hypothesis-ruled_out strong { color: var(--text-muted); text-decoration: line-through; text-decoration-color: var(--text-faint); }
+.hypothesis-ruled_out > p:not(.evidence-links) { color: var(--text-muted); }
 .hypothesis-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 
 /* Stack by the card's own width, not the window's: with the side nav and the
@@ -735,18 +755,11 @@ button.decision-reject { margin-left: auto; }
 .decision-note { font-style: italic; white-space: pre-wrap; }
 .decision-viewer { padding-top: 10px; border-top: 1px solid var(--border); }
 
-/* ═══ 12. Merchant question — box 6 (D-05) ═══ */
-.question-history { display: grid; gap: 10px; }
-.question-review {
-  display: grid;
-  gap: 10px;
-  padding: 16px 18px;
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--wait);
-  border-radius: 8px;
-  background: var(--surface);
-}
-.question-past { background: var(--surface-soft); }
+/* ═══ 12. Merchant question — box 6 (D-05, D-06) ═══ */
+/* The question to decide uses the recommended action's frame (section 10):
+   red band while it waits, quiet once decided. */
+.question-review > .muted,
+.question-review > .error { margin: 16px 22px; }
 .question-text {
   margin: 0;
   padding: 10px 12px;
@@ -757,7 +770,6 @@ button.decision-reject { margin-left: auto; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.question-past .question-text { background: var(--surface); }
 .question-review textarea {
   width: 100%;
   font: inherit;
@@ -785,16 +797,25 @@ button.decision-reject { margin-left: auto; }
   border-radius: 8px;
   resize: vertical;
 }
-.reply-line { display: grid; gap: 4px; padding-top: 10px; border-top: 1px solid var(--border); }
-.reply-text {
-  margin: 0;
-  padding: 8px 12px;
-  border-left: 3px solid var(--wait);
-  border-radius: 4px;
-  background: var(--surface);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
+/* Conversation: purple bubble = the agent's question, grey on the right = the merchant */
+.question-history { display: grid; gap: 18px; }
+.exchange { display: grid; gap: 8px; }
+.bubble { display: grid; gap: 4px; max-width: min(560px, 88%); padding: 12px 14px; border-radius: 14px; }
+.bubble blockquote { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 0.76rem; color: var(--text-muted); }
+.bubble-agent { justify-self: start; background: var(--agent-soft); border-top-left-radius: 4px; }
+.bubble-unsent { background: var(--surface-soft); border: 1px dashed var(--border-strong); }
+.bubble-unsent blockquote { color: var(--text-muted); }
+.bubble-merchant { justify-self: end; background: var(--bg); border-top-right-radius: 4px; }
+.bubble-aside { display: grid; gap: 4px; max-width: min(560px, 88%); padding-left: 14px; font-size: var(--fs-sm); color: var(--text-muted); }
+.bubble-none { justify-self: end; font-size: var(--fs-sm); color: var(--text-muted); font-style: italic; }
+/* Its own chapter once the run ends: folded to one line */
+.conversation-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.conversation-card > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 16px 22px; cursor: pointer; list-style: none; font-weight: 600; }
+.conversation-card > summary::-webkit-details-marker { display: none; }
+.conversation-toggle { margin-left: auto; width: 8px; height: 8px; border-right: 2px solid var(--text-muted); border-bottom: 2px solid var(--text-muted); transform: rotate(45deg); transition: transform 0.15s; }
+.conversation-card[open] .conversation-toggle { transform: rotate(-135deg); }
+.conversation-card > .question-history { padding: 0 22px 22px; }
 .continue-box {
   display: grid;
   gap: 8px;
@@ -814,6 +835,11 @@ button.decision-reject { margin-left: auto; }
   padding: 20px 22px;
 }
 .recheck-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.recheck-head .muted { font-size: var(--fs-sm); }
+/* Top edge = result: green improved · red not improved · amber not enough data */
+.recheck-improved { box-shadow: inset 0 3px 0 var(--ok), var(--shadow); }
+.recheck-not_improved { box-shadow: inset 0 3px 0 var(--brand), var(--shadow); }
+.recheck-insufficient_data { box-shadow: inset 0 3px 0 var(--warn), var(--shadow); }
 .recheck-facts { display: grid; gap: 0; margin: 0; }
 .recheck-facts > div {
   display: grid;
@@ -865,15 +891,20 @@ button.decision-reject { margin-left: auto; }
 }
 .audit-log ol { list-style: none; margin: 0; padding: 0; display: grid; }
 .audit-log li {
+  position: relative;
   display: grid;
   gap: 1px;
-  padding: 7px 0;
-  border-top: 1px solid var(--border);
+  padding: 0 0 14px 20px;
   font-size: 0.84rem;
 }
-.audit-log li:first-child { border-top: none; padding-top: 0; }
+.audit-log li::before { content: ''; position: absolute; left: 0; top: 5px; width: 9px; height: 9px; border-radius: 50%; background: var(--text); }
+.audit-log li::after { content: ''; position: absolute; left: 4px; top: 18px; bottom: 2px; width: 1px; background: var(--border); }
+.audit-log li:last-child { padding-bottom: 0; }
+.audit-log li:last-child::after { display: none; }
+.audit-log li.audit-agent::before { background: var(--agent); }
+.audit-log li.audit-system::before { background: var(--text-faint); }
 .audit-time { color: var(--text-muted); font-size: 0.76rem; font-variant-numeric: tabular-nums; }
-.audit-what { font-weight: 500; }
+.audit-what { font-weight: 600; }
 .audit-who { color: var(--text-muted); overflow-wrap: anywhere; }
 button.audit-more { justify-self: start; font-size: 0.82rem; padding: 4px 10px; }
 /* Sidebar drops below when the page column (not the window) is under 880px:

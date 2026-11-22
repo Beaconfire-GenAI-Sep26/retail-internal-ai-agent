@@ -3,8 +3,8 @@
 // recheck_after_days). On that day it compares the target orders' rate after
 // the fix with before, and with the store's other orders over the same days.
 //
-//   Did the fix work?                                   [Not improved]
-//   Checked Dec 1, 2026
+//   ④ DID THE FIX WORK? ──────────────────────── RCK-…     ← Chapter
+//   [Not improved]  Checked Dec 1, 2026
 //   Orders          dinner · 5+ items
 //   Before the fix  29 / 204 (14.2%) · Nov 3 – Nov 15, 2026
 //   After the fix   26 / 193 (13.5%) · Nov 16 – Nov 30, 2026
@@ -13,7 +13,7 @@
 //
 // Scheduled: the analyst can run it now for the demo ("Run recheck now (demo)").
 // Shown at steps 6 and 7 and the ends after them (getCaseView.showRecheck).
-// Sits under InvestigationPanel, outside it (page map).
+// InvestigationPanel places it right after the action it rechecks (D-06).
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -31,6 +31,7 @@ import { USE_MOCKS } from '../../api/mockAuth';
 import { setNextRecheck } from '../../api/mocks/mockInvestigations';
 import { getCaseView, findRecheck } from './caseSteps';
 import Pill from '../common/Pill';
+import Chapter from '../common/Chapter';
 import {
   formatDate,
   formatDayRange,
@@ -153,18 +154,18 @@ const RecheckPanel = ({ caseId }) => {
   const next = nextStep(recheck, caseDetail.status);
 
   return (
-    <section className='recheck-panel'>
+    <>
+    <Chapter title='Did the fix work?' meta={<span className='mono'>{recheck.recheck_id}</span>} />
+    <section className={`recheck-panel recheck-${recheck.status}`}>
       <div className='recheck-head'>
-        <h2>Did the fix work?</h2>
         <RecheckPill status={recheck.status} />
         {recheck.data_sufficient === false && <Pill tone='warn'>Not enough orders</Pill>}
+        <span className='muted'>
+          {scheduled
+            ? <>Recheck on {formatDate(recheck.scheduled_for, timeZone)}</>
+            : <>Checked {formatDate(recheck.ran_at ?? recheck.scheduled_for, timeZone)}</>}
+        </span>
       </div>
-
-      <p className='muted'>
-        {scheduled
-          ? <>Recheck on {formatDate(recheck.scheduled_for, timeZone)}</>
-          : <>Checked {formatDate(recheck.ran_at ?? recheck.scheduled_for, timeZone)}</>}
-      </p>
 
       <RecheckFacts recheck={recheck} />
 
@@ -178,6 +179,7 @@ const RecheckPanel = ({ caseId }) => {
 
       {scheduled && isAnalyst && <RunRecheck recheck={recheck} caseId={caseId} />}
     </section>
+    </>
   );
 };
 

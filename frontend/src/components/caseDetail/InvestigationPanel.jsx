@@ -11,10 +11,14 @@
 //   ③ YOUR DECISION (red while pending) / RECOMMENDED ACTION ─── PROP-…
 //   ┌ the recommended action (9) — or, with no run from the agent,     ┐
 //   └ the case's saved action                                          ┘
-//   ④ HOW THE AGENT GOT THERE ──────────────────── 8 checks · 5 causes
+//   ④ DID THE FIX WORK? — the recheck (13), once one exists
+//   ⑤ MERCHANT CONVERSATION — this run's questions and replies (6, read-only),
+//      folded. While the run is still going they stay inside the run's card
+//      instead, next to the reply form.
+//   ⑥ HOW THE AGENT GOT THERE ──────────────────── 8 checks · 5 causes
 //   ┌ Checks (11)  |  Possible causes (12)                             ┐
 //
-// Chapters are numbered in the order they show, from 2 (1 is on the page).
+// Chapter numbers are a CSS counter, so ones that don't show leave no gap.
 // A second run also shows the first one, folded, under the title (box 15).
 // id='investigation' and id='decide' are where the next-action banner jumps.
 
@@ -46,6 +50,7 @@ import PreviousInvestigation from './PreviousInvestigation';
 import ErrorPanel from './ErrorPanel';
 import CheckTimeline from './CheckTimeline';
 import HypothesisList from './HypothesisList';
+import RecheckPanel from './RecheckPanel';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -102,7 +107,7 @@ const InvestigationPanel = ({ caseId }) => {
   // ── 3d. Loading, or the Agent Service couldn't be reached ─────────
   // Only this panel shows the error; the rest of the case page still works.
   const runChapter = (meta) => (
-    <Chapter number={2} title={investigation?.result ? 'What the agent found' : 'Investigation'} meta={meta} id='investigation' />
+    <Chapter title={investigation?.result ? 'What the agent found' : 'Investigation'} meta={meta} id='investigation' />
   );
   if (loadStatus === 'loading' || loadStatus === 'idle') {
     return (
@@ -124,9 +129,6 @@ const InvestigationPanel = ({ caseId }) => {
   }
 
   // ── 3e. Render ───────────────────────────────────────────────────
-  // Chapter numbers follow what shows: 2, then 3 for the action if any, then the checks
-  const decisionNumber = 3;
-  const reasoningNumber = decisionId ? 4 : 3;
   // Red only while the analyst still has to decide (pending, or not loaded yet)
   const pending = !decision || decision.status === 'pending';
   const checkCount = investigation?.checks?.length ?? 0;
@@ -174,8 +176,9 @@ const InvestigationPanel = ({ caseId }) => {
           <InvestigationProgress investigation={investigation} pausedFor={view.pausedFor} pollError={pollError} />
         )}
 
-        {/* Questions this run already asked, read-only, until the run ends (box 6) */}
-        {view.showQuestionHistory && (
+        {/* Questions this run already asked, read-only (box 6): here while the run
+            is still going (next to the reply form), their own chapter once it ends */}
+        {view.showQuestionHistory && view.showProgress && (
           <QuestionReview mode='history' investigation={investigation} timeZone={timeZone} />
         )}
 
@@ -187,7 +190,6 @@ const InvestigationPanel = ({ caseId }) => {
       {decisionId && (
         <>
           <Chapter
-            number={decisionNumber}
             title={pending ? 'Your decision' : 'Recommended action'}
             tone={pending ? 'brand' : undefined}
             meta={<span className='mono'>{decisionId}</span>}
@@ -197,11 +199,18 @@ const InvestigationPanel = ({ caseId }) => {
         </>
       )}
 
-      {/* ── Chapter 3/4: checks (box 11) | possible causes (box 12) ── */}
+      {/* ── Did the fix work? (box 13) — hides itself until a recheck exists ── */}
+      <RecheckPanel caseId={caseId} />
+
+      {/* ── Merchant conversation, once the run has ended — nothing if it asked none ── */}
+      {view.showQuestionHistory && !view.showProgress && (
+        <QuestionReview mode='history' asChapter investigation={investigation} timeZone={timeZone} />
+      )}
+
+      {/* ── Checks (box 11) | possible causes (box 12) ── */}
       {view.showTimeline && (
         <>
           <Chapter
-            number={reasoningNumber}
             title='How the agent got there'
             meta={`${checkCount} ${checkCount === 1 ? 'check' : 'checks'} · ${causeCount} ${causeCount === 1 ? 'cause' : 'causes'}`}
           />

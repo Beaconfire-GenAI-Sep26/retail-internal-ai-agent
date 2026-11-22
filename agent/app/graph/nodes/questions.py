@@ -119,7 +119,9 @@ async def wait_question_decision(state: InvestigationState, runtime: Runtime[Age
         return {"error": domain_error(exc, "wait_question_decision")}
     if proposal.status == "approved":
         # Domain sent the current version, which the analyst may have edited.
-        asked = str(proposal.content.get("question_text") or state["questions"][-1]["question_text"])
+        if not proposal.dispatch or proposal.dispatch.get("status") != "dispatched":
+            return {}  # approval alone is not proof that the reviewed version was sent
+        asked = scrub(str(proposal.content.get("question_text") or state["questions"][-1]["question_text"]))
         await _report(ctx, state, "awaiting_merchant")
         log_event(logger, logging.INFO, "merchant question approved", proposal_id=proposal.proposal_id)
         return {"status": "awaiting_merchant", "question_outcome": "approved",

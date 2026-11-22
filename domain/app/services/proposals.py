@@ -18,6 +18,8 @@ from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from pydantic import TypeAdapter, ValidationError
+from shared.guardrails import policy_hits
 
 from domain.app.catalog import BY_ID
 from domain.app.errors import ApiError
@@ -41,6 +43,7 @@ from domain.app.schemas import (
     ClaimScope,
     DecisionRequest,
     InvestigationStatusUpdate,
+    IdList,
     MerchantQuestionContent,
     ProposalCreate,
     ProposalEdit,
@@ -149,6 +152,16 @@ def case_rechecks(session: Session, case_id: str) -> list[RecheckOut]:
 # ---------------------------------------------------------------------------
 def check_content(ctx: StoreContext, kind: ProposalKind, content) -> str:
     """Checks the content fits the kind and the catalog. Returns the owner team."""
+    fields = ("question_text", "why_asked") if isinstance(content, MerchantQuestionContent) else (
+        "title", "instructions", "rationale")
+    for field in fields:
+        text = getattr(content, field, "")
+        if not text.strip():
+            raise ApiError(422, "VALIDATION_ERROR", f"{field} must not be blank.")
+        hits = policy_hits(text, actions=True)
+        if hits:
+            raise ApiError(422, "POLICY_VIOLATION", "Proposal content violates the dispatch policy.",
+                           {"field": field, "hits": hits})
     if kind == ProposalKind.MERCHANT_QUESTION:
         if not isinstance(content, MerchantQuestionContent):
             raise ApiError(422, "VALIDATION_ERROR", "A merchant_question needs question_text and why_asked.")
@@ -167,6 +180,25 @@ def check_content(ctx: StoreContext, kind: ProposalKind, content) -> str:
     ctx.check_items(content.target.item_id or None)
     ctx.check_modifiers(content.target.modifiers or None)
     return content.owner_team
+
+
+def check_evidence(session: Session, case: Case, kind: ProposalKind, evidence_ids: list[str]) -> None:
+    """Resolve citations again at dispatch; saved drafts are not a trust boundary."""
+    try:
+        TypeAdapter(IdList).validate_python(evidence_ids, strict=True)
+    except ValidationError:
+        raise ApiError(422, "INVALID_EVIDENCE", "Evidence must be a list of at most 200 string IDs.") from None
+    if kind != ProposalKind.MERCHANT_QUESTION and not evidence_ids:
+        raise ApiError(422, "INVALID_EVIDENCE", "An action needs supporting evidence; record an evidence gap instead.")
+    found = load_evidence(session, evidence_ids)
+    invalid = [
+        {"evidence_id": eid, "reason": "not_found" if eid not in found else "other_store"}
+        for eid in dict.fromkeys(evidence_ids)
+        if eid not in found or found[eid].store_id != case.store_id
+    ]
+    if invalid:
+        raise ApiError(422, "INVALID_EVIDENCE", "Some cited evidence IDs can't be used for this case.",
+                       {"invalid": invalid})
 
 
 def _set_status(case: Case, status: CaseStatus, now: datetime) -> None:
@@ -188,15 +220,7 @@ def create_proposal(session: Session, user: CurrentUser, case_id: str, body: Pro
     ctx = load_context(session, session.get(Store, case.store_id))
     check_content(ctx, body.kind, body.content)
 
-    found = load_evidence(session, body.evidence_ids)
-    invalid = [
-        {"evidence_id": eid, "reason": "not_found" if eid not in found else "other_store"}
-        for eid in dict.fromkeys(body.evidence_ids)
-        if eid not in found or found[eid].store_id != case.store_id
-    ]
-    if invalid:
-        raise ApiError(422, "INVALID_EVIDENCE", "Some cited evidence IDs can't be used for this case.",
-                       {"invalid": invalid})
+    check_evidence(session, case, body.kind, body.evidence_ids)
 
     now = _now()
     p = Proposal(
@@ -294,6 +318,11 @@ def mock_send(p: Proposal, content: dict, owner_team: str) -> str:
 def decide(session: Session, user: CurrentUser, p: Proposal, case: Case, body: DecisionRequest,
            rid: str) -> ProposalOut:
     """`p` must be locked (visible_proposal with lock=True). The caller commits."""
+    if user.role != "loe_analyst":
+        raise ApiError(403, "FORBIDDEN", "Only an LOE analyst can decide a proposal.")
+    check_store(user, case.store_id)
+    if p.case_id != case.case_id:
+        raise ApiError(403, "FORBIDDEN", "Proposal does not belong to this case.")
     if p.status != ProposalStatus.PENDING:
         same = {"approve": ProposalStatus.APPROVED, "reject": ProposalStatus.REJECTED}[body.decision] == p.status
         if same and body.version == p.decided_version:
@@ -308,11 +337,14 @@ def decide(session: Session, user: CurrentUser, p: Proposal, case: Case, body: D
                        {"current_version": p.current_version})
 
     now = _now()
-    content = session.get(ProposalVersion, {"proposal_id": p.proposal_id, "version": p.current_version}).content
+    version = session.get(ProposalVersion, {"proposal_id": p.proposal_id, "version": p.current_version})
+    if version is None:
+        raise ApiError(422, "VALIDATION_ERROR", "Stored proposal version is missing.")
+    content = version.content
     is_question = p.kind == ProposalKind.MERCHANT_QUESTION
-    p.decided_by, p.decided_at, p.decided_version, p.decision_note = user.user_id, now, body.version, body.note
 
     if body.decision == "reject":
+        p.decided_by, p.decided_at, p.decided_version, p.decision_note = user.user_id, now, body.version, body.note
         p.status = ProposalStatus.REJECTED
         write_audit(session, case_id=case.case_id, action="proposal.rejected", request_id=rid, user=user,
                     proposal_id=p.proposal_id, version=body.version, details={"note": body.note})
@@ -321,7 +353,14 @@ def decide(session: Session, user: CurrentUser, p: Proposal, case: Case, body: D
         session.flush()
         return proposal_out(session, p)
 
-    owner_team = "merchant" if is_question else content["owner_team"]
+    try:
+        validated = _content_model(p.kind).model_validate(content)
+    except ValidationError:
+        raise ApiError(422, "VALIDATION_ERROR", "Stored proposal content is malformed.") from None
+    ctx = load_context(session, session.get(Store, case.store_id))
+    owner_team = check_content(ctx, p.kind, validated)
+    check_evidence(session, case, p.kind, p.evidence_ids)
+    p.decided_by, p.decided_at, p.decided_version, p.decision_note = user.user_id, now, body.version, body.note
     channel = mock_send(p, content, owner_team)  # raises DispatchFailed
     p.status = ProposalStatus.APPROVED
     write_audit(session, case_id=case.case_id, action="proposal.approved", request_id=rid, user=user,

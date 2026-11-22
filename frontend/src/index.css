@@ -1,23 +1,61 @@
 /* Global styles */
 
 /* ═══ 1. Theme tokens — colors, fonts ═══ */
-/* Every color below comes from these, so the palette changes in one place */
+/* Every color below comes from these, so the palette changes in one place.
+   D-06 redesign: DoorDash-style — red only where a person has to act, everything
+   else neutral. Each meaning color stands for one thing:
+     brand  red     needs your action · primary button · current nav item
+     agent  purple  something the agent said (vs facts and people)
+     ok     green   supported · approved · improved
+     warn   amber   unclear · not enough data · challenge · open
+     info   blue    links · in progress · waiting on someone else
+     faint  grey    ruled out · system events */
 :root {
-  --bg: #f4f5f8;          /* page background */
-  --surface: #ffffff;     /* cards, nav, table */
-  --surface-soft: #f8f9fb; /* table header, hover */
-  --border: #dde1e8;
-  --text: #1c2230;
-  --text-muted: #687083;
-  --primary: #2f5bd3;     /* buttons, links, "in progress" */
-  --primary-hover: #244ab3;
-  --danger: #b3261e;      /* errors, the rate that triggered the case */
-  --danger-soft: #fdeceb;
-  --warn: #a86400;        /* open cases, goal line */
-  --wait: #8a3ab9;        /* waiting for a person */
-  --ok: #1f7a4a;          /* closed */
-  --radius: 10px;
-  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* Brand */
+  --brand: #eb1700;
+  --brand-hover: #c81400;
+  --brand-soft: #fff1ee;
+  --brand-line: #ffcfc5;
+
+  /* Neutrals */
+  --bg: #f6f6f6;           /* page background */
+  --surface: #ffffff;      /* cards, nav, table */
+  --surface-soft: #fafafa; /* table header, hover, inner blocks */
+  --border: #e8e8e8;
+  --border-strong: #d6d6d6;
+  --text: #191919;
+  --text-2: #494949;       /* body text inside cards */
+  --text-muted: #6b6b6b;   /* labels, meta */
+  --text-faint: #9a9a9a;   /* ruled out, axis labels */
+
+  /* Meanings */
+  --ok: #0f7b4f;    --ok-soft: #e7f6ee;
+  --warn: #a35a00;  --warn-soft: #fff4e0;
+  --info: #1f5fd1;  --info-soft: #eaf1fd;
+  --agent: #5a46d6; --agent-soft: #f2f0fd; --agent-line: #dcd6fa;
+  --danger: #c81400;       /* errors, the rate that triggered the case */
+  --danger-soft: #fff1ee;
+
+  /* Roles (older names, kept so every section reads the same) */
+  --primary: var(--brand);          /* primary button */
+  --primary-hover: var(--brand-hover);
+  --link: var(--info);              /* links, check refs */
+  --wait: var(--brand);             /* waiting for this analyst */
+
+  /* Shape */
+  --radius: 14px;          /* cards */
+  --radius-sm: 8px;        /* inner blocks, inputs */
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.04);
+
+  /* Type — six sizes only */
+  --fs-xs: 0.72rem;   /* eyebrow labels, uppercase */
+  --fs-sm: 0.82rem;   /* meta, times, IDs */
+  --fs-md: 0.92rem;   /* body */
+  --fs-lg: 1.05rem;   /* card titles */
+  --fs-xl: 1.4rem;    /* the key conclusion */
+  --fs-2xl: 1.9rem;   /* page title, KPI numbers */
+  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   color-scheme: light;
 }
 
@@ -28,13 +66,19 @@ body {
   font-family: var(--font);
   font-size: 15px;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
-h1 { font-size: 1.6rem; margin: 0; line-height: 1.25; }
-h2 { font-size: 1.05rem; margin: 0; }
+h1 { font-size: 1.6rem; margin: 0; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; }
+h2 { font-size: var(--fs-lg); margin: 0; font-weight: 650; letter-spacing: -0.01em; }
 p { margin: 0; }
-a { color: var(--primary); text-decoration: none; }
+a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
+
+/* Small uppercase label above a value ("BASELINE", "GOES TO") */
+.eyebrow { font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+/* IDs: CASE-0001, INV-0007, EV-CLM-004410 */
+.mono { font-family: var(--mono); font-size: var(--fs-sm); letter-spacing: -0.01em; }
 
 /* ═══ 2. Layout — nav bar + page container ═══ */
 .nav {
@@ -49,7 +93,10 @@ a:hover { text-decoration: underline; }
 }
 .nav-left,
 .nav-user { display: flex; align-items: center; gap: 20px; }
-.nav-brand { font-size: 1.05rem; }
+.nav-brand { display: flex; align-items: center; gap: 10px; font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; }
+/* Red square logo next to the product name */
+.nav-mark { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 8px; background: var(--brand); color: #fff; }
+.nav-mark svg { width: 16px; height: 16px; }
 .nav-left a { color: var(--text-muted); font-weight: 500; }
 .nav-left a.active { color: var(--primary); } /* NavLink adds .active on the current page */
 .nav-user { gap: 12px; font-size: 0.9rem; }
@@ -89,31 +136,35 @@ div.error {
   color: var(--danger);
 }
 
-/* Buttons — primary by default, .button-secondary for quiet actions */
+/* Buttons — primary by default, .button-secondary for quiet actions. Pill-shaped. */
 button {
   font: inherit;
   font-weight: 600;
   font-size: 0.9rem;
-  padding: 7px 16px;
+  padding: 8px 18px;
   border: 1px solid var(--primary);
-  border-radius: 8px;
+  border-radius: 99px;
   background: var(--primary);
   color: #fff;
   cursor: pointer;
 }
-button:hover:not(:disabled) { background: var(--primary-hover); }
+button:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
 button:disabled { opacity: 0.55; cursor: default; }
 button:focus-visible,
 a:focus-visible,
 select:focus-visible,
-input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+input:focus-visible,
+textarea:focus-visible,
+summary:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
 
 .button-secondary,
 div.error button {
   background: var(--surface);
   color: var(--text);
-  border-color: var(--border);
+  border-color: var(--border-strong);
 }
+.button-secondary:hover:not(:disabled),
+div.error button:hover:not(:disabled) { border-color: var(--border-strong); }
 .button-secondary:hover:not(:disabled),
 div.error button:hover:not(:disabled) { background: var(--surface-soft); }
 
@@ -141,6 +192,17 @@ main > form {
 }
 main > form label { display: grid; gap: 4px; font-size: 0.9rem; font-weight: 500; }
 main > form p:last-child { font-size: 0.8rem; color: var(--text-muted); }
+
+/* Every white card on any page gets the same soft shadow */
+main > form,
+.table-scroll,
+.case-header,
+.daily-chart,
+.investigation-panel,
+.recheck-panel,
+.audit-log,
+.kpi-card,
+.monitor-card { box-shadow: var(--shadow); }
 
 /* ═══ 4. Table — case queue (D-02) ═══ */
 /* Title + Run monitor on one line; the result wraps under the button on narrow screens */
@@ -180,25 +242,32 @@ main > form p:last-child { font-size: 0.8rem; color: var(--text-muted); }
 main > section > p.muted { padding: 32px 0; text-align: center; }
 
 /* ═══ 5. Status badge — case statuses (running / awaiting_approval / ...) ═══ */
-/* One color per group: needs attention · in progress · waiting for a person · done */
+/* Soft fill + dot. One color per group:
+   needs an analyst (red) · agent working (purple) · waiting on someone else (blue)
+   · not started / reopened (amber) · done (green) · paused (grey) */
 .badge {
-  display: inline-block;
-  padding: 1px 10px;
-  border: 1px solid currentColor;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
   border-radius: 99px;
+  background: var(--surface-soft);
+  color: var(--text-muted);
   font-size: 0.78rem;
   font-weight: 600;
+  line-height: 1.5;
   white-space: nowrap;
 }
+.badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .badge-open,
-.badge-reopened { color: var(--warn); }
-.badge-investigating,
-.badge-action_dispatched { color: var(--primary); }
-.badge-awaiting_decision,
+.badge-reopened { color: var(--warn); background: var(--warn-soft); }
+.badge-investigating { color: var(--agent); background: var(--agent-soft); }
 .badge-awaiting_merchant,
-.badge-analyst_review { color: var(--wait); }
-.badge-closed { color: var(--ok); }
-.badge-paused { color: var(--text-muted); }
+.badge-action_dispatched { color: var(--info); background: var(--info-soft); }
+.badge-awaiting_decision,
+.badge-analyst_review { color: var(--brand); background: var(--brand-soft); }
+.badge-closed { color: var(--ok); background: var(--ok-soft); }
+.badge-paused { color: var(--text-muted); background: var(--bg); }
 
 /* ═══ 6. Case detail — header cards, daily chart, investigation panel (D-02) ═══ */
 .case-detail > a { font-size: 0.9rem; }
@@ -270,8 +339,9 @@ main > section > p.muted { padding: 32px 0; text-align: center; }
   overflow: hidden;
 }
 .investigation-panel progress::-webkit-progress-bar { background: #e9ecf1; border-radius: 99px; }
-.investigation-panel progress::-webkit-progress-value { background: var(--primary); border-radius: 99px; transition: width 0.4s; }
-.investigation-panel progress::-moz-progress-bar { background: var(--primary); border-radius: 99px; }
+/* The agent is working → agent purple */
+.investigation-panel progress::-webkit-progress-value { background: var(--agent); border-radius: 99px; transition: width 0.4s; }
+.investigation-panel progress::-moz-progress-bar { background: var(--agent); border-radius: 99px; }
 
 /* ═══ 7. Small screens ═══ */
 @media (max-width: 600px) {
@@ -287,34 +357,42 @@ main > section > p.muted { padding: 32px 0; text-align: center; }
 }
 
 /* ═══ 8. Pills, evidence links, evidence drawer (D-03) ═══ */
-/* Pill — colored by meaning, same shape as .badge */
+/* Pill — colored by meaning, soft fill like .badge (no dot: pills sit inside text) */
 .pill {
   display: inline-block;
-  padding: 0 8px;
-  border: 1px solid currentColor;
+  padding: 1px 9px;
   border-radius: 99px;
   font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.6;
   white-space: nowrap;
 }
-.pill-ok { color: var(--ok); }
-.pill-warn { color: var(--warn); }
-.pill-bad { color: var(--danger); }
-.pill-accent { color: var(--primary); }
-.pill-neutral { color: var(--text-muted); }
+.pill-ok { color: var(--ok); background: var(--ok-soft); }
+.pill-warn { color: var(--warn); background: var(--warn-soft); }
+.pill-bad { color: var(--danger); background: var(--danger-soft); }
+.pill-accent { color: var(--info); background: var(--info-soft); }
+.pill-agent { color: var(--agent); background: var(--agent-soft); }
+.pill-neutral { color: var(--text-muted); background: var(--bg); }
+/* Outline only — for things that no longer count (a ruled-out cause) */
+.pill-ghost { color: var(--text-muted); background: transparent; box-shadow: inset 0 0 0 1px var(--border-strong); }
 
-/* Evidence ID — a button that reads like a link */
+/* Evidence ID — a small monospace chip that opens the evidence drawer */
 button.evidence-link {
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 0.74rem;
   font-weight: 500;
+  line-height: 1.6;
 }
-button.evidence-link:hover:not(:disabled) { background: none; text-decoration: underline; }
+button.evidence-link::before { content: ''; width: 6px; height: 6px; border-radius: 2px; background: var(--text-faint); }
+button.evidence-link:hover:not(:disabled) { background: var(--surface); border-color: var(--text); color: var(--text); }
 /* "+9 more" / "Show less" after a folded evidence list */
 button.evidence-more {
   padding: 0;
@@ -324,7 +402,7 @@ button.evidence-more {
   font-size: 0.82rem;
   font-weight: 500;
 }
-button.evidence-more:hover:not(:disabled) { background: none; color: var(--primary); text-decoration: underline; }
+button.evidence-more:hover:not(:disabled) { background: none; color: var(--link); text-decoration: underline; }
 
 /* Drawer — right side, full height; full width on phones */
 .drawer-backdrop {
@@ -395,7 +473,7 @@ h4 { font-size: 0.8rem; margin: 0; font-weight: 600; letter-spacing: 0.04em; tex
 .investigation-title .muted { font-size: 0.82rem; }
 .investigation-progress { display: grid; gap: 8px; }
 .investigation-progress h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.evidence-links { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-size: 0.88rem; }
+.evidence-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.88rem; }
 
 /* Shared spot (boxes 6–10): a tinted block so it reads as "the answer" */
 .slot-placeholder,
@@ -433,7 +511,7 @@ h4 { font-size: 0.8rem; margin: 0; font-weight: 600; letter-spacing: 0.04em; tex
 
 .check-timeline ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
 .check-item { display: grid; grid-template-columns: 26px 1fr; gap: 10px; scroll-margin-top: 16px; }
-.check-item:target .check-body { background: #eef2fd; border-radius: 6px; }
+.check-item:target .check-body { background: var(--info-soft); border-radius: 6px; }
 .check-number {
   display: grid;
   place-items: center;
@@ -449,7 +527,7 @@ h4 { font-size: 0.8rem; margin: 0; font-weight: 600; letter-spacing: 0.04em; tex
 .check-body { display: grid; gap: 4px; min-width: 0; font-size: 0.92rem; }
 .check-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .check-headline { padding-left: 10px; border-left: 2px solid var(--border); }
-.check-matched summary { cursor: pointer; font-size: 0.85rem; color: var(--primary); }
+.check-matched summary { cursor: pointer; font-size: 0.85rem; color: var(--link); }
 .check-matched ul { margin: 6px 0 0; padding-left: 0; list-style: none; display: grid; gap: 4px; font-size: 0.86rem; }
 
 .hypothesis-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
@@ -687,10 +765,10 @@ button.nav-reset { border-style: dashed; color: var(--warn); font-size: 0.82rem;
   border-right: 1px solid var(--border);
 }
 .app-shell .nav-left { flex-direction: column; align-items: stretch; gap: 4px; }
-.app-shell .nav-brand { padding: 0 10px 14px; }
-.app-shell .nav-left a { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; }
-.app-shell .nav-left a:hover { background: var(--surface-soft); text-decoration: none; }
-.app-shell .nav-left a.active { background: #eaf0fd; }
+.app-shell .nav-brand { padding: 0 10px 18px; }
+.app-shell .nav-left a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; color: var(--text-2); }
+.app-shell .nav-left a:hover { background: var(--bg); text-decoration: none; }
+.app-shell .nav-left a.active { background: var(--brand-soft); color: var(--brand); font-weight: 600; }
 .nav-icon { width: 18px; height: 18px; flex: none; }
 .app-shell .nav-user { flex-direction: column; align-items: stretch; gap: 8px; padding: 14px 10px 0; border-top: 1px solid var(--border); }
 .app-shell .nav-name { font-weight: 600; }
@@ -750,7 +828,9 @@ button.nav-reset { border-style: dashed; color: var(--warn); font-size: 0.82rem;
 .segmented { display: inline-flex; gap: 2px; padding: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
 .segmented button { padding: 4px 12px; border: none; border-radius: 6px; background: none; color: var(--text-muted); font-size: 0.85rem; font-weight: 500; }
 .segmented button:hover:not(:disabled) { background: var(--surface-soft); }
-.segmented button[aria-pressed='true'] { background: var(--primary); color: #fff; }
+/* Selected filter is black, not brand red: red is kept for "needs your action" */
+.segmented button[aria-pressed='true'],
+.segmented button[aria-pressed='true']:hover:not(:disabled) { background: var(--text); color: #fff; }
 
 .swatch { display: inline-block; flex: none; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%; }
 

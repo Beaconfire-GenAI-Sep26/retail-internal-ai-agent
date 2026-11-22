@@ -34,6 +34,8 @@ const Icon = ({ d }) => (
 );
 const MONITOR_ICON = 'M3 3v18h18M7 14l4-4 3 3 5-6';
 const CASES_ICON = 'M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM3 9h18M8 14h8';
+// The white mark inside the red brand square (decorative; the text names the app)
+const BRAND_MARK = 'M4 12h11a4 4 0 0 0 0-8H7M4 20h11';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -71,7 +73,14 @@ const Nav = () => {
   return (
     <nav className='nav'>
       <div className='nav-left'>
-        <strong className='nav-brand'>M&amp;I Diagnosis</strong>
+        <strong className='nav-brand'>
+          <span className='nav-mark' aria-hidden='true'>
+            <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.6' strokeLinecap='round' strokeLinejoin='round'>
+              <path d={BRAND_MARK} />
+            </svg>
+          </span>
+          M&amp;I Diagnosis
+        </strong>
         {isLoggedIn && (
           <>
             <NavLink to='/monitor'><Icon d={MONITOR_ICON} />Monitor</NavLink>

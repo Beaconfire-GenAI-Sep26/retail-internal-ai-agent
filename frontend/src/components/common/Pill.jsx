@@ -4,7 +4,8 @@
 //
 //   <Pill tone='ok'>Supported</Pill>
 //   tone: 'ok' (good / confirmed) · 'warn' (watch out) · 'bad' (failed / ruled against)
-//         'accent' (in progress / highlighted) · 'neutral' (default)
+//         'accent' (in progress / highlighted, blue) · 'agent' (the agent said it, purple)
+//         'ghost' (no longer counts, outline only) · 'neutral' (default)
 
 
 // ═══════════════════════════════════════════════════════════════════

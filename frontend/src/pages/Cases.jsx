@@ -19,6 +19,7 @@ import {
 import CaseFilters from '../components/cases/CaseFilters';
 import CaseTable from '../components/cases/CaseTable';
 import MonitorRun from '../components/cases/MonitorRun';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 
 // Stable fallback, so useSelector doesn't return a new [] on every render
 const NO_STORES = [];
@@ -34,6 +35,7 @@ const Cases = () => {
   // "View cases" links open the queue already filtered (D-06). Status stays local.
   const [searchParams, setSearchParams] = useSearchParams();
   const storeId = searchParams.get('store_id') ?? '';
+  useDocumentTitle(storeId ? `Cases · ${storeId}` : 'Cases');
   const [statusFilter, setStatusFilter] = useState('');
   const filters = useMemo(() => ({ store_id: storeId, status: statusFilter }), [storeId, statusFilter]);
   const setFilters = (next) => {

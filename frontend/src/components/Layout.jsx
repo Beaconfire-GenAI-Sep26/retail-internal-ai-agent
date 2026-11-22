@@ -6,9 +6,10 @@
 // ═══════════════════════════════════════════════════════════════════
 // 1. Imports
 // ═══════════════════════════════════════════════════════════════════
-import { Outlet } from 'react-router';
+import { Outlet, useLocation } from 'react-router';
 import { useSelector } from 'react-redux';
 import Nav from './Nav';
+import ErrorBoundary from './common/ErrorBoundary';
 import { selectIsAuthenticated } from '../store/auth/authSelectors';
 
 
@@ -16,14 +17,17 @@ import { selectIsAuthenticated } from '../store/auth/authSelectors';
 // 2. Layout component
 // ═══════════════════════════════════════════════════════════════════
 // Layout route: renders <Nav> on every page, with the matched child route shown
-// in the <Outlet>.
+// in the <Outlet>. A crash inside the page stays inside <main> (ErrorBoundary).
 const Layout = () => {
   const isLoggedIn = useSelector(selectIsAuthenticated);
+  const { pathname } = useLocation();
   return (
     <div className={isLoggedIn ? 'app-shell' : undefined}>
       <Nav />
       <main>
-        <Outlet />
+        <ErrorBoundary resetKey={pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   );

@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectStoreIds } from '../store/auth/authSelectors';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { fetchStoreBase, fetchStoreRange, rangeKey } from '../store/monitor/monitorThunks';
 import { combineStatus, selectMonitorBase, selectMonitorRanges } from '../store/monitor/monitorSelectors';
 import {
@@ -106,6 +107,7 @@ const Monitor = () => {
   // One store at a time: the chosen one, or the first grant (nothing chosen
   // yet, or the chosen store is no longer granted)
   const store = storeIds.includes(storeChoice) ? storeChoice : storeIds[0];
+  useDocumentTitle(store ? `Monitor · ${store}` : 'Monitor');
 
   // ── 3b. Store data from Redux ───────────────────────────────────
   const dispatch = useDispatch();

@@ -1,7 +1,11 @@
 // [10b] Nav — side bar when logged in, top bar when logged out (D-06)
 //   logged out:  brand only (top bar)
 //   logged in:   brand · Monitor · Cases  ...  [Reset demo] · display_name · role · Logout
-//                a column on the left; a top bar again on small screens (index.css section 14)
+//                a column on the left; a top bar again on small screens (index.css section 14):
+//     ≤960px   one row; the name is hidden (Logout's tooltip keeps it)
+//     ≤600px   two rows: brand ... [Reset demo] role Logout
+//                        [ Monitor ][ Cases ]   ← full-width tabs
+//     ≤440px   the role is hidden too
 //   Reset demo shows only with VITE_USE_MOCKS=true
 //   first group = where to go, second group = who is signed in
 
@@ -61,6 +65,9 @@ const Nav = () => {
   };
 
   // ── 2c. Render ──────────────────────────────────────────────────
+  const userName = user?.display_name ?? user?.username;
+  const roleLabel = isAnalyst ? 'LOE Analyst' : 'Viewer';
+
   return (
     <nav className='nav'>
       <div className='nav-left'>
@@ -80,9 +87,11 @@ const Nav = () => {
               Reset demo
             </button>
           )}
-          <span className='nav-name'>{user?.display_name ?? user?.username}</span>
-          <span className='nav-role'>{isAnalyst ? 'LOE Analyst' : 'Viewer'}</span>
-          <button type='button' className='button-secondary' onClick={handleLogout}>Logout</button>
+          <span className='nav-name'>{userName}</span>
+          <span className='nav-role'>{roleLabel}</span>
+          {/* On small screens the name (and on phones the role) are hidden; the tooltip keeps them */}
+          <button type='button' className='button-secondary' onClick={handleLogout}
+            title={`Signed in as ${userName} (${roleLabel})`}>Logout</button>
         </div>
       )}
     </nav>

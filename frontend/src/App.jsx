@@ -26,6 +26,18 @@ import Login from './pages/Login';
 import Monitor from './pages/Monitor';
 import Cases from './pages/Cases';
 import CaseDetail from './pages/CaseDetail';
+import useDocumentTitle from './hooks/useDocumentTitle';
+
+// Unknown URL → a way back instead of a dead end
+const NotFound = () => {
+  useDocumentTitle('Page not found');
+  return (
+    <section>
+      <h1>Page Not Found</h1>
+      <Link to='/'>← Back to the dashboard</Link>
+    </section>
+  );
+};
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -57,15 +69,7 @@ function App() {
         </Route>
 
         {/* Unknown URL → a way back instead of a dead end */}
-        <Route
-          path='*'
-          element={
-            <section>
-              <h1>Page Not Found</h1>
-              <Link to='/'>← Back to the dashboard</Link>
-            </section>
-          }
-        />
+        <Route path='*' element={<NotFound />} />
       </Route>
     </Routes>
   );

@@ -462,7 +462,11 @@ h4 { font-size: 0.8rem; margin: 0; font-weight: 600; letter-spacing: 0.04em; tex
 .hypothesis-ruled_out { opacity: 0.75; }
 .hypothesis-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 
-@media (max-width: 860px) {
+/* Stack by the panel's own width, not the window's: with the side nav and the
+   activity sidebar, the panel can be ~400px wide on a 1000px window.
+   Nothing inside the panel is position:fixed (a container would capture it). */
+.investigation-panel { container: investigation / inline-size; }
+@container investigation (max-width: 600px) {
   .investigation-columns { grid-template-columns: 1fr; }
 }
 
@@ -649,13 +653,16 @@ button.recommendation-edit { justify-self: start; }
 .audit-what { font-weight: 500; }
 .audit-who { color: var(--text-muted); overflow-wrap: anywhere; }
 button.audit-more { justify-self: start; font-size: 0.82rem; padding: 4px 10px; }
-@media (max-width: 860px) {
+/* Sidebar drops below when the page column (not the window) is under 880px:
+   250px sidebar + 16px gap leaves the main column at least ~615px */
+.case-layout-wrap { container: case-page / inline-size; }
+@container case-page (max-width: 880px) {
   .case-layout { grid-template-columns: 1fr; }
   .audit-log { position: static; max-height: none; }
 }
 
 /* Mock mode: "Reset demo" in the nav — dashed so it reads as a dev tool */
-button.nav-reset { border-style: dashed; color: var(--warn); font-size: 0.82rem; padding: 4px 10px; }
+button.nav-reset { border-style: dashed; color: var(--warn); font-size: 0.82rem; padding: 4px 10px; white-space: nowrap; }
 
 /* ═══ 14. App shell — side bar when logged in (D-06) ═══ */
 /* Nav keeps its top-bar markup (section 2); inside .app-shell it becomes a column */
@@ -688,7 +695,9 @@ button.nav-reset { border-style: dashed; color: var(--warn); font-size: 0.82rem;
 .app-shell .nav-role { align-self: flex-start; }
 /* Narrow screens: back to a top bar, links in a row */
 @media (max-width: 960px) {
-  .app-shell { grid-template-columns: minmax(0, 1fr); }
+  /* Bar row hugs its content; without auto/1fr a short page (few cases) shares
+     the leftover 100vh height between the rows and the bar balloons */
+  .app-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
   .app-shell > .nav {
     position: static;
     height: auto;
@@ -702,6 +711,21 @@ button.nav-reset { border-style: dashed; color: var(--warn); font-size: 0.82rem;
   .app-shell .nav-left { flex-direction: row; align-items: center; }
   .app-shell .nav-brand { padding: 0 8px 0 0; }
   .app-shell .nav-user { flex-direction: row; align-items: center; padding: 0; border-top: none; }
+  /* One row fits up to ~760px only without the name; Logout's tooltip keeps it */
+  .app-shell .nav-name { display: none; }
+  .app-shell .nav-role { align-self: center; } /* the side bar's flex-start would lift it */
+}
+/* Phones: two rows — brand + account on top, the page links as full-width tabs below.
+   display: contents lifts the brand and links out of .nav-left into the nav's grid. */
+@media (max-width: 600px) {
+  .app-shell > .nav { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px 12px; }
+  .app-shell .nav-left { display: contents; }
+  .app-shell .nav-brand { grid-row: 1; grid-column: 1; align-self: center; padding: 0; }
+  .app-shell .nav-user { grid-row: 1; grid-column: 2; justify-content: flex-end; gap: 8px; }
+  .app-shell .nav-left a { grid-row: 2; justify-content: center; padding: 10px; }
+}
+@media (max-width: 440px) {
+  .app-shell .nav-role { display: none; }
 }
 
 /* ═══ 15. Monitor dashboard (D-06) ═══ */

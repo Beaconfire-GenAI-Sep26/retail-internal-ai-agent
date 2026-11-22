@@ -27,6 +27,7 @@ import InvestigationPanel from '../components/caseDetail/InvestigationPanel';
 import EvidenceDrawer from '../components/caseDetail/EvidenceDrawer';
 import RecheckPanel from '../components/caseDetail/RecheckPanel';
 import AuditLog from '../components/caseDetail/AuditLog';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -41,6 +42,7 @@ const CaseDetail = () => {
   const status = useSelector(selectCaseDetailStatus);
   const error = useSelector(selectCaseDetailError);
   const notFound = useSelector(selectCaseDetailNotFound);
+  useDocumentTitle(caseId);
 
   // ── 2b. Load the case and its latest investigation ──────────────
   // Two services, two independent calls: if the Agent is down, the case still shows.
@@ -92,20 +94,25 @@ const CaseDetail = () => {
   return (
     <section className='case-detail'>
       {backLink}
-      {/* Main column + activity sidebar (box 16); under 860px the sidebar drops below */}
-      <div className='case-layout'>
-        <div className='case-main'>
-          <CaseHeader caseDetail={caseDetail} />
-          <DailyRateChart
-            dailyRates={caseDetail.daily_rates}
-            windowStartDate={toStoreDate(caseDetail.window_start, caseDetail.store.timezone)}
-            goalRate={caseDetail.goal_rate}
-          />
-          <InvestigationPanel caseId={caseId} />
-          {/* Box 13 sits outside the investigation panel (page map); it hides itself until a recheck exists */}
-          <RecheckPanel caseId={caseId} />
+      {/* Main column + activity sidebar (box 16). The wrapper is the size container:
+          the sidebar drops below when the PAGE COLUMN is narrow, not the window
+          (the side nav takes 216px). The drawer stays outside it — a container
+          would become the drawer's position:fixed reference. */}
+      <div className='case-layout-wrap'>
+        <div className='case-layout'>
+          <div className='case-main'>
+            <CaseHeader caseDetail={caseDetail} />
+            <DailyRateChart
+              dailyRates={caseDetail.daily_rates}
+              windowStartDate={toStoreDate(caseDetail.window_start, caseDetail.store.timezone)}
+              goalRate={caseDetail.goal_rate}
+            />
+            <InvestigationPanel caseId={caseId} />
+            {/* Box 13 sits outside the investigation panel (page map); it hides itself until a recheck exists */}
+            <RecheckPanel caseId={caseId} />
+          </div>
+          <AuditLog caseId={caseId} timeZone={caseDetail.store.timezone} />
         </div>
-        <AuditLog caseId={caseId} timeZone={caseDetail.store.timezone} />
       </div>
       <EvidenceDrawer timeZone={caseDetail.store.timezone} />
     </section>

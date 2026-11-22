@@ -983,11 +983,18 @@ button.nav-reset { border-style: dashed; color: var(--warn); font-size: 0.82rem;
 }
 
 /* ═══ 15. Monitor dashboard (D-06) ═══ */
-/* Store colors — categorical, colorblind-checked order; a store keeps its color in every view */
+/* Chart colors (D-06 redesign). The Monitor shows one store at a time, so its
+   data is one hue: deep navy, which sits quietly next to brand red. Red is kept
+   for "above the goal" and fraud — the same "needs attention" meaning as the
+   rest of the app. Checked with the dataviz validator (light surface):
+   #264f9c / #6b97e8 / #eb1700 pass lightness, chroma and colorblind separation;
+   #6b97e8 is below 3:1 against the page, so its segments always carry text. */
 :root {
-  --series-1: #2a78d6;
-  --series-2: #eb6834;
+  --series-1: #264f9c;   /* the store on screen: bars, trend line, swatches */
+  --series-1-light: #6b97e8;
+  --series-2: #eb6834;   /* only if more than one store shows again */
   --series-3: #1baf7a;
+  --chart-over: var(--brand); /* a bar above the goal */
 }
 .monitor { grid-template-columns: minmax(0, 1fr); } /* a wide SVG must not widen the page */
 .monitor .page-header { align-items: flex-end; }
@@ -1047,7 +1054,9 @@ button.nav-reset { border-style: dashed; color: var(--warn); font-size: 0.82rem;
 .monitor-card-tools { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; }
 /* Legend: store dots come from .swatch, so hide section 6's square — except for the goal line */
 .monitor-legend span::before { display: none; }
-.monitor-legend span.legend-goal::before { display: inline-block; }
+.monitor-legend span.legend-goal::before,
+.monitor-legend span.legend-over::before { display: inline-block; }
+.legend-over::before { background: var(--chart-over); }
 .case-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; font-size: 0.9rem; }
 .case-links a { display: inline-flex; align-items: center; font-weight: 500; }
 
@@ -1057,7 +1066,7 @@ button.nav-reset { border-style: dashed; color: var(--warn); font-size: 0.82rem;
 .bar-list svg { display: block; }
 .monitor .chart-label { font-size: 11px; }
 .bar-label { fill: var(--text); font-size: 12px; }
-.chart-axis { stroke: #c3c8d2; }
+.chart-axis { stroke: var(--border-strong); }
 .chart-goal-label { fill: var(--warn); font-size: 11px; font-weight: 600; }
 .chart-end-label { fill: var(--text); font-size: 12px; font-weight: 600; }
 .chart-crosshair { stroke: var(--text-muted); stroke-opacity: 0.6; }
@@ -1108,10 +1117,12 @@ button.nav-reset { border-style: dashed; color: var(--warn); font-size: 0.82rem;
   line-height: 24px;
   white-space: nowrap;
 }
-.review-store_fault { background: #1baf7a; }
-.review-not_store_fault { background: #6250d6; }
+/* Store fault (counts in the rate) dark navy · not store fault light blue ·
+   fraud red · pending grey — every segment is labelled, never color alone */
+.review-store_fault { background: var(--series-1); }
+.review-not_store_fault { background: var(--series-1-light); color: var(--text); }
 .review-fraud { background: var(--danger); }
-.review-pending { background: #c9ccd3; color: var(--text); }
+.review-pending { background: var(--border); color: var(--text-2); }
 
 @media (max-width: 1100px) { .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 860px) { .monitor-grid { grid-template-columns: minmax(0, 1fr); } }

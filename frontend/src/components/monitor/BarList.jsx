@@ -23,8 +23,11 @@ const VALUE_W = 60; // room for the value text after the longest bar
 //   labelW    width of the row labels (px)
 //   refValue  optional reference drawn as a dashed line (the goal rate); its
 //             legend entry lives in the card
+//   flagOver  with refValue: bars above it are brand red (var(--chart-over)),
+//             the rest keep the store color. The value is written on every bar,
+//             and the card's legend names the red, so it isn't color alone.
 //   min       axis maximum is at least this
-const BarList = ({ rows, labelW = 110, refValue = null, min = 0 }) => {
+const BarList = ({ rows, labelW = 110, refValue = null, flagOver = false, min = 0 }) => {
   const [ref, width] = useElementWidth(400);
   const perRow = rows[0]?.bars.length ?? 1;
   const barH = perRow > 1 ? 12 : 16;
@@ -59,7 +62,12 @@ const BarList = ({ rows, labelW = 110, refValue = null, min = 0 }) => {
                   <g key={b.storeId}>
                     <title>{b.title}</title>
                     <rect x={labelW} y={by - 1} width={plotW + VALUE_W} height={barH + 2} fill='transparent' />
-                    {w > 0 && <path d={barPath(labelW, by, w)} fill={b.color} />}
+                    {w > 0 && (
+                      <path
+                        d={barPath(labelW, by, w)}
+                        fill={flagOver && refValue != null && b.value > refValue ? 'var(--chart-over)' : b.color}
+                      />
+                    )}
                     <text x={labelW + w + 6} y={by + barH / 2 + 4} className='chart-label'>{b.text}</text>
                   </g>
                 );

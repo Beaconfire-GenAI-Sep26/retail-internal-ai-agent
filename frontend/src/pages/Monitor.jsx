@@ -258,8 +258,16 @@ const Monitor = () => {
           </Card>
 
           <Card title='M&I rate by daypart' note='Dashed line = goal'>
-            <StoreLegend stores={stores} extra={<span className='legend-goal'>Goal {formatRate(GOAL_RATE)}</span>} />
-            <BarList labelW={90} refValue={GOAL_RATE} rows={barRows(dayparts, DAYPART_LABELS, stores, (s, k) => {
+            <StoreLegend
+              stores={stores}
+              extra={(
+                <>
+                  <span className='legend-over'>Above goal</span>
+                  <span className='legend-goal'>Goal {formatRate(GOAL_RATE)}</span>
+                </>
+              )}
+            />
+            <BarList labelW={90} refValue={GOAL_RATE} flagOver rows={barRows(dayparts, DAYPART_LABELS, stores, (s, k) => {
               const d = s.range.dayparts.find((x) => x.key === k);
               const v = d ? rate(d.claims, d.orders) : null;
               return {

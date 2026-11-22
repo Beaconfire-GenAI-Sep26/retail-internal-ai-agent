@@ -10,7 +10,6 @@ import {
   previousWindow,
   rangeWindow,
   rolling,
-  storeColor,
   sumWindow,
 } from './monitorMath';
 
@@ -116,13 +115,5 @@ describe('ToolResult parsing', () => {
       }],
     }, toDate);
     expect(ev).toEqual({ id: 'EV-EVT-1', date: '2026-11-03', endDate: '2026-11-09', type: 'promotion', description: 'Promo' });
-  });
-});
-
-describe('store colors', () => {
-  it('follow the store, not its position in the current view', () => {
-    const grants = ['STORE-A', 'STORE-B'];
-    expect(storeColor(grants, 'STORE-B')).toBe('var(--series-2)');
-    expect(storeColor(['STORE-B'], 'STORE-B')).toBe('var(--series-1)');
   });
 });

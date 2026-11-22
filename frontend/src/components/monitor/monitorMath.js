@@ -13,9 +13,6 @@
 // endpoints don't return it, and the dashboard stays off case data on purpose.
 export const GOAL_RATE = 0.05;
 
-// Store filter value for "compare every granted store"
-export const ALL_STORES = 'ALL';
-
 // Time range buttons, in days. The default compares two weeks with the two before.
 export const RANGE_OPTIONS = [42, 14, 7];
 export const DEFAULT_RANGE = 14;
@@ -24,11 +21,8 @@ export const DEFAULT_RANGE = 14;
 export const SMOOTH_OPTIONS = [7, 1];
 export const DEFAULT_SMOOTH = 7;
 
-// One color per store, in the order of the user's store grants. A store keeps
-// its color in every view, so switching to one store never repaints it.
+// Series colors for the charts (the page shows one store, in the first color)
 export const STORE_COLORS = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)'];
-export const storeColor = (storeIds, storeId) =>
-  STORE_COLORS[Math.max(0, storeIds.indexOf(storeId)) % STORE_COLORS.length];
 
 
 // ═══════════════════════════════════════════════════════════════════

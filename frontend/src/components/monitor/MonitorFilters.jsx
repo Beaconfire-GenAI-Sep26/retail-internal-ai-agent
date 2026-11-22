@@ -1,13 +1,14 @@
-// [14g] MonitorFilters — which stores and which days the dashboard shows (D-06)
-//   Stores  "Compare all" (only with 2+ store grants) · one button per store
+// [14g] MonitorFilters — which store and which days the dashboard shows (D-06)
+//   Store   dropdown of the user's store grants, one store at a time
+//           (a dropdown, not buttons, so it still fits with many stores)
 //   Range   last 42 / 14 / 7 days, ending on the last day of data
-// Segmented buttons with aria-pressed, so screen readers hear the current choice.
+// Range is segmented buttons with aria-pressed, so screen readers hear the current choice.
 
 
 // ═══════════════════════════════════════════════════════════════════
 // 1. Imports
 // ═══════════════════════════════════════════════════════════════════
-import { ALL_STORES, RANGE_OPTIONS } from './monitorMath';
+import { RANGE_OPTIONS } from './monitorMath';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -30,19 +31,20 @@ export const Segmented = ({ label, options, value, onChange }) => (
 // ═══════════════════════════════════════════════════════════════════
 // Props:
 //   storeIds  the user's store grants (/auth/me store_ids)
-//   store     ALL_STORES or a store ID
+//   store     the store ID shown
 //   range     days (one of RANGE_OPTIONS)
 //   onChange  ({ store?, range? }) → void
 const MonitorFilters = ({ storeIds, store, range, onChange }) => {
-  const storeOptions = [
-    ...(storeIds.length > 1 ? [{ value: ALL_STORES, label: 'Compare all' }] : []),
-    ...storeIds.map((id) => ({ value: id, label: id })),
-  ];
   const rangeOptions = RANGE_OPTIONS.map((d) => ({ value: d, label: `Last ${d} days` }));
 
   return (
     <div className='monitor-filters'>
-      <Segmented label='Stores' options={storeOptions} value={store} onChange={(v) => onChange({ store: v })} />
+      <label className='monitor-store'>
+        Store
+        <select value={store} onChange={(e) => onChange({ store: e.target.value })}>
+          {storeIds.map((id) => <option key={id} value={id}>{id}</option>)}
+        </select>
+      </label>
       <Segmented label='Time range' options={rangeOptions} value={range} onChange={(v) => onChange({ range: v })} />
     </div>
   );

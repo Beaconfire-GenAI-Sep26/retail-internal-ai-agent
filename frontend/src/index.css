@@ -714,7 +714,11 @@ button.nav-reset { border-style: dashed; color: var(--warn); font-size: 0.82rem;
 .monitor { grid-template-columns: minmax(0, 1fr); } /* a wide SVG must not widen the page */
 .monitor .page-header { align-items: flex-end; }
 .monitor .page-header p.muted { font-size: 0.9rem; }
-.monitor-filters { display: flex; flex-wrap: wrap; gap: 10px; }
+.monitor-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.monitor-store { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; color: var(--text-muted); }
+/* KPIs + cards; dimmed while the next store or range loads (the last one stays drawn) */
+.monitor-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; transition: opacity 0.15s; }
+.monitor-body.is-stale { opacity: 0.5; pointer-events: none; }
 
 /* Segmented buttons (stores, range, smoothing) */
 .segmented { display: inline-flex; gap: 2px; padding: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }

@@ -1,5 +1,6 @@
 // [12c] Monitor page — /monitor — any logged-in user (D-06), the landing page
-// Store-level dashboard built only from store and order data (no case data):
+// Store-level dashboard for one store at a time (store dropdown), built only
+// from store and order data (no case data):
 //   KPIs for the chosen range · M&I rate trend with operational events ·
 //   error categories · rate by daypart · top items · cancellations · review status
 // The trend always shows all 42 days, with the days before the chosen range
@@ -26,7 +27,6 @@ import {
   labelOf,
 } from '../api/format';
 import {
-  ALL_STORES,
   DEFAULT_RANGE,
   DEFAULT_SMOOTH,
   GOAL_RATE,
@@ -35,7 +35,7 @@ import {
   rangeWindow,
   rate,
   rolling,
-  storeColor,
+  STORE_COLORS,
   sumWindow,
 } from '../components/monitor/monitorMath';
 import MonitorFilters, { Segmented } from '../components/monitor/MonitorFilters';
@@ -84,83 +84,103 @@ const barRows = (keys, labels, stores, valueOf) =>
   }));
 
 
+// Chosen range + the one before it, ending on the store's last day of data;
+// null until the store's base data is in
+const windowsFor = (base, storeId, days) => {
+  const w = base[storeId]?.data?.window;
+  if (!w) return null;
+  const current = rangeWindow(w.start, w.end, days);
+  return { current, previous: previousWindow(w.start, current, days) };
+};
+
+
 // ═══════════════════════════════════════════════════════════════════
 // 3. Monitor component
 // ═══════════════════════════════════════════════════════════════════
 const Monitor = () => {
   // ── 3a. Filters (local — only this page cares) ──────────────────
   const storeIds = useSelector(selectStoreIds) ?? NO_STORES;
-  const [storeChoice, setStoreChoice] = useState(ALL_STORES);
+  const [storeChoice, setStoreChoice] = useState(null);
   const [range, setRange] = useState(DEFAULT_RANGE);
   const [smooth, setSmooth] = useState(DEFAULT_SMOOTH);
-  // One grant → that store; a stale choice (store no longer granted) → all
-  const store = storeIds.length === 1
-    ? storeIds[0]
-    : storeChoice === ALL_STORES || storeIds.includes(storeChoice) ? storeChoice : ALL_STORES;
-  const visible = useMemo(() => (store === ALL_STORES ? storeIds : [store]), [store, storeIds]);
+  // One store at a time: the chosen one, or the first grant (nothing chosen
+  // yet, or the chosen store is no longer granted)
+  const store = storeIds.includes(storeChoice) ? storeChoice : storeIds[0];
 
   // ── 3b. Store data from Redux ───────────────────────────────────
   const dispatch = useDispatch();
   const base = useSelector(selectMonitorBase);
   const ranges = useSelector(selectMonitorRanges);
 
-  // Chosen range + the one before it, per store (each ends on its last day of data)
-  const windows = useMemo(() => {
-    const out = {};
-    for (const id of visible) {
-      const w = base[id]?.data?.window;
-      if (!w) continue;
-      const current = rangeWindow(w.start, w.end, range);
-      out[id] = { current, previous: previousWindow(w.start, current, range) };
-    }
-    return out;
-  }, [base, visible, range]);
+  // Loaded = base data and this range's breakdowns are both in the cache
+  const statusOf = (storeId, days) => {
+    const w = windowsFor(base, storeId, days);
+    return combineStatus([base[storeId], w && ranges[rangeKey(storeId, w.current)]]);
+  };
 
-  // ── 3c. Load — the thunks skip anything already cached ──────────
+  // ── 3c. Load the chosen view — the thunks skip anything already cached ──
+  const wanted = windowsFor(base, store, range);
+  const wantedStart = wanted?.current.start;
+  const wantedEnd = wanted?.current.end;
   useEffect(() => {
-    visible.forEach((id) => dispatch(fetchStoreBase(id)));
-  }, [dispatch, visible]);
+    if (store) dispatch(fetchStoreBase(store));
+  }, [dispatch, store]);
   useEffect(() => {
-    Object.entries(windows).forEach(([storeId, w]) => dispatch(fetchStoreRange({ storeId, ...w.current })));
-  }, [dispatch, windows]);
+    if (wantedStart) dispatch(fetchStoreRange({ storeId: store, start: wantedStart, end: wantedEnd }));
+  }, [dispatch, store, wantedStart, wantedEnd]);
 
-  const baseState = combineStatus(visible.map((id) => base[id]));
-  const rangeState = combineStatus(visible.map((id) => windows[id] && ranges[rangeKey(id, windows[id].current)]));
-  const retry = () =>
-    visible.forEach((id) => {
-      dispatch(fetchStoreBase(id));
-      if (windows[id]) dispatch(fetchStoreRange({ storeId: id, ...windows[id].current }));
-    });
+  const wantedState = statusOf(store, range);
+  const retry = () => {
+    dispatch(fetchStoreBase(store));
+    if (wanted) dispatch(fetchStoreRange({ storeId: store, ...wanted.current }));
+  };
 
-  // ── 3d. Everything the cards need, per visible store ────────────
+  // ── 3d. Which view to draw ──────────────────────────────────────
+  // While a new store or range loads, keep drawing the last view that loaded
+  // (dimmed), so the page doesn't collapse to a loading line and jump back.
+  const [lastShown, setLastShown] = useState(null);
+  if (wantedState.status === 'succeeded' && (lastShown?.store !== store || lastShown?.range !== range)) {
+    setLastShown({ store, range }); // set during render: React re-renders before painting
+  }
+  const keepLast = lastShown && storeIds.includes(lastShown.store)
+    && statusOf(lastShown.store, lastShown.range).status === 'succeeded';
+  const view = wantedState.status === 'succeeded' ? { store, range } : keepLast ? lastShown : null;
+  const stale = view !== null && wantedState.status === 'loading';
+  const viewStore = view?.store;
+  const viewRange = view?.range;
+
+  // Everything the cards need, as a one-store list (the cards take a list)
   const stores = useMemo(() => {
-    if (baseState.status !== 'succeeded') return [];
-    return visible.map((id) => {
-      const b = base[id].data;
-      const w = windows[id];
-      const r = ranges[rangeKey(id, w.current)]?.data ?? null;
-      const period = (win) => win && { claims: sumWindow(b.daily, win), cancels: sumWindow(b.cancelDaily, win) };
-      return {
-        storeId: id,
-        color: storeColor(storeIds, id),
-        base: b,
-        range: r,
-        current: period(w.current),
-        previous: period(w.previous),
-        pendingClaims: r?.pendingClaims ?? null,
-      };
-    });
-  }, [baseState.status, visible, base, windows, ranges, storeIds]);
+    if (!viewStore) return [];
+    const b = base[viewStore].data;
+    const w = windowsFor(base, viewStore, viewRange);
+    const r = ranges[rangeKey(viewStore, w.current)].data;
+    const period = (win) => win && { claims: sumWindow(b.daily, win), cancels: sumWindow(b.cancelDaily, win) };
+    return [{
+      storeId: viewStore,
+      color: STORE_COLORS[0],
+      base: b,
+      range: r,
+      window: w.current,
+      current: period(w.current),
+      previous: period(w.previous),
+      pendingClaims: r.pendingClaims,
+    }];
+  }, [viewStore, viewRange, base, ranges]);
 
   // ── 3e. Render ──────────────────────────────────────────────────
+  const shown = stores[0];
   const header = (
     <div className='page-header'>
       <div>
         <h1>Monitor</h1>
-        {stores[0] && (
+        {shown && (
           <p className='muted'>
-            {formatDayRange(windows[stores[0].storeId].current.start, windows[stores[0].storeId].current.end)}
+            {shown.base.store.name}, {shown.base.store.city}
+            {' · '}
+            {formatDayRange(shown.window.start, shown.window.end)}
             {' · '}store and order data
+            {stale && ' · loading…'}
           </p>
         )}
       </div>
@@ -175,45 +195,30 @@ const Monitor = () => {
   if (storeIds.length === 0) {
     return <section>{header}<p className='muted'>No stores are granted to this account.</p></section>;
   }
-  if (baseState.status === 'failed') {
+  if (wantedState.status === 'failed') {
     return (
       <section>
         {header}
         <div className='error' role='alert'>
-          <p>{baseState.error}</p>
+          <p>{wantedState.error}</p>
           <button type='button' onClick={retry}>Retry</button>
         </div>
       </section>
     );
   }
-  if (baseState.status !== 'succeeded') {
+  if (!shown) {
     return <section>{header}<p className='muted'>Loading store data…</p></section>;
   }
 
-  // Trend: every day any visible store has data
-  const first = stores.map((s) => s.base.window.start).sort()[0];
-  const last = stores.map((s) => s.base.window.end).sort().at(-1);
-  const days = daysBetween(first, last);
+  // Trend: every day of the store's data
+  const days = daysBetween(shown.base.window.start, shown.base.window.end);
   const series = stores.map((s) => {
     const byDay = new Map(rolling(s.base.daily, smooth).map((p) => [p.date, p]));
     return { storeId: s.storeId, color: s.color, points: days.map((d) => byDay.get(d) ?? { date: d, rate: null, num: 0, den: 0 }) };
   });
   const events = stores.map((s) => ({ storeId: s.storeId, color: s.color, items: s.base.events }));
-  const highlight = windows[stores[0].storeId].current;
+  const highlight = shown.window;
 
-  // Range cards wait for every store's breakdowns
-  const rangeBody = (render) => {
-    if (rangeState.status === 'failed') {
-      return (
-        <div className='error' role='alert'>
-          <p>{rangeState.error}</p>
-          <button type='button' onClick={retry}>Retry</button>
-        </div>
-      );
-    }
-    if (rangeState.status !== 'succeeded') return <p className='muted'>Loading…</p>;
-    return render();
-  };
   const dayparts = Object.keys(DAYPART_LABELS).filter((k) =>
     stores.some((s) => s.range?.dayparts.some((d) => d.key === k && d.orders > 0)));
 
@@ -221,80 +226,66 @@ const Monitor = () => {
     <section className='monitor'>
       {header}
 
-      <KpiRow stores={stores} days={range} goal={GOAL_RATE} />
+      <div className={stale ? 'monitor-body is-stale' : 'monitor-body'} aria-busy={stale}>
+        <KpiRow stores={stores} days={viewRange} goal={GOAL_RATE} />
 
-      <div className='monitor-grid'>
-        <Card title='M&I rate trend' note='Attributable claims ÷ delivered orders · ◆ operational events' wide>
-          <div className='monitor-card-tools'>
-            <StoreLegend stores={stores} extra={<span className='legend-goal'>Goal</span>} />
-            <Segmented label='Smoothing' value={smooth} onChange={setSmooth}
-              options={[{ value: 7, label: '7-day rolling' }, { value: 1, label: 'Daily' }]} />
-          </div>
-          <TrendChart days={days} series={series} events={events} goal={GOAL_RATE} smooth={smooth} highlight={highlight} />
-          <div className='case-links'>
-            <span className='muted'>View cases:</span>
-            {stores.map((s) => (
-              <Link key={s.storeId} to={`/cases?store_id=${s.storeId}`}>
-                <i className='swatch' style={{ background: s.color }} />{s.storeId} →
-              </Link>
-            ))}
-          </div>
-        </Card>
+        <div className='monitor-grid'>
+          <Card title='M&I rate trend' note='Attributable claims ÷ delivered orders · ◆ operational events' wide>
+            <div className='monitor-card-tools'>
+              <StoreLegend stores={stores} extra={<span className='legend-goal'>Goal</span>} />
+              <Segmented label='Smoothing' value={smooth} onChange={setSmooth}
+                options={[{ value: 7, label: '7-day rolling' }, { value: 1, label: 'Daily' }]} />
+            </div>
+            <TrendChart days={days} series={series} events={events} goal={GOAL_RATE} smooth={smooth} highlight={highlight} />
+            <div className='case-links'>
+              <span className='muted'>View cases:</span>
+              {stores.map((s) => (
+                <Link key={s.storeId} to={`/cases?store_id=${s.storeId}`}>
+                  <i className='swatch' style={{ background: s.color }} />{s.storeId} →
+                </Link>
+              ))}
+            </div>
+          </Card>
 
-        <Card title='Error categories' note='Attributable claims'>
-          {rangeBody(() => (
-            <>
-              <StoreLegend stores={stores} />
-              <BarList labelW={120} rows={barRows(Object.keys(ERROR_CATEGORY_LABELS), ERROR_CATEGORY_LABELS, stores, (s, k) => {
-                const n = s.range.errorCategories[k] ?? 0;
-                return { value: n, text: String(n), title: `${s.storeId} · ${n} claims` };
-              })} />
-            </>
-          ))}
-        </Card>
+          <Card title='Error categories' note='Attributable claims'>
+            <StoreLegend stores={stores} />
+            <BarList labelW={120} rows={barRows(Object.keys(ERROR_CATEGORY_LABELS), ERROR_CATEGORY_LABELS, stores, (s, k) => {
+              const n = s.range.errorCategories[k] ?? 0;
+              return { value: n, text: String(n), title: `${s.storeId} · ${n} claims` };
+            })} />
+          </Card>
 
-        <Card title='M&I rate by daypart' note='Dashed line = goal'>
-          {rangeBody(() => (
-            <>
-              <StoreLegend stores={stores} extra={<span className='legend-goal'>Goal {formatRate(GOAL_RATE)}</span>} />
-              <BarList labelW={90} refValue={GOAL_RATE} rows={barRows(dayparts, DAYPART_LABELS, stores, (s, k) => {
-                const d = s.range.dayparts.find((x) => x.key === k);
-                const v = d ? rate(d.claims, d.orders) : null;
-                return {
-                  value: v ?? 0,
-                  text: v == null ? '—' : formatRate(v),
-                  title: d ? `${s.storeId} · ${formatRatio(d.claims, d.orders)} claims / delivered orders` : `${s.storeId} · no orders`,
-                };
-              })} />
-            </>
-          ))}
-        </Card>
+          <Card title='M&I rate by daypart' note='Dashed line = goal'>
+            <StoreLegend stores={stores} extra={<span className='legend-goal'>Goal {formatRate(GOAL_RATE)}</span>} />
+            <BarList labelW={90} refValue={GOAL_RATE} rows={barRows(dayparts, DAYPART_LABELS, stores, (s, k) => {
+              const d = s.range.dayparts.find((x) => x.key === k);
+              const v = d ? rate(d.claims, d.orders) : null;
+              return {
+                value: v ?? 0,
+                text: v == null ? '—' : formatRate(v),
+                title: d ? `${s.storeId} · ${formatRatio(d.claims, d.orders)} claims / delivered orders` : `${s.storeId} · no orders`,
+              };
+            })} />
+          </Card>
 
-        <Card title='Top items' note='Most attributable claims'>
-          {rangeBody(() => (
+          <Card title='Top items' note='Most attributable claims'>
             <TopItems stores={stores.map((s) => ({
               storeId: s.storeId, color: s.color, items: s.range.items, modifiers: s.range.modifiers, itemNames: s.base.itemNames,
             }))} />
-          ))}
-        </Card>
+          </Card>
 
-        <Card title='Cancellation reasons' note='Canceled orders'>
-          {rangeBody(() => (
-            <>
-              <StoreLegend stores={stores} />
-              <BarList labelW={150} rows={barRows(Object.keys(CANCELLATION_CATEGORY_LABELS), CANCELLATION_CATEGORY_LABELS, stores, (s, k) => {
-                const n = s.range.cancelCategories[k] ?? 0;
-                return { value: n, text: String(n), title: `${s.storeId} · ${n} canceled orders` };
-              })} />
-            </>
-          ))}
-        </Card>
+          <Card title='Cancellation reasons' note='Canceled orders'>
+            <StoreLegend stores={stores} />
+            <BarList labelW={150} rows={barRows(Object.keys(CANCELLATION_CATEGORY_LABELS), CANCELLATION_CATEGORY_LABELS, stores, (s, k) => {
+              const n = s.range.cancelCategories[k] ?? 0;
+              return { value: n, text: String(n), title: `${s.storeId} · ${n} canceled orders` };
+            })} />
+          </Card>
 
-        <Card title='Claim review status' note='All claims, including ones not counted in the rate' wide>
-          {rangeBody(() => (
+          <Card title='Claim review status' note='All claims, including ones not counted in the rate' wide>
             <ReviewStatusBar stores={stores.map((s) => ({ storeId: s.storeId, counts: s.range.reviewLabels }))} />
-          ))}
-        </Card>
+          </Card>
+        </div>
       </div>
     </section>
   );

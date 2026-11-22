@@ -11,7 +11,7 @@
 //   Other orders    17 / 1062 (1.6%) · same days
 //   The fix didn't work. Start a new investigation above.      ← next step
 //
-// Scheduled: the analyst can run it now for the demo ("Run recheck now (demo)").
+// Scheduled: the analyst can run it now ("Run recheck now").
 // Shown at steps 6 and 7 and the ends after them (getCaseView.showRecheck).
 // Sits under InvestigationPanel, outside it (page map).
 
@@ -122,7 +122,7 @@ const RunRecheck = ({ recheck, caseId }) => {
         </label>
       )}
       <button type='button' onClick={start} disabled={running}>
-        {running ? 'Running…' : 'Run recheck now (demo)'}
+        {running ? 'Running…' : 'Run recheck now'}
       </button>
       {run?.status === 'failed' && (
         <p className='error' role='alert'>

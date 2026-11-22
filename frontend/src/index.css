@@ -69,6 +69,8 @@ main {
   padding: 28px 24px 56px;
 }
 main > section { display: grid; gap: 16px; }
+/* Layout focuses <main> on each new page (keyboard + screen reader start there); no ring around the whole page */
+main:focus { outline: none; }
 
 /* ═══ 3. Card + form controls (login form, buttons, .error, .muted) ═══ */
 .muted { color: var(--text-muted); }

@@ -182,19 +182,41 @@ describe('other endings', () => {
     expect((await pollToRest(start.investigation_id)).status).toBe('unsure');
   });
 
-  it('reply arrives by itself: resume alone → reply recorded as evidence → completed', async () => {
+  it('reply arrives by itself after a delay: no reply yet → resume changes nothing; then resume → completed', async () => {
     const start = await call(m.mockStartInvestigation, { case_id: 'CASE-0002', reopen_of: null }, ctx);
     const paused = await pollToRest(start.investigation_id);
     const q = await call(m.mockGetProposal, paused.pending_proposal_id, ctx);
     await decide(q, 'approve');
     await resume(start.investigation_id);
-    await resume(start.investigation_id); // analyst confirms the reply arrived — nothing typed
+
+    // Not yet: the list is empty and resume keeps the run paused
+    expect(await call(m.mockListMerchantReplies, 'CASE-0002', ctx)).toEqual([]);
+    expect((await resume(start.investigation_id)).status).toBe('awaiting_merchant');
+
+    // The merchant answers on its own; the UI sees it on its next poll
+    vi.advanceTimersByTime(10_000);
     const replies = await call(m.mockListMerchantReplies, 'CASE-0002', ctx);
     expect(replies).toHaveLength(1);
     expect(replies[0]).toMatchObject({ proposal_id: q.proposal_id, outcome: 'replied', text: SAMPLE_REPLY_TEXT });
+
+    await resume(start.investigation_id); // analyst confirms the reply — nothing typed
     const done = await pollToRest(start.investigation_id);
     expect(done.status).toBe('completed');
     expect(done.result.supporting_evidence_ids).toContain(replies[0].evidence_id);
+  });
+
+  it('merchantSilent: the question never gets a reply, so the analyst records no_reply', async () => {
+    m.setMerchantSilent();
+    const start = await call(m.mockStartInvestigation, { case_id: 'CASE-0002', reopen_of: null }, ctx);
+    const paused = await pollToRest(start.investigation_id);
+    const q = await call(m.mockGetProposal, paused.pending_proposal_id, ctx);
+    await decide(q, 'approve');
+    await resume(start.investigation_id);
+    vi.advanceTimersByTime(60_000);
+    expect(await call(m.mockListMerchantReplies, 'CASE-0002', ctx)).toEqual([]);
+    await call(m.mockRecordReply, q.proposal_id, { outcome: 'no_reply', text: null }, ctx);
+    await resume(start.investigation_id);
+    expect((await pollToRest(start.investigation_id)).status).toBe('unsure');
   });
 
   it('CASE-0001: completed → approve → improved → closed', async () => {

@@ -568,6 +568,36 @@ button.recommendation-edit { justify-self: start; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* Box 7 live: empty while waiting, green edge once the reply arrives */
+.reply-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+.reply-pulse {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--wait);
+  animation: reply-pulse 1.6s ease-in-out infinite;
+}
+@keyframes reply-pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reply-pulse { animation: none; }
+}
+.reply-form.reply-arrived { border-left-color: var(--ok); }
+.reply-arrived .reply-text { border-left-color: var(--ok); }
 .continue-box {
   display: grid;
   gap: 8px;

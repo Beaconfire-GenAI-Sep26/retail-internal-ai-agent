@@ -45,7 +45,7 @@ flowchart TD
 | 1 Not started | Start button | Click Start |
 | 2 Agent checking | Progress, checks and causes fill in | Watch |
 | 3 Question to approve (M3) | The agent's question for the merchant | Edit, reject or approve |
-| 4 Waiting for the reply (M3) | Reply card | Confirm the merchant replied, or "no reply". The reply reaches Domain by itself; the analyst never types it. Agent goes back to step 2. |
+| 4 Waiting for the reply (M3) | Reply card. Empty while there's no reply; the reply shows up live (UI checks Domain every 3 s) with a confirm button. | Confirm the reply, or "no reply". The reply reaches Domain by itself; the analyst never types it. Agent goes back to step 2. |
 | 5 Result and action | Cause, plus the recommended action | Approve or reject the action |
 | 6 Action sent | Recheck card, scheduled | Wait, or run the recheck (demo) |
 | 7 Not improved | Recheck result, Start comes back | Start a new investigation |
@@ -80,7 +80,7 @@ Key rules:
 | 4 | `StartInvestigationButton` | Starts the agent. Analysts only. | Agent `POST /investigations` | D-02 |
 | 5 | `InvestigationProgress` | Checks done, and what the agent checks now | Agent `step_count`, `max_steps` | D-02 |
 | 6 | `QuestionReview` | Approve a question before it goes to the merchant | Domain proposal | To build, M3 |
-| 7 | `MerchantReplyCard` | Confirm the merchant's answer arrived, or no reply | Domain merchant reply | To build, M3 |
+| 7 | `MerchantReplyCard` | Shows the merchant's answer as soon as it arrives, then confirm it; or no reply | Domain merchant replies, polled every 3 s | D-05 |
 | 8 | `ResultPanel` | The agent's conclusion | Agent `result` | To build |
 | 9 | `RecommendationReview` | Approve the action. Reject sends the case to analyst review. | Domain proposal, dispatch | To build |
 | 10 | `ErrorPanel` | Why the run stopped | Agent `error` | To build |
@@ -234,7 +234,8 @@ Paths as the browser calls them, with the gateway prefix.
 | 7 | Start new investigation | Same, with `reopen_of: <last investigation_id>` | Poll |
 | 3, 5 | Edit question or action | `POST /domain/proposals/{id}/versions` | Refresh proposal |
 | 3 | Approve or reject question | 1. `POST /domain/proposals/{id}/decision` 2. `POST /agent/investigations/{id}/resume` | Poll |
-| 4 | Confirm reply arrived | `POST /agent/investigations/{id}/resume` (the agent reads `GET /domain/cases/{id}/merchant-replies`) | Poll |
+| 4 | Wait for the reply | `GET /domain/cases/{id}/merchant-replies` every 3 s until this question has one | Show the reply + confirm button |
+| 4 | Confirm the reply | `POST /agent/investigations/{id}/resume` (the agent reads `GET /domain/cases/{id}/merchant-replies`) | Poll |
 | 4 | Record no reply | 1. `POST /domain/proposals/{id}/merchant-reply` `{outcome: "no_reply", text: null}` 2. resume | Poll |
 | 5 | Approve or reject action | `POST /domain/proposals/{id}/decision` | Refresh case. **No resume.** |
 | 6 | Run recheck (demo) | `POST /domain/rechecks/{id}/run` | Refresh case |
@@ -280,7 +281,8 @@ The analyst only ever sees step 5.
 
 - **While `running`:** `GET /agent/investigations/{id}` every 2 s.
 - **Any other status:** stop.
-- **While paused:** no polling. Refetch on page focus and after each action.
+- **While paused:** no polling of the agent. Refetch on page focus and after each action.
+- **While `awaiting_merchant` with no reply yet:** `GET /domain/cases/{id}/merchant-replies` every 3 s, and on page focus. Stops once the question has a reply.
 - **Which run to show:** `CaseDetail.investigation_ids[0]`, the newest.
 
 ### Steps 3 → 4, end to end
@@ -312,8 +314,13 @@ sequenceDiagram
   participant UI
   participant Agent
   participant Domain
+  loop every 3 s until a reply
+    UI->>Domain: GET /cases/{case_id}/merchant-replies
+  end
   Note over Domain: merchant's reply arrives by itself (EV-RPL-000001)
-  A->>UI: Merchant replied — continue
+  Domain-->>UI: [reply]
+  UI->>A: reply text + Confirm and continue
+  A->>UI: Confirm and continue
   UI->>Agent: POST /investigations/{id}/resume
   Agent->>Domain: GET /cases/{case_id}/merchant-replies
   Agent-->>UI: 202, running

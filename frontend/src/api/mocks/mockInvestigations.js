@@ -39,7 +39,7 @@
 //       run recheck → improved → closed
 //   CASE-0002 · running → awaiting_approval
 //       approve + resume → awaiting_merchant
-//           resume (reply arrives in the system) → running → completed (packing) → approve → action_dispatched
+//           reply arrives by itself (≈ 8 s after dispatch) + resume → running → completed (packing) → approve → action_dispatched
 //               run recheck → not improved → reopened
 //               start with reopen_of → 2nd run (inventory) → approve → run recheck → improved → closed
 //           no_reply + resume → running → unsure → analyst_review
@@ -53,6 +53,8 @@
 //   __mocks.failNextStart('RUN_TIMEOUT')   next Start ends in `failed` with that code
 //   __mocks.failNextDispatch()             next approval returns 502 DISPATCH_FAILED
 //   __mocks.nextRecheck('insufficient_data')  next recheck result: improved | not_improved | insufficient_data
+//   __mocks.merchantSilent()               the next question sent never gets a reply (demo "No reply")
+//   __mocks.replyDelay(2000)               how long after dispatch the merchant answers (default 8000 ms)
 //   __mocks.reset()                        clear everything
 //   __mocks.db()                           inspect the current mock state
 //
@@ -165,6 +167,8 @@ const emptyDb = () => ({
   failNext: null,            // error code for the next Start, or null
   failNextDispatch: false,
   nextRecheck: null,         // recheck status for the next run, or null = scenario default
+  silentNext: false,         // the next question dispatched never gets a reply
+  silentQuestions: [],       // proposal_ids the merchant never answers
 });
 
 // Storage can throw (private mode) — the mock then just won't survive a reload
@@ -220,6 +224,19 @@ export const failNextDispatch = () => {
 export const setNextRecheck = (status) => {
   if (!RECHECK_STATUSES.includes(status)) throw new Error(`Use one of: ${RECHECK_STATUSES.join(', ')}`);
   db.nextRecheck = status;
+  save();
+};
+
+// The merchant answers by itself this long after the question is dispatched,
+// like Domain's mock merchant inbox (C-05) but late, so the UI shows the wait.
+let merchantReplyDelayMs = 8000;
+export const setMerchantReplyDelay = (ms) => {
+  merchantReplyDelayMs = ms;
+};
+
+// The next question sent never gets a reply, to demo "No reply"
+export const setMerchantSilent = () => {
+  db.silentNext = true;
   save();
 };
 
@@ -458,11 +475,9 @@ export const mockResumeInvestigation = async (investigationId, { user, idempoten
     }
 
     const proposal = db.proposals.get(rec.pending_proposal_id);
-    // The merchant's answer reaches Domain on its own, not through the analyst.
-    // The analyst confirms it arrived by resuming; the mock plays that arrival here.
-    if (rec.status === 'awaiting_merchant' && proposal && !db.replies.has(proposal.proposal_id)) {
-      saveReply(proposal, 'replied', SAMPLE_REPLY_TEXT, 'svc-merchant-inbox');
-    }
+    // The merchant's answer reaches Domain on its own (deliverDueReplies). Like
+    // the real agent, resume with no reply yet changes nothing.
+    deliverDueReplies(rec.case_id);
     const reply = db.replies.get(rec.pending_proposal_id);
     const run = (patch) => {
       Object.assign(rec, { status: 'running', updated_at: now() }, patch);
@@ -549,6 +564,7 @@ export const mockListMerchantReplies = async (caseId, { user } = {}) => {
   await delay(150);
   requireUser(user);
   requireCase(caseId, user);
+  if (deliverDueReplies(caseId)) save();
   return [...db.replies.values()]
     .filter((r) => db.proposals.get(r.proposal_id)?.case_id === caseId)
     .map(clone);
@@ -672,6 +688,10 @@ export const mockDecideProposal = async (proposalId, { version, decision, note =
 
     if (isQuestion) {
       setCase(proposal.case_id, { status: 'awaiting_merchant' });
+      if (db.silentNext) {
+        db.silentNext = false;
+        db.silentQuestions.push(proposalId);
+      }
     } else {
       db.seq.rck += 1;
       const recheck = buildScheduledRecheck(scenarioOfProposal(proposal), {
@@ -706,8 +726,24 @@ const saveReply = (proposal, outcome, text, actor) => {
   return created;
 };
 
+// The mock merchant answers every sent question (except silent ones) once
+// merchantReplyDelayMs has passed since dispatch. Runs on each read of the
+// case's replies, so the answer "arrives" while the UI polls.
+// → true when a reply was added
+const deliverDueReplies = (caseId) => {
+  let added = false;
+  for (const p of db.proposals.values()) {
+    if (p.case_id !== caseId || p.kind !== 'merchant_question' || p.dispatch?.status !== 'dispatched') continue;
+    if (db.replies.has(p.proposal_id) || db.silentQuestions.includes(p.proposal_id)) continue;
+    if (Date.now() - Date.parse(p.dispatch.dispatched_at) < merchantReplyDelayMs) continue;
+    saveReply(p, 'replied', SAMPLE_REPLY_TEXT, 'svc_mock_merchant');
+    added = true;
+  }
+  return added;
+};
+
 // POST /domain/proposals/{id}/merchant-reply { outcome, text } → 201 MerchantReply
-// The UI uses it only for "No reply"; replies arrive by themselves (see resume).
+// The UI uses it only for "No reply"; replies arrive by themselves (deliverDueReplies).
 // Does not resume the investigation — the UI calls resume next.
 export const mockRecordReply = async (proposalId, { outcome, text = null }, { user, idempotencyKey } = {}) => {
   await delay(300);
@@ -718,6 +754,7 @@ export const mockRecordReply = async (proposalId, { outcome, text = null }, { us
     if (proposal.kind !== 'merchant_question' || proposal.dispatch?.status !== 'dispatched') {
       throw mockError(409, 'NOT_DISPATCHED', `Proposal ${proposalId} has not been sent to the merchant.`);
     }
+    deliverDueReplies(proposal.case_id); // the answer may have just come in
     if (db.replies.has(proposalId)) {
       throw mockError(409, 'REPLY_EXISTS', `A reply is already recorded for ${proposalId}.`);
     }
@@ -781,6 +818,8 @@ if (typeof window !== 'undefined' && import.meta.env?.DEV) {
     failNextStart,
     failNextDispatch,
     nextRecheck: setNextRecheck,
+    merchantSilent: setMerchantSilent,
+    replyDelay: setMerchantReplyDelay,
     reset: resetMocks,
     db: () => db,
   };

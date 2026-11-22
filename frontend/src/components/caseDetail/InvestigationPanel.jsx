@@ -48,9 +48,9 @@ const Slot = ({ view, caseId, investigation, timeZone }) => {
     // Step 3: review the agent's question (box 6)
     case 'question':
       return <QuestionReview mode='review' investigation={investigation} timeZone={timeZone} />;
-    // Step 4: record the merchant's reply, or "no reply" (box 7)
+    // Step 4: the merchant's reply shows up live → confirm it, or "no reply" (box 7)
     case 'reply':
-      return <MerchantReplyCard investigation={investigation} />;
+      return <MerchantReplyCard investigation={investigation} timeZone={timeZone} />;
     // Result (box 8), then the recommended action under it (box 9)
     case 'result': {
       const { result } = investigation;

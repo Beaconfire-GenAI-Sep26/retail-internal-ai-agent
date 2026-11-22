@@ -111,6 +111,7 @@ const InvestigationPanel = ({ caseId }) => {
   // ── 3d. Which boxes show (caseSteps.js) ──────────────────────────
   const view = getCaseView({ investigation, caseDetail });
   const timeZone = caseDetail?.store?.timezone;
+  const reopened = view.step === '7';
 
   return (
     <section className='investigation-panel' data-step={view.step ?? undefined}>
@@ -144,14 +145,10 @@ const InvestigationPanel = ({ caseId }) => {
           {view.proposalId ? ' The recommended action is still saved below.' : ''}
         </p>
       )}
-      {/* On failure the Start again button sits inside the error box instead */}
-      {view.showStart && view.slot !== 'error' && (
-        <StartInvestigationButton
-          caseId={caseId}
-          label={view.startLabel}
-          // Step 7 (reopened): the new run points at the one whose fix didn't work
-          reopenOf={view.step === '7' ? investigation.investigation_id : null}
-        />
+      {/* On failure the Start again button sits inside the error box instead;
+          at step 7 it sits under the recheck that said the fix didn't work */}
+      {view.showStart && view.slot !== 'error' && !reopened && (
+        <StartInvestigationButton caseId={caseId} label={view.startLabel} />
       )}
       {view.showProgress && (
         <InvestigationProgress investigation={investigation} pausedFor={view.pausedFor} pollError={pollError} />
@@ -167,6 +164,16 @@ const InvestigationPanel = ({ caseId }) => {
 
       {/* Did the fix work? (box 13) — under the action it checks; hides itself until a recheck exists */}
       <RecheckPanel caseId={caseId} />
+
+      {/* Step 7 (reopened): start the second run right under that recheck;
+          the new run points at the one whose fix didn't work */}
+      {view.showStart && reopened && (
+        <StartInvestigationButton
+          caseId={caseId}
+          label={view.startLabel}
+          reopenOf={investigation.investigation_id}
+        />
+      )}
 
       {/* ── Part 3: checks (box 11) | possible causes (box 12) ── */}
       {view.showTimeline && (

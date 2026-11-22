@@ -9,7 +9,7 @@
 //   Before the fix  29 / 204 (14.2%) · Nov 3 – Nov 15, 2026
 //   After the fix   26 / 193 (13.5%) · Nov 16 – Nov 30, 2026
 //   Other orders    17 / 1062 (1.6%) · same days
-//   The fix didn't work. Start a new investigation above.      ← next step
+//   The fix didn't work. Start a new investigation below.      ← next step
 //
 // Scheduled: the analyst can run it now ("Run recheck now").
 // Shown at steps 6 and 7 and the ends after them (getCaseView.showRecheck).
@@ -78,7 +78,7 @@ const nextStep = (recheck, caseStatus) => {
       return 'Too few orders to tell whether the fix worked. The case is paused.';
     case 'not_improved':
       return caseStatus === 'reopened'
-        ? "The fix didn't work. Start a new investigation above."
+        ? "The fix didn't work. Start a new investigation below."
         : "The second fix didn't work either. The case goes to analyst review.";
     default:
       return null;

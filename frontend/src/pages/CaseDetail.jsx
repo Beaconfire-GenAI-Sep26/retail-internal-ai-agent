@@ -100,6 +100,7 @@ const CaseDetail = () => {
             dailyRates={caseDetail.daily_rates}
             windowStartDate={toStoreDate(caseDetail.window_start, caseDetail.store.timezone)}
             goalRate={caseDetail.goal_rate}
+            rechecks={caseDetail.rechecks}
           />
           <InvestigationPanel caseId={caseId} />
           {/* Box 13 sits outside the investigation panel (page map); it hides itself until a recheck exists */}

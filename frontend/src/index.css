@@ -252,6 +252,15 @@ main > section > p.muted { padding: 32px 0; text-align: center; }
 .legend-day::before { background: #aab1be; }
 .legend-window::before { background: var(--danger); }
 .legend-goal::before { height: 0 !important; border-top: 2px dashed var(--warn); border-radius: 0 !important; vertical-align: 3px !important; }
+.chart-future { fill: var(--surface-soft); }
+.chart-divider { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 2 2; }
+.chart-recheck { stroke-width: 2.5; stroke-linecap: round; }
+.chart-recheck-before, .chart-recheck-after { stroke: var(--primary); }
+.chart-recheck-control { stroke: var(--text-muted); stroke-width: 1.5; stroke-dasharray: 5 3; }
+.chart-recheck-label { fill: var(--primary); font-size: 10px; font-weight: 600; }
+.legend-target::before, .legend-control::before { height: 0 !important; border-radius: 0 !important; vertical-align: 3px !important; }
+.legend-target::before { border-top: 3px solid var(--primary); }
+.legend-control::before { border-top: 2px dashed var(--text-muted); }
 
 /* Investigation panel */
 .investigation-panel { gap: 10px; }

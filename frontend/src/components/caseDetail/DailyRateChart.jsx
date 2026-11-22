@@ -1,12 +1,22 @@
 // [10g] DailyRateChart — the case "history": one bar per day for 42 days
 // Plain SVG, no chart library. Bars inside the trigger window are highlighted,
 // and a dashed line marks the goal, so the analyst sees when the rate jumped.
+//
+// After a recheck has run (D-05), the x-axis extends to the end of its `after`
+// window. Domain has no daily rates past the last day of data, so that part has
+// no bars, only the recheck's averages as flat lines:
+//   before   the targeted orders' rate over the recheck's `before` window
+//   after    the same orders over the `after` window
+//   control  the store's other orders over the `after` window (if any)
+// Bars are the whole store; the lines are the orders the action targeted, which
+// the legend and the note under the chart say.
 
 
 // ═══════════════════════════════════════════════════════════════════
 // 1. Imports + chart size
 // ═══════════════════════════════════════════════════════════════════
-import { formatRate } from '../../api/format';
+import { formatRate, formatTarget } from '../../api/format';
+import { chartDays, latestRanRecheck } from './chartDays';
 
 // The SVG is drawn in these units and scales to the container's width (CSS)
 const WIDTH = 640;
@@ -41,34 +51,56 @@ const buildTicks = (top, step) =>
 //                    dates are already store-local, oldest first
 //   windowStartDate  first day of the trigger window, 'YYYY-MM-DD' (format.toStoreDate)
 //   goalRate         CaseDetail.goal_rate — drawn as the dashed line
-const DailyRateChart = ({ dailyRates, windowStartDate, goalRate }) => {
+//   rechecks         CaseDetail.rechecks — the latest one that ran extends the chart
+const DailyRateChart = ({ dailyRates, windowStartDate, goalRate, rechecks }) => {
+  const recheck = latestRanRecheck(rechecks);
+  const days = chartDays(dailyRates, recheck);
+  const lines = recheck ? recheckLines(recheck) : [];
+
   // ── 3a. Scale ───────────────────────────────────────────────────
   // rate: null (too few orders that day) counts as 0 for the scale
-  const highest = Math.max(goalRate, ...dailyRates.map((d) => d.rate ?? 0));
+  const highest = Math.max(goalRate, ...dailyRates.map((d) => d.rate ?? 0), ...lines.map((l) => l.rate));
   const step = tickStep(highest);
   const top = Math.ceil(highest / step) * step;
   const ticks = buildTicks(top, step);
 
-  const barSlot = PLOT_W / dailyRates.length; // width each day gets
+  const barSlot = PLOT_W / days.length; // width each day gets
   const y = (rate) => PAD.top + PLOT_H - (rate / top) * PLOT_H; // rate → SVG y
+  const indexOf = Object.fromEntries(days.map((d, i) => [d.date, i]));
+  // A window's left and right edge in SVG x; dates outside the axis are clamped
+  const xFrom = (date) => PAD.left + (indexOf[date] ?? 0) * barSlot;
+  const xTo = (date) => PAD.left + ((indexOf[date] ?? days.length - 1) + 1) * barSlot;
+  const futureFrom = dailyRates.length < days.length ? PAD.left + dailyRates.length * barSlot : null;
 
   // ── 3b. Render ──────────────────────────────────────────────────
   return (
     <section className='daily-chart'>
       <div className='daily-chart-head'>
-        <h2>Daily M&amp;I rate · last {dailyRates.length} days</h2>
+        <h2>Daily M&amp;I rate · last {dailyRates.length} days{recheck && ' + recheck'}</h2>
         <div className='chart-legend'>
           <span className='legend-day'>Daily rate</span>
           <span className='legend-window'>Trigger window</span>
           <span className='legend-goal'>Goal {formatRate(goalRate)}</span>
+          {recheck && <span className='legend-target'>Targeted orders (recheck)</span>}
+          {lines.some((l) => l.kind === 'control') && <span className='legend-control'>Other orders</span>}
         </div>
       </div>
 
       <svg
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         role='img'
-        aria-label={`Daily M&I rate from ${dailyRates[0]?.date} to ${dailyRates.at(-1)?.date}`}
+        aria-label={`Daily M&I rate from ${dailyRates[0]?.date} to ${dailyRates.at(-1)?.date}`
+          + (recheck ? `, then the recheck through ${recheck.after.end}` : '')}
       >
+        {/* ── After the last day of data: shaded, labelled ── */}
+        {futureFrom != null && (
+          <g>
+            <rect className='chart-future' x={futureFrom} y={PAD.top} width={WIDTH - PAD.right - futureFrom} height={PLOT_H} />
+            <line className='chart-divider' x1={futureFrom} x2={futureFrom} y1={PAD.top} y2={PAD.top + PLOT_H} />
+            <text className='chart-label' x={futureFrom + 4} y={PAD.top + 10}>After the fix</text>
+          </g>
+        )}
+
         {/* ── Grid lines + y-axis labels ── */}
         {ticks.map((t) => (
           <g key={t}>
@@ -80,8 +112,16 @@ const DailyRateChart = ({ dailyRates, windowStartDate, goalRate }) => {
         ))}
 
         {/* ── One bar per day — hover shows the numbers (<title>) ── */}
-        {dailyRates.map((d, i) => {
+        {days.map((d, i) => {
           const x = PAD.left + i * barSlot;
+          const dateLabel = (i % 7 === 0 || i === days.length - 1) && (
+            <text className='chart-label' x={x + barSlot / 2} y={HEIGHT - 6} textAnchor='middle'>
+              {d.date.slice(5)}
+            </text>
+          );
+          // Past the last day of data: no daily numbers, just the date
+          if (d.future) return <g key={d.date}>{dateLabel}</g>;
+
           const inWindow = d.date >= windowStartDate; // 'YYYY-MM-DD' compares as text
 
           // rate: null → a faint full-height outline, so "not enough data"
@@ -107,23 +147,62 @@ const DailyRateChart = ({ dailyRates, windowStartDate, goalRate }) => {
               </rect>
 
               {/* A date label every 7 days, plus the last day */}
-              {(i % 7 === 0 || i === dailyRates.length - 1) && (
-                <text className='chart-label' x={x + barSlot / 2} y={HEIGHT - 6} textAnchor='middle'>
-                  {d.date.slice(5)}
-                </text>
-              )}
+              {dateLabel}
             </g>
           );
         })}
 
         {/* ── Goal line, drawn last so it sits on top of the bars ── */}
         <line className='chart-goal' x1={PAD.left} x2={WIDTH - PAD.right} y1={y(goalRate)} y2={y(goalRate)} />
+
+        {/* ── Recheck averages: one flat line per window, with its rate ── */}
+        {lines.map((l) => {
+          const x1 = xFrom(l.start);
+          const x2 = xTo(l.end);
+          return (
+            <g key={l.kind}>
+              <line className={`chart-recheck chart-recheck-${l.kind}`} x1={x1} x2={x2} y1={y(l.rate)} y2={y(l.rate)}>
+                <title>{l.title}</title>
+              </line>
+              {l.kind !== 'control' && (
+                <text className='chart-recheck-label' x={(x1 + x2) / 2} y={y(l.rate) - 4} textAnchor='middle'>
+                  {formatRate(l.rate)}
+                </text>
+              )}
+            </g>
+          );
+        })}
       </svg>
 
-      <p className='muted'>Hover a bar for that day's numbers. Dashed outlines are days with too few orders to rate.</p>
+      <p className='muted'>
+        Hover a bar for that day's numbers. Dashed outlines are days with too few orders to rate.
+        {recheck && (
+          <>
+            {' '}Bars are the whole store. The blue lines are the orders the action targeted
+            ({formatTarget(recheck.target)}), averaged over each recheck window; there are no daily
+            numbers after the last day of data.
+          </>
+        )}
+      </p>
     </section>
   );
 };
+
+
+// The recheck's windows as lines to draw; a window with no rate is left out
+const recheckLines = (recheck) => [
+  ['before', recheck.before, 'Targeted orders before the fix'],
+  ['after', recheck.after, 'Targeted orders after the fix'],
+  ['control', recheck.control, 'Other orders after the fix'],
+]
+  .filter(([, w]) => w && w.rate != null)
+  .map(([kind, w, label]) => ({
+    kind,
+    start: w.start,
+    end: w.end,
+    rate: w.rate,
+    title: `${label}, ${w.start} – ${w.end}: ${formatRate(w.rate)} (${w.claims} claims / ${w.eligible_orders} orders)`,
+  }));
 
 
 // ═══════════════════════════════════════════════════════════════════

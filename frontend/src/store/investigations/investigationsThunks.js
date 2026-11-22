@@ -160,11 +160,21 @@ export const fetchInvestigation = createAsyncThunk(
 // Empty body: the agent re-reads Domain. Header: Idempotency-Key.
 // → 202 InvestigationView — 'running' (polling takes over) or 'awaiting_merchant'.
 //
+// Before the request: a token with < 25 min left is refreshed, like Start. The
+// agent runs the next segment on the resume token and refuses one that expires
+// within AGENT_RUN_TIMEOUT_SECONDS (401, agent api/investigations.py).
+//
 // Rejects with { message, code, noResponse }, like the proposal writes.
 // 409 INVESTIGATION_FINISHED → the run already ended: reload it.
 export const resumeInvestigation = createAsyncThunk(
   'investigations/resume',
   async ({ id, idempotencyKey }, { getState, dispatch, rejectWithValue }) => {
+    try {
+      await ensureFreshToken({ getState, dispatch });
+    } catch {
+      return rejectWithValue({ code: 'UNAUTHENTICATED', message: 'Your session expired. Please sign in again.', noResponse: false });
+    }
+
     try {
       const view = USE_MOCKS
         ? await mockResumeInvestigation(id, { user: getState().auth.user, idempotencyKey })

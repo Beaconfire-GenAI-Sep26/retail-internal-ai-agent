@@ -35,9 +35,9 @@ import { needsResume, runQuestions } from './caseSteps';
 // ═══════════════════════════════════════════════════════════════════
 // 2. Which question is waiting for an answer
 // ═══════════════════════════════════════════════════════════════════
-// The mock keeps pending_proposal_id on the question while awaiting_merchant
-// (d03 plan, "需要确认": to confirm with Member 2). If the real agent clears it,
-// fall back to this run's latest approved question.
+// The agent keeps pending_proposal_id on the question while awaiting_merchant
+// (agent-graph.md "Pause and resume"). The latest approved question is only a
+// fallback, e.g. while the investigation view is still loading.
 const useOpenQuestion = (investigation) => {
   const caseDetail = useSelector((state) => selectCaseDetail(state, investigation.case_id));
   const latest = useSelector((state) => state.proposals.byId);

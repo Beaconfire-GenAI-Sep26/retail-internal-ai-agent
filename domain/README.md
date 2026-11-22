@@ -1,7 +1,7 @@
 # Domain Service
 
 FastAPI service with JWT/store access control, SQLAlchemy models, migrations and
-repeatable synthetic data for 13 stores (Oct 5 - Nov 15, 2026), plus the C-04 golden dataset and the C-05 future snapshot for rechecks. The entry point is
+repeatable synthetic data for 15 stores (Oct 5 - Nov 15, 2026), plus the C-04 golden dataset and the C-05 future snapshot for rechecks. The entry point is
 `domain.app.main:app`; Compose builds this directory together with `shared/`.
 
 The app mounts C-02's case, evidence, monitor and diagnostic routers and C-03's
@@ -58,7 +58,7 @@ uvicorn domain.app.main:app --reload --port 8003
 ```
 
 Open http://localhost:8003/docs. Print a token signed with the same `JWT_SECRET` and paste it into
-**Authorize** (`loe_analyst`, stores A-P, valid 12 hours):
+**Authorize** (`loe_analyst`, stores A-R, valid 12 hours):
 
 ```bash
 python -m domain.scripts.make_demo_token
@@ -184,10 +184,11 @@ For each store in the caller's grants, with `as_of` as the last day (default: th
 | `ROOT_PATH` | empty | `/domain` behind the gateway |
 | `INTERNAL_SERVICE_TOKEN` | required | Read by `app/main.py`. Agent sends it as `X-Service-Token` on `/internal/` routes and `/evidence/resolve`. Must match the Agent service |
 | `MOCK_DISPATCH_FAIL` | `false` | Demo switch: `true` makes every mock send fail with 502 `DISPATCH_FAILED` |
+| `MOCK_REPLY_DELAY_SECONDS` | `15` | C-05: seconds before the mock merchant's answer shows up (0 = at once) |
 | `RECHECK_MIN_DROP` | `0.5` | C-05: a recheck is `improved` when the target rate falls by at least this share (and more than the control) |
 
-On seed 24 with `as_of` 2026-11-15 the monitor opens cases for STORE-A, STORE-B, STORE-K, STORE-L and
-STORE-M. STORE-I is `low_volume` and STORE-J (one-day spike) is `below_threshold`.
+On seed 24 with `as_of` 2026-11-15 the monitor opens cases for STORE-A, STORE-B, STORE-K, STORE-L,
+STORE-M, STORE-Q and STORE-R. STORE-I is `low_volume` and STORE-J (one-day spike) is `below_threshold`.
 
 ### Diagnostic rules worth knowing
 
@@ -257,7 +258,12 @@ Actors are a user ID, `svc_agent`, `svc_monitor` or (C-05) `svc_mock_merchant`.
 - The merchant's answer comes in by itself. When a question is approved and dispatched, the mock
   merchant answers in the same transaction, from the seeded `mock_merchant_inbox` (`recorded_by`
   `svc_mock_merchant`). The analyst never types it.
-- STORE-K's merchant never answers. The analyst records `no_reply` (W-01).
+- The answer arrives `MOCK_REPLY_DELAY_SECONDS` later (default 15): until then it isn't returned by
+  `GET /cases/{id}/merchant-replies` or the evidence routes, so the run pauses on `awaiting_merchant`
+  and the analyst sees the reply come in and confirms it. `recorded_at` is the arrival time. Set it to
+  `0` for an instant reply (the tests do). A `no_reply` recorded before the answer arrives replaces it.
+- STORE-Q's merchant answers. STORE-K's and STORE-R's never do: the analyst records `no_reply`
+  (STORE-R is W-01, the store where the agent has a reason to ask).
 - A reply is evidence (`EV-RPL-...`): `GET /evidence/{id}` and `POST /evidence/resolve` accept it.
 - One reply per question. The case stays `awaiting_merchant` until the agent resumes and reports `running`.
 
@@ -304,6 +310,7 @@ Audit actions: `merchant_reply.recorded`, `recheck.improved`, `recheck.not_impro
 | STORE-I | Low volume | High rate but only ~30 orders a week; should not open a case |
 | STORE-J | One-day spike | 6 claims on Nov 8 only; 7-day rate stays normal |
 | STORE-K to M | C-04 dev scenarios | See "Golden dataset" below |
+| STORE-Q, R | Merchant question | See "Golden dataset" below |
 
 Distractors: STORE-A has an Oct 20 downtime, Oct 24-26 out-of-stock cancellations, a same-day unrelated
 menu change and fraud-labeled claims. STORE-B has a Nov 1 dessert price change, a Nov 3-9 promotion,
@@ -327,13 +334,15 @@ check that the agent's cited IDs point at the real signal.
 | GS-05 | dev | STORE-K | From Nov 4 one taco item goes missing; out-of-stock cancellations rise; a same-day price change is a distractor | inventory / merchant / update_item_availability |
 | GS-06 | dev | STORE-L | From Nov 2 wrong_order claims across all items, longer deliveries, Dasher comments; a same-day menu change is a distractor | dasher_handoff / dasher_ops / review_dasher_handoff |
 | GS-07 | dev | STORE-M | From Nov 6 four customers file 7 pending "entire order" claims each; a POS update the day before is a distractor | fraud_cluster / fraud_review / send_to_fraud_review |
+| GS-11 | dev | STORE-Q | From Nov 5 claims follow a new paid modifier "Add chili crisp", at dinner and late night only; a POS update the day before is a distractor. Only the merchant knows if it prints on the ticket; the merchant replies (new evening cooks miss it) | menu_change / menu_team / review_menu_change |
+| GS-12 | dev | STORE-R | Same as GS-11, but the merchant never replies (W-01): a less certain diagnosis, or unsure | menu_change / menu_team / review_menu_change |
 | GS-08..10 | holdout | N, O, P | Kept out of the repository until the final run | |
 
 Holdout stores are built only with `--holdout`, from `scripts/holdout_stores.py`, which is not committed:
 
 ```bash
-python -m domain.scripts.reset_and_seed            # dev: 13 stores, 7 golden scenarios
-python -m domain.scripts.reset_and_seed --holdout  # final run: 16 stores, 10 golden scenarios
+python -m domain.scripts.reset_and_seed            # dev: 15 stores, 9 golden scenarios
+python -m domain.scripts.reset_and_seed --holdout  # final run: 18 stores, 12 golden scenarios
 ```
 
 Each scenario store has its own random seed and is generated after the C-01 stores, so STORE-A..J and
@@ -344,7 +353,7 @@ every dev ID (orders, claims, events, `key_evidence_ids`) are the same with or w
 
 | ID | Scenario | Runs in |
 | --- | --- | --- |
-| W-01 | No merchant reply (STORE-K) | `tests/test_workflow_scenarios.py`; the agent part in B-05 |
+| W-01 | No merchant reply (STORE-R) | `tests/test_workflow_scenarios.py`; the agent part in B-05 |
 | W-02 | Failed recheck, reopen once, then analyst handoff (STORE-L) | `tests/test_workflow_scenarios.py` |
 | W-03 | Invalid or incomplete input | `tests/test_workflow_scenarios.py` |
 | W-04 | Unauthorized or cross-store access | `tests/test_workflow_scenarios.py` |

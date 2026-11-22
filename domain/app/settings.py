@@ -2,7 +2,7 @@
 
 Names follow architecture.md (B-01). MONITOR_MIN_RISE and FRAUD_MIN_PENDING_CLAIMS are
 C-02 additions that architecture.md does not list yet. MOCK_DISPATCH_FAIL is a C-03 demo switch.
-RECHECK_MIN_DROP is the C-05 recheck rule.
+RECHECK_MIN_DROP is the C-05 recheck rule. MOCK_REPLY_DELAY_SECONDS is the C-05 demo delay.
 """
 import os
 from dataclasses import dataclass
@@ -26,6 +26,8 @@ class Settings:
     mock_dispatch_fail: bool  # demo switch: every mock send fails with 502 DISPATCH_FAILED
     # Recheck (C-05): improved = the target rate falls by at least this share, and by more than the control
     recheck_min_drop: Decimal
+    # Mock merchant (C-05): seconds between a question going out and the mock answer showing up (0 = at once)
+    mock_reply_delay_seconds: int
 
 
 def load_settings() -> Settings:
@@ -41,6 +43,7 @@ def load_settings() -> Settings:
         fraud_min_pending_claims=int(env("FRAUD_MIN_PENDING_CLAIMS", "4")),
         mock_dispatch_fail=env("MOCK_DISPATCH_FAIL", "false").lower() == "true",
         recheck_min_drop=Decimal(env("RECHECK_MIN_DROP", "0.5")),
+        mock_reply_delay_seconds=max(0, int(env("MOCK_REPLY_DELAY_SECONDS", "15"))),
     )
 
 

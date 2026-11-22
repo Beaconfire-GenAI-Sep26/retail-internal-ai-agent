@@ -17,6 +17,8 @@ Scenarios
            -> missing_item claims on drinks / desserts / sides.
 - STORE-C..H normal stores, STORE-I low volume, STORE-J one-day spike.
 - STORE-K..M (C-04, scripts/scenario_stores.py): inventory, Dasher handoff, fraud cluster.
+- STORE-Q, STORE-R (scripts/scenario_stores.py): the same menu_change case that needs a merchant question;
+  Q's merchant replies, R's never does.
 - Holdout stores (scripts/holdout_stores.py) only with --holdout.
 - C-05 (scripts/future_snapshot.py): 4 weeks after the last day (Nov 16 - Dec 13) in the future_*
   tables, which only rechecks read, and each store's mock merchant answer (mock_merchant_inbox).
@@ -39,7 +41,7 @@ from sqlalchemy import text
 
 from domain.app.db import SessionLocal, engine
 from domain.scripts.future_snapshot import MERCHANT_INBOX, build_future
-from domain.scripts.scenario_stores import DEV_SEED, DEV_SPECS, Kit, build
+from domain.scripts.scenario_stores import DEV_SEED, DEV_SPECS, QR_SEED, QR_SPECS, Kit, build
 from domain.scripts.workflow_scenarios import WORKFLOW_SCENARIOS
 from domain.app.models import (
     DOMAIN_SCHEMA,
@@ -677,7 +679,7 @@ def main(holdout: bool = False) -> None:
     # above changes. Holdout stores come last, so the dev IDs are the same with or without them.
     kit = Kit(menus=MENUS, hour_weights=HOUR_WEIGHTS, generic_comments=GENERIC_COMMENTS,
               base_claim_rate=BASE_CLAIM_RATE, base_cancel_rate=BASE_CANCEL_RATE, start=START_DATE, end=END_DATE)
-    batches = [build(DEV_SPECS, DEV_SEED, kit, next_id)]
+    batches = [build(DEV_SPECS, DEV_SEED, kit, next_id), build(QR_SPECS, QR_SEED, kit, next_id)]
     if holdout_specs:
         batches.append(build(holdout_specs, HOLDOUT_SEED, kit, next_id))
     for b in batches:

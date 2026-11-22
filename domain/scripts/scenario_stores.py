@@ -1,4 +1,4 @@
-"""Golden Dataset stores added in C-04 (STORE-K, STORE-L, STORE-M).
+"""Golden Dataset stores added in C-04 (STORE-K, STORE-L, STORE-M), and STORE-Q / STORE-R (merchant question).
 
 Each store is a labeled scenario: the answer (cause, owner, action) is written first, then the
 data is generated to match it, with one or two distractors. The answer goes to `eval.golden_scenarios`,
@@ -446,3 +446,81 @@ GS_07 = Spec(
 )
 
 DEV_SPECS = [GS_05, GS_06, GS_07]
+
+
+# ---------------------------------------------------------------------------
+# GS-11 STORE-Q and GS-12 STORE-R: a question only the merchant can answer
+# ---------------------------------------------------------------------------
+# Both stores get the same problem, built so platform data can't separate two causes and the agent has a
+# reason to ask the merchant (agent prompt: "ask whether the modifier prints on the kitchen ticket").
+# - A new paid modifier "Add chili crisp" from Nov 5, with a POS app update the day before: claims follow
+#   the modifier and stay high day after day (looks like pos_modifier_mapping)...
+# - ...but only at dinner and late night; lunch orders with it are fine (looks like menu_change: staff
+#   who don't make it right, in some dayparts).
+# The merchant decides it: STORE-Q's merchant replies (the ticket shows it; new evening cooks miss it),
+# STORE-R's merchant never replies (workflow scenario W-01), so its diagnosis should be less sure.
+QR_SEED = 24 + 5  # SEED + 5; +2 dev, +3 holdout, +4 future snapshot
+QR_CAUSE = date(2026, 11, 5)
+QR_MOD = "Add chili crisp"
+QR_COMMENTS = [
+    "Paid for chili crisp on the {item}, there was none.",
+    "No chili crisp on my {item} even though I added it.",
+    "Ordered the {item} with chili crisp, came plain.",
+    "Got the wrong topping on the {item}, no chili crisp.",
+    None,
+]
+
+
+def qr_modifier_rate(mod, day, rng):
+    if mod == QR_MOD:
+        return 0.40 if day >= QR_CAUSE else 0.0
+    return 0.15
+
+
+def qr_claims(o, rng, kit):
+    if o["local_date"] >= QR_CAUSE and o["daypart"] in (Daypart.DINNER, Daypart.LATE_NIGHT):
+        for m, _, mods in o["lines"]:
+            if QR_MOD in mods and rng.random() < 0.25:
+                return [Claim(rng.choice([ErrorCategory.INGREDIENT_ERROR, ErrorCategory.INCORRECT_ITEM]), m, QR_MOD,
+                              kit.comment(rng, QR_COMMENTS, m.name), kit.label(rng, 0.88, 0.02), signal=True)]
+    return []
+
+
+def _qr_spec(store: tuple, scenario_id: str, replies: bool) -> Spec:
+    reply_note = ("The merchant replies that the modifier prints on the ticket and the new evening cooks miss "
+                  "it, which settles it." if replies else
+                  "The merchant never replies (W-01), so the diagnosis stays less certain: menu_change with "
+                  "lower confidence, or unsure.")
+    return Spec(
+        store=store,
+        cause_started=(QR_CAUSE, 10),
+        golden=dict(
+            scenario_id=scenario_id, split="dev", cause_category="menu_change",
+            true_cause="new_modifier_missed_by_evening_crew",
+            expected_outcome="diagnosis", expected_owner="menu_team", expected_action="review_menu_change",
+            key_evidence=[
+                'from Nov 5, claims follow the new paid modifier "Add chili crisp" (ingredient_error / incorrect_item)',
+                "the same items ordered without it stay near baseline",
+                "the claims sit at dinner and late night only; lunch orders with the modifier are fine",
+                "platform data can't tell whether it prints on the kitchen ticket: only the merchant knows",
+            ],
+            distractors=["Nov 4 POS app update, the day before the rise (points to pos_modifier_mapping)"],
+            notes="Ticket shows the modifier; new evening cooks don't add it. " + reply_note,
+        ),
+        events=[
+            (EventType.POS_CHANGE, (date(2026, 11, 4), 8), None, "POS tablet app updated to a new version.", False),
+            (EventType.MENU_CHANGE, (QR_CAUSE, 10), None,
+             f'Added paid modifier "{QR_MOD}" (+$1.00) to entrees.', True),
+        ],
+        added_modifiers={n: [QR_MOD] for n in ("Orange Chicken", "Kung Pao Chicken", "Beef and Broccoli",
+                                               "Sweet and Sour Pork", "Mapo Tofu")},
+        modifier_rate=qr_modifier_rate,
+        claim_rule=qr_claims,
+    )
+
+
+GS_11 = _qr_spec(("STORE-Q", "Golden Wok", "Denver", "America/Denver", "chinese", "11:00", "23:00", 65),
+                 "GS-11", replies=True)
+GS_12 = _qr_spec(("STORE-R", "Lucky Dragon Kitchen", "Atlanta", "America/New_York", "chinese", "11:00", "23:00", 65),
+                 "GS-12", replies=False)
+QR_SPECS = [GS_11, GS_12]

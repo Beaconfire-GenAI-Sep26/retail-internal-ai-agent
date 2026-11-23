@@ -4,6 +4,8 @@ For each store, with `as_of` as the last day:
 - 7-day window: as_of-6 .. as_of. Baseline: the 28 days before the window.
 - rate = store-attributable claims / delivered orders (contracts.md rate rules).
 - Skip when the store already has a case that is not closed (one open case per store),
+  when a closed case already covers part of this 7-day window (`already_reviewed`: the data is
+  static, so rerunning the monitor after a case is closed would otherwise reopen the same spike),
   or when the window has fewer than MONITOR_MIN_ORDERS delivered orders.
 - Open a case when
     over_goal:          rate > MONITOR_GOAL_RATE, or
@@ -108,12 +110,22 @@ def run_monitor(session: Session, user: CurrentUser, as_of: date | None, rid: st
         )
 
     open_stores = set(session.scalars(select(Case.store_id).where(Case.status != CaseStatus.CLOSED)))
+    # The latest window end of each store's closed cases: a new window that starts on or before it
+    # would look at days an analyst already reviewed.
+    reviewed_until = dict(session.execute(
+        select(Case.store_id, func.max(Case.window_end)).where(Case.status == CaseStatus.CLOSED)
+        .group_by(Case.store_id)
+    ).all())
     evaluated, opened, skipped = [], [], []
     now = datetime.now(timezone.utc)
-    for store in stores:
+    for store, ctx in zip(stores, contexts):
         evaluated.append(store.store_id)
         if store.store_id in open_stores:
             skipped.append(SkippedStore(store_id=store.store_id, reason="open_case_exists"))
+            continue
+        window_start = datetime.combine(as_of - timedelta(days=WINDOW_DAYS - 1), time.min, ctx.tz)
+        if store.store_id in reviewed_until and reviewed_until[store.store_id] >= window_start:
+            skipped.append(SkippedStore(store_id=store.store_id, reason="already_reviewed"))
             continue
         check = check_store(session, store, as_of)
         if check is None or check.eligible < settings.monitor_min_orders:
@@ -123,7 +135,6 @@ def run_monitor(session: Session, user: CurrentUser, as_of: date | None, rid: st
         if rule is None:
             skipped.append(SkippedStore(store_id=store.store_id, reason="below_threshold"))
             continue
-        ctx = load_context(session, store)
         case = Case(
             case_id=next_case_id(session),
             store_id=store.store_id,

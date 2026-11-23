@@ -38,6 +38,50 @@ def test_rerun_does_not_duplicate(client, clean_cases):
     assert len(client.get("/cases", headers=H).json()) == 2
 
 
+def _close(case_id):
+    """Stand-in for an analyst closing the case (POST /cases/{id}/close needs analyst_review first)."""
+    from domain.app.db import SessionLocal
+    from domain.app.models import Case, CaseStatus
+    with SessionLocal() as s:
+        s.get(Case, case_id).status = CaseStatus.CLOSED
+        s.commit()
+
+
+def test_closed_case_is_not_reopened_for_the_same_window(client, clean_cases):
+    """The data is static: after a case is closed, rerunning the monitor must not open a duplicate."""
+    first = run(client, "run-1").json()
+    case_b = next(c["case_id"] for c in client.get("/cases", headers=H).json() if c["store_id"] == "STORE-B")
+    _close(case_b)
+
+    again = run(client, "run-2").json()
+    assert again["opened_case_ids"] == []
+    reasons = {s["store_id"]: s["reason"] for s in again["skipped"]}
+    assert reasons["STORE-B"] == "already_reviewed"
+    assert reasons["STORE-A"] == "open_case_exists"
+    assert len(client.get("/cases", headers=H).json()) == len(first["opened_case_ids"])
+
+    # An earlier as_of still overlaps the reviewed days: no new case either
+    earlier = run(client, "run-3", as_of="2026-11-12").json()
+    assert {s["store_id"]: s["reason"] for s in earlier["skipped"]}["STORE-B"] == "already_reviewed"
+
+
+def test_new_days_after_an_older_closed_case_are_checked(client, clean_cases):
+    """A closed case covers only its own window: days after it are new data and can open a case."""
+    run(client, "run-1", as_of="2026-11-15")
+    case_b = next(c["case_id"] for c in client.get("/cases", headers=H).json() if c["store_id"] == "STORE-B")
+    _close(case_b)
+    from domain.app.db import SessionLocal
+    from domain.app.models import Case
+    from datetime import datetime, timezone
+    with SessionLocal() as s:  # pretend the closed case covered an older week
+        c = s.get(Case, case_b)
+        c.window_start = datetime(2026, 10, 20, tzinfo=timezone.utc)
+        c.window_end = datetime(2026, 10, 26, 23, 59, 59, tzinfo=timezone.utc)
+        s.commit()
+    later = run(client, "run-2").json()
+    assert len(later["opened_case_ids"]) == 1  # STORE-B's Nov 9-15 window is new data, so it opens again
+
+
 def test_monitor_needs_idempotency_key(client, clean_cases):
     r = client.post("/monitor/run", headers=H, json={})
     assert r.status_code == 422

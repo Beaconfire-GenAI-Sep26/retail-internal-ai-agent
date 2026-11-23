@@ -174,8 +174,10 @@ For each store in the caller's grants, with `as_of` as the last day (default: th
 
 - Window: the 7 days ending on `as_of`. Baseline: the 28 days before the window. Dates are store local.
 - Rate = store-attributable claims (`store_fault` + `pending`) / delivered orders.
-- Skipped when the store already has a case that is not `closed` (`open_case_exists`) or the window
-  has fewer than `MONITOR_MIN_ORDERS` delivered orders (`low_volume`).
+- Skipped when the store already has a case that is not `closed` (`open_case_exists`), when a closed
+  case already covers part of the 7-day window (`already_reviewed`: the demo data is static, so a rerun
+  after closing would otherwise reopen the same spike), or when the window has fewer than
+  `MONITOR_MIN_ORDERS` delivered orders (`low_volume`).
 - Opens a case with status `open` when the rate is above `MONITOR_GOAL_RATE` (`over_goal`), or when it is
   at least `MONITOR_SPIKE_RATIO` x the baseline and at least `MONITOR_MIN_RISE` above it (`spike_vs_baseline`).
   Otherwise the store is listed with `below_threshold`.

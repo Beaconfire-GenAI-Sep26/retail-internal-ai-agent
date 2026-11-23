@@ -18,13 +18,20 @@ With `SEED_AUTH_ACCOUNTS=true`, Auth inserts these accounts if they do not exist
 
 | Username | User ID | Role | Store grants |
 |---|---|---|---|
-| `analyst` | `USR-001` | `loe_analyst` | STORE-A, STORE-B |
+| `analyst` | `USR-001` | `loe_analyst` | All 15 demo stores: STORE-A through STORE-M plus STORE-Q/R; holdout STORE-N/O/P excluded |
 | `viewer` | `USR-002` | `viewer` | STORE-A |
 
 Passwords come from `SEED_ANALYST_PASSWORD` and `SEED_VIEWER_PASSWORD` (minimum
 12 characters). The localhost example uses `Password123!` for both; seeding is
-disabled by default unless explicitly enabled. Restarting never resets existing
-passwords or grants. C-01 still owns seeding the synthetic stores and orders.
+disabled by default unless explicitly enabled. Seeding reconciles the known demo
+analyst (`USR-001`, username `analyst`, role `loe_analyst`) to demo-only store
+grants on existing volumes, removing any previously granted holdout stores.
+Passwords, sessions, profile fields, active
+state, and role changes are preserved; Viewer and other accounts are unchanged.
+Auth uses explicit signed grants and does not read Domain or evaluation tables.
+Sign in again or refresh the session to obtain the expanded JWT claims. Existing
+access tokens retain their old grants until refreshed or expired. C-01 still
+owns seeding the synthetic stores and orders.
 
 `POST /auth/login` returns the contract's `LoginResponse` and a random refresh
 credential in a host-only HttpOnly cookie. Only its hash is stored. Access tokens

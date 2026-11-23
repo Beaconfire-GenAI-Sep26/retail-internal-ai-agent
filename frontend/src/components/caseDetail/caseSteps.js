@@ -23,6 +23,9 @@
 //   no_run            — (agent lost it)  past open, or one   proposal  the latest action, no Start
 //                                        pending proposal
 //
+// Whenever case_status is analyst_review (rejected action, unsure, second fix
+// failed, or no_run), analysts also get "Mark as resolved" (showClose).
+//
 // Always true for every step: the previous run shows whenever this run is a
 // reopen (reopen_of set), not only at step 8 — it stays through the second
 // run's result, recheck and close.
@@ -84,6 +87,7 @@ const NOTHING = {
   showRecheck: false,
   showPrevious: false,
   proposalId: null, // slot 'proposal' only: the action to show when the agent has no run
+  showClose: false, // "Mark as resolved": the case is in analyst_review
 };
 
 
@@ -144,7 +148,12 @@ const noRunView = (caseDetail) => {
 // ═══════════════════════════════════════════════════════════════════
 // investigation: the latest InvestigationView, or null = never investigated
 // caseDetail:    CaseDetail, or null while it loads
-export const getCaseView = ({ investigation, caseDetail }) => {
+export const getCaseView = ({ investigation, caseDetail }) => ({
+  ...runView({ investigation, caseDetail }),
+  showClose: caseDetail?.status === 'analyst_review',
+});
+
+const runView = ({ investigation, caseDetail }) => {
   // Step 1 (never investigated), or the agent lost the run (no_run)
   if (!investigation) return noRunView(caseDetail);
 

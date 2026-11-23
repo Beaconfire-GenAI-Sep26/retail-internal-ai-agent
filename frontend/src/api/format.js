@@ -315,10 +315,12 @@ export const formatInvestigationError = (code) =>
 // ═══════════════════════════════════════════════════════════════════
 // 7. Audit log — AuditEntry.action → a readable line
 // ═══════════════════════════════════════════════════════════════════
-// contracts.md only gives examples; these are the 16 values the mock writes.
-// Still to confirm with C-03 (d03 plan, "需要确认").
+// The values Domain writes (C-03, C-05): fixed actions, plus investigation.<status>
+// from the agent's status reports and recheck.<status> when a recheck runs.
+// investigation.started is written only by the mock.
 export const AUDIT_ACTION_LABELS = {
   'case.opened': 'Case opened',
+  'case.closed': 'Case closed by analyst',
   // Domain writes investigation.<status> when the agent reports one (C-03);
   // the start arrives as investigation.running. investigation.started is the mock's.
   'investigation.running': 'Investigation started',

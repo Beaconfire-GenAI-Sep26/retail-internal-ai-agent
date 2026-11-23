@@ -252,6 +252,15 @@ main > section > p.muted { padding: 32px 0; text-align: center; }
 .legend-day::before { background: #aab1be; }
 .legend-window::before { background: var(--danger); }
 .legend-goal::before { height: 0 !important; border-top: 2px dashed var(--warn); border-radius: 0 !important; vertical-align: 3px !important; }
+.chart-future { fill: var(--surface-soft); }
+.chart-divider { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 2 2; }
+.chart-recheck { stroke-width: 2.5; stroke-linecap: round; }
+.chart-recheck-before, .chart-recheck-after { stroke: var(--primary); }
+.chart-recheck-control { stroke: var(--text-muted); stroke-width: 1.5; stroke-dasharray: 5 3; }
+.chart-recheck-label { fill: var(--primary); font-size: 10px; font-weight: 600; }
+.legend-target::before, .legend-control::before { height: 0 !important; border-radius: 0 !important; vertical-align: 3px !important; }
+.legend-target::before { border-top: 3px solid var(--primary); }
+.legend-control::before { border-top: 2px dashed var(--text-muted); }
 
 /* Investigation panel */
 .investigation-panel { gap: 10px; }
@@ -568,6 +577,36 @@ button.recommendation-edit { justify-self: start; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* Box 7 live: empty while waiting, green edge once the reply arrives */
+.reply-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+.reply-pulse {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--wait);
+  animation: reply-pulse 1.6s ease-in-out infinite;
+}
+@keyframes reply-pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reply-pulse { animation: none; }
+}
+.reply-form.reply-arrived { border-left-color: var(--ok); }
+.reply-arrived .reply-text { border-left-color: var(--ok); }
 .continue-box {
   display: grid;
   gap: 8px;
@@ -602,6 +641,12 @@ button.recommendation-edit { justify-self: start; }
 .recheck-next-improved { color: var(--ok); }
 .recheck-next-not_improved { color: var(--danger); background: var(--danger-soft); }
 .recheck-next-insufficient_data { color: var(--warn); }
+.close-case {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 22px;
+}
+.close-case p { margin: 0; }
+.close-case .error { flex-basis: 100%; }
 .recheck-run { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; }
 .recheck-run label { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; }
 .recheck-run .error { flex-basis: 100%; text-align: right; }

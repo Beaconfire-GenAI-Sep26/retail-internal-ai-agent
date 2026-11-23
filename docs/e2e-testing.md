@@ -222,7 +222,8 @@ host.
 6. Open **CASE-0002**, start an investigation, and when it finishes click **Reject**. The case moves to
    `analyst_review`.
 
-Don't click **Run recheck now (demo)**. Rechecks arrive with C-04, and that route doesn't exist yet.
+On **CASE-0001**, click **Run recheck now**. The recheck reads the seeded future snapshot (C-05) and, for
+STORE-A, comes back improved, so the case moves to `closed`.
 
 **As the viewer**
 
@@ -461,7 +462,6 @@ checklist in `docs/observability.md`.
 | Postgres exits right after its first start on a new volume (macOS or Linux) | Run `docker compose up --build -d --wait` again; the second start skips first-time setup. Then run the role script once |
 | Git Bash mangles `/docker-entrypoint-initdb.d/...` or says the input isn't a TTY | Prefix the command with `MSYS_NO_PATHCONV=1` and add `-T` after `exec`, or use PowerShell |
 | `curl` in PowerShell behaves oddly | It's an alias for `Invoke-WebRequest`. Type `curl.exe` |
-| **Run recheck now (demo)** fails with not found | Rechecks arrive with C-04. Skip that button for now |
 
 ## 12. Reset and clean up
 

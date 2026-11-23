@@ -6,9 +6,9 @@ boundary. The typed HTTP tools use the request-scoped Domain capability. No JWT
 or Domain client belongs in checkpoint state. Merchant questions pause a run until
 `POST /investigations/{id}/resume`; they are off while `AGENT_MAX_QUESTIONS=0`, and
 a Domain without the merchant-replies route (C-05) gets none. With C-05's mock merchant,
-a question on STORE-A, B, L or M is answered when it's approved, so the resume after the
-decision carries the run on without stopping at `awaiting_merchant` (a second question
-pauses it again); STORE-K never answers, and the analyst records `no_reply`.
+a question on STORE-A, B, L or M is answered within about 15 seconds of its approval;
+until then the run waits at `awaiting_merchant`, and a resume starts nothing. STORE-K
+never answers, and the analyst records `no_reply`.
 The CLI never asks, and fixtures mode never offers questions. With
 `AGENT_CHECKPOINTER=postgres` (the Compose default), a paused run survives a
 restart. The live restart test runs with `AGENT_IT_DATABASE_URL` set to a test
@@ -60,6 +60,7 @@ Run these from the repository root unless the row says `agent/`.
 | M0 spike, plus 8 real calls (about $1) | `uv run --project agent python -m agent.scripts.m0_spike --yes` |
 | Rebuild the Domain fixtures | `uv run --project agent python agent/scripts/make_fixtures.py` |
 | Golden Dataset evaluation (B-05), Compose stack running | `uv run --project agent python -m agent.scripts.golden_eval --reps 3 --final` (see below) |
+| Fixture evaluation (B-05), Compose stack running | `uv run --project agent python -m agent.scripts.fixture_eval --reps 3` (see below) |
 | Image | `docker build -f agent/Dockerfile .` |
 
 The CLI and the spike write their reports to `agent/scripts/out/`, which is git-ignored. Settings come from
@@ -136,6 +137,36 @@ Results go to `agent/scripts/out/golden/`. `baseline/` and `v1/` each hold `resu
 and the variant from the latest run. The HTML report is built from the same folder by the claude-api skill's report
 builder (`build-report-lite.mjs`), so rerun the builder after the command. Each result's `langfuse_session` is the
 investigation ID, which is the run's Langfuse session.
+
+## Fixture evaluation (B-05)
+
+`agent/scripts/fixture_eval.py` compares agent fixtures with the LOE benchmark on the golden dev set. A fixture is the
+same agent with one setting changed; the dataset, seed, labels, model, effort, code and repeats stay the same.
+
+| Folder | System | What changes |
+|---|---|---|
+| `baseline` | LOE benchmark | The fixed LOE playbook in `agent/scripts/loe/`, with no model |
+| `v1` | Default agent | Nothing: the full prompt, up to 12 checks and 2 merchant questions |
+| `v2` | No merchant questions | `AGENT_MAX_QUESTIONS=0` |
+| `v3` | 4 checks | `AGENT_MAX_STEPS=4` |
+| `v4` | No cause guide | The system prompt without its guide to how each cause shows up in the data |
+
+Every run lands in exactly one of right fix, wrong fix sent and back to analyst. Evidence precision and checks per case
+are the other two metrics; the definitions are at the top of the script. To add a fixture, add an entry to `SYSTEMS`.
+
+- Build the images first, because the runner never does: `docker compose build agent domain`. The benchmark's
+  playbook is mounted from the checkout, so changing it needs no build.
+- Each round reseeds Domain and clears the agent's runs, which wipes Domain's data, then starts the agent container
+  with the fixture's settings. The container gets its own settings back at the end.
+- The benchmark runs inside the agent container, so it reads Domain through the agent's own client. Its questions and
+  recommendations are proposals that Domain checks, and only the runner, as the analyst, approves the questions.
+- `--systems v1,v2`, `--cases GS-02` and `--reps 1` narrow a run. A rerun picks up where it stopped, and repeats any
+  run that an outage or an empty API credit balance failed. `--summary` rebuilds `summary.md`, and `--self-check`
+  runs the grader on known answers with no Claude call.
+
+Results go to `agent/scripts/out/fixtures/` (git-ignored), in the golden runner's layout. Start from an empty folder
+after the data, labels or code change: the summary warns when rounds used different labels or agent images. The latest
+results are in [docs/fixture-scorecard.md](../docs/fixture-scorecard.md).
 
 ## Layout
 

@@ -43,9 +43,10 @@ POLL_S = 5
 TERMINAL = {"completed", "unsure", "failed"}
 # Per million tokens. Opus 5.5 list prices: cache writes are 1.25x input, cache reads $0.20.
 PRICES = {"claude-opus-5-5": {"input": 4.0, "output": 20.0, "cache_write": 5.0, "cache_read": 0.20}}
-# B-05's judgment, not a C-04 label: only GS-02's notes say the merchant's confirmation is needed.
-NEEDED_QUESTIONS = {"GS-02"}
-W01_STORE = "STORE-K"
+# B-05's judgment, not a C-04 label: GS-02's notes say the merchant's confirmation is needed, and GS-11/12's key
+# evidence says only the merchant knows whether the modifier prints on the kitchen ticket.
+NEEDED_QUESTIONS = {"GS-02", "GS-11", "GS-12"}
+W01_STORE = "STORE-R"  # eval.workflow_scenarios W-01: GS-12's store
 # Each scenario's listed distractors, mapped to records a run can cite when it rules one out or explains it.
 DISTRACTORS: dict[str, list[tuple[str, dict[str, Any]]]] = {
     "GS-01": [
@@ -247,6 +248,12 @@ def drive_agent(api: Api, case_id: str, timeout_s: float, reopen_of: str | None 
                 time.sleep(POLL_S)
                 continue
             if not replies:
+                # Domain audits a mock answer at approval but lists it on arrival; a no_reply now would replace it.
+                http, audit = api.call("GET", f"/domain/cases/{case_id}/audit")
+                if http != 200 or any(a.get("actor_id") == "svc_mock_merchant" and a.get("proposal_id") == question
+                                      for a in audit):
+                    time.sleep(POLL_S)
+                    continue
                 http, _ = api.call("POST", f"/domain/proposals/{question}/merchant-reply",
                                    {"outcome": "no_reply", "text": None}, idem=True)
                 actions.append({"action": "record_no_reply", "proposal_id": question, "http": http})

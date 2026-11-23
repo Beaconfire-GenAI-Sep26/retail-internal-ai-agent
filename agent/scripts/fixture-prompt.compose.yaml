@@ -1,0 +1,9 @@
+# B-05 fixtures only: mounts a variant of the system prompt over the one in the agent's image.
+# agent/scripts/fixture_eval.py sets FIXTURE_PROMPT and adds this file for the fixtures that need it.
+services:
+  agent:
+    volumes:
+      - type: bind
+        source: ${FIXTURE_PROMPT:?set by agent/scripts/fixture_eval.py}
+        target: /app/agent/app/prompts/system.md
+        read_only: true

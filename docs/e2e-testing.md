@@ -41,7 +41,7 @@ sequenceDiagram
     A->>C: Reasoning turns
     opt The agent asks the merchant a question
         U->>D: Approve the question
-        Note over D: The mock merchant answers at once (C-05)
+        Note over D: The mock merchant answers within about 15 s (C-05)
         U->>A: Resume
     end
     A->>D: Save the recommendation as a proposal and report the status
@@ -216,8 +216,9 @@ host.
 3. Open **CASE-0001** and click **Start investigation**. The page shows the step count and polls every 2 seconds.
    A run takes about 1 to 2 minutes. If the agent asks the merchant a question, the page shows "Investigation
    paused" and "The agent wants to ask the merchant": click **Approve and send** (you can edit the wording first),
-   and the page resumes the run itself. STORE-A's and STORE-B's merchants answer as soon as the question is sent,
-   so the run goes straight on.
+   and the page resumes the run itself. STORE-A's and STORE-B's merchants answer within about 15 seconds of the
+   question being sent: if the page shows "Waiting for the merchant", wait that long, then confirm that the
+   merchant replied.
 4. When it finishes, read the result: the cause, the evidence (click an evidence ID to open the record), the
    causes ruled out, the gaps and the recommendation.
 5. Click **Approve and send**. The case moves to `action_dispatched`, and the Activity log shows the approval,
@@ -272,6 +273,7 @@ function Wait-Run($Id) {
     Invoke-RestMethod -Method Post -Uri "$Base/domain/proposals/$($q.proposal_id)/decision" `
       -Headers ($H + @{ 'Idempotency-Key' = [guid]::NewGuid().ToString() }) -ContentType 'application/json' `
       -Body (@{ version = $q.version; decision = 'approve'; note = 'E2E test' } | ConvertTo-Json) | Out-Null
+    Start-Sleep 20  # the mock merchant answers within about 15 s of the approval (C-05)
     Invoke-RestMethod -Method Post -Uri "$Base/agent/investigations/$Id/resume" `
       -Headers ($H + @{ 'Idempotency-Key' = [guid]::NewGuid().ToString() }) | Out-Null
   }
@@ -324,6 +326,7 @@ wait_run() {
         QV=$(curl -s "$BASE/domain/proposals/$Q" -H "$AUTH" | grep -o '"version":[0-9]*' | head -1 | cut -d: -f2)
         curl -s -X POST "$BASE/domain/proposals/$Q/decision" -H "$AUTH" -H "Idempotency-Key: q-$Q-$(date +%s)" \
           -H 'Content-Type: application/json' -d "{\"version\":$QV,\"decision\":\"approve\",\"note\":\"E2E test\"}" >/dev/null
+        sleep 20  # the mock merchant answers within about 15 s of the approval (C-05)
         curl -s -X POST "$BASE/agent/investigations/$1/resume" -H "$AUTH" -H "Idempotency-Key: r-$Q-$(date +%s)" >/dev/null ;;
       *) echo "$VIEW"; return ;;
     esac
@@ -352,9 +355,10 @@ Other responses worth checking:
   `CASE_NOT_STARTABLE`.
 - The viewer's Start returns 403 `FORBIDDEN`.
 - `GET /agent/investigations?case_id=CASE-0001` lists the case's runs, newest first.
-- After a question is approved, `GET /domain/cases/{id}/merchant-replies` shows the mock merchant's answer, with
-  `recorded_by` `svc_mock_merchant` and an `EV-RPL` evidence ID. The run reads it on the resume and doesn't stop at
-  `awaiting_merchant`, and the result lists it in `unverified_reply_claims`.
+- Within about 15 seconds of a question's approval, `GET /domain/cases/{id}/merchant-replies` shows the mock
+  merchant's answer, with `recorded_by` `svc_mock_merchant` and an `EV-RPL` evidence ID. The wait loop resumes 20
+  seconds after the approval, so the run reads it on that resume and doesn't stop at `awaiting_merchant`, and the
+  result lists it in `unverified_reply_claims`.
 
 **Recheck and reopen (C-05).** On a fresh seed, run CASE-0002 the same way, but approve its recommendation. Then
 run its recheck. STORE-B's first recheck doesn't improve, so Domain reopens the case, and one more investigation
@@ -436,7 +440,8 @@ Checks against the real agent, with DevTools' Network tab open:
       page shows with Start again.
 - [ ] A merchant question shows as "The agent wants to ask the merchant". **Approve and send** sends
       `POST /domain/proposals/{id}/decision`, then `POST /agent/investigations/{id}/resume`, and polling picks up
-      again. STORE-A's and STORE-B's merchants answer at once, so the run doesn't stop at "Waiting for the merchant".
+      again. STORE-A's and STORE-B's merchants answer within about 15 seconds; until then the run waits at "Waiting
+      for the merchant", and confirming that the merchant replied resumes it.
 - [ ] After a recheck run through the API ([section 8](#8-the-same-flow-through-the-api)) and a reload, the case
       shows the recheck result, and a `reopened` case offers **Start new investigation**, which sends `reopen_of`.
       **Run recheck now (demo)** still appears only in mock mode.

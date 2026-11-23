@@ -194,7 +194,7 @@ For each store in the caller's grants, with `as_of` as the last day (default: th
 | `ROOT_PATH` | empty | `/domain` behind the gateway |
 | `INTERNAL_SERVICE_TOKEN` | required | Read by `app/main.py`. Agent sends it as `X-Service-Token` on `/internal/` routes and `/evidence/resolve`. Must match the Agent service |
 | `MOCK_DISPATCH_FAIL` | `false` | Demo switch: `true` makes every mock send fail with 502 `DISPATCH_FAILED` |
-| `MOCK_REPLY_DELAY_SECONDS` | `15` | C-05: seconds before the mock merchant's answer shows up (0 = at once) |
+| `MOCK_REPLY_DELAY_SECONDS` | `5` | C-05: seconds before the mock merchant's answer shows up (0 = at once) |
 | `RECHECK_MIN_DROP` | `0.5` | C-05: a recheck is `improved` when the target rate falls by at least this share (and more than the control) |
 
 On seed 24 with `as_of` 2026-11-15 the monitor opens cases for STORE-A, STORE-B, STORE-K, STORE-L,
@@ -269,7 +269,7 @@ Actors are a user ID, `svc_agent`, `svc_monitor` or (C-05) `svc_mock_merchant`.
 - The merchant's answer comes in by itself. When a question is approved and dispatched, the mock
   merchant answers in the same transaction, from the seeded `mock_merchant_inbox` (`recorded_by`
   `svc_mock_merchant`). The analyst never types it.
-- The answer arrives `MOCK_REPLY_DELAY_SECONDS` later (default 15): until then it isn't returned by
+- The answer arrives `MOCK_REPLY_DELAY_SECONDS` later (default 5): until then it isn't returned by
   `GET /cases/{id}/merchant-replies` or the evidence routes, so the run pauses on `awaiting_merchant`
   and the analyst sees the reply come in and confirms it. `recorded_at` is the arrival time. Set it to
   `0` for an instant reply (the tests do). A `no_reply` recorded before the answer arrives replaces it.

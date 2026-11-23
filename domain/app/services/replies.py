@@ -4,7 +4,7 @@ A reply answers one approved, dispatched merchant question and becomes evidence 
 
 - The merchant's answer comes in by itself: when a question is dispatched, the mock merchant's answer
   from the seeded inbox (`mock_merchant_inbox`) is saved in the same transaction. The analyst never types it.
-- It arrives MOCK_REPLY_DELAY_SECONDS later (default 15): `recorded_at` is the arrival time, and until
+- It arrives MOCK_REPLY_DELAY_SECONDS later (default 5): `recorded_at` is the arrival time, and until
   then the reply is hidden from GET /cases/{id}/merchant-replies and from evidence lookups. So the run
   pauses on awaiting_merchant first, and the analyst sees the answer come in and confirms it (demo).
 - A store with no inbox answer never replies. The analyst then records `no_reply`

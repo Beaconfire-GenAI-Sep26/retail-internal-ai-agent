@@ -275,6 +275,24 @@ def test_rules_after_a_test(a_matched, rule, raw):
     assert rule in d.rule_ids, d.violations
 
 
+def test_g3_supported_needs_a_supporting_evidence_id(a_matched):
+    # B-05 found fraud diagnoses with no cited record: a matching check alone no longer makes a cause supported.
+    state = copy.deepcopy(a_matched)
+    next(h for h in state["hypotheses"] if h["hypothesis_id"] == POS)["supporting_evidence_ids"] = []
+    bare = out("x", NEXT, matched=[(POS, "if_true"), (MENU, "if_false")], updates=[upd(POS, "supported", "r")])
+    d = run(state, bare)
+    assert any(v.rule == "G3" and "without evidence" in v.message for v in d.violations), d.violations
+    neither = out("x", NEXT, matched=[(POS, "if_false"), (MENU, "if_false")], updates=[upd(POS, "supported", "r")])
+    assert [v.rule for v in run(state, neither).violations].count("G3") == 2  # one rejection lists both problems
+    state["retrieved_evidence_ids"].append("EV-RPL-000001")  # a merchant reply alone doesn't count as evidence
+    reply_only = out("x", NEXT, matched=[(POS, "if_true"), (MENU, "if_false")],
+                     updates=[upd(POS, "supported", "r", ["EV-RPL-000001"])])
+    assert any(v.rule == "G3" and "without evidence" in v.message for v in run(state, reply_only).violations)
+    cited = out("x", NEXT, matched=[(POS, "if_true"), (MENU, "if_false")],
+                updates=[upd(POS, "supported", "r", [state["retrieved_evidence_ids"][0]])])
+    assert "G3" not in run(state, cited).rule_ids
+
+
 def test_conclusion_with_tested_target_passes_the_guard(a_matched):
     raw = out("x", conclude(POS, "2026-10-30", "high", "Extra sauce orders run far above the store.",
                             "fix_modifier_mapping", "The rise is limited to the modifier.", modifiers=["Extra sauce"]),

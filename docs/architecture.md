@@ -153,7 +153,8 @@ is committed.
 | `MONITOR_MIN_ORDERS` | `100` | domain | Minimum 7-day eligible orders before a store can open a case |
 | `MIN_GROUP_ORDERS` | `30` | domain | Below this, a group's rate is withheld as insufficient |
 | `FRAUD_MIN_PENDING_CLAIMS` | `4` | domain | Pending claims one `customer_ref` needs in the window before `fraud_signals` flags it |
-| `RECHECK_DAYS_DEFAULT` | `14` | domain | Days from dispatch to recheck when the proposal gives none |
+| `RECHECK_MIN_DROP` | `0.5` | domain | C-05: a recheck is `improved` when the target rate falls by at least this share, and by more than the control. Compose doesn't pass it |
+| `MOCK_DISPATCH_FAIL` | `false` | domain | Demo switch: `true` makes every mock send fail with 502 `DISPATCH_FAILED`. Compose doesn't pass it |
 
 The monitor defaults follow the C-01 report, which tunes the seed so STORE-A and STORE-B cross a 7-day
 rate above 5% with at least 100 eligible orders, while STORE-I and STORE-J don't. C-02 owns the final

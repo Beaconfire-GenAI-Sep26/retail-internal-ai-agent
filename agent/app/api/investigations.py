@@ -57,6 +57,10 @@ def _check_summary(c: dict[str, Any]) -> CheckSummary:
 async def build_view(request: Request, row: InvestigationRow) -> InvestigationView:
     services = _services(request)
     values = await services.runner.state_values(row.investigation_id)
+    row = services.store.get(row.investigation_id) or row  # a segment may have finished during the await
+    if row.status in TERMINAL_STATUSES and values.get("status") not in TERMINAL_STATUSES:
+        # Read before the final checkpoint: the runner marks the row only after writing it, so read again.
+        values = await services.runner.state_values(row.investigation_id)
     checkpoint_status = values.get("status", row.status)
     if row.status in TERMINAL_STATUSES:
         status = row.status
@@ -92,6 +96,10 @@ async def build_view(request: Request, row: InvestigationRow) -> InvestigationVi
         pending_proposal_id=pending,
         result=InvestigationResult.model_validate(result) if result else None,
         error=ErrorInfo.model_validate(error) if error else None,
+        run_config=values.get("run_config", {}),
+        usage=values.get("usage", {}),
+        model_calls=[{key: call.get(key) for key in ("turn", "model", "stop_reason", "usage", "latency_ms")}
+                     for call in values.get("model_calls", [])],
     )
 
 

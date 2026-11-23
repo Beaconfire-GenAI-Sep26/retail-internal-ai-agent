@@ -63,7 +63,7 @@ async def load_case(state: InvestigationState, runtime: Runtime[AgentContext]) -
         log_event(logger, logging.INFO, "Domain has no catalog route; using the bundled catalog", path=exc.path)
         catalog = load_bundled_catalog()
         catalog_source = "bundled"
-    # Merchant questions need Domain's merchant-replies route (C-04). Without it none are offered in this run,
+    # Merchant questions need Domain's merchant-replies route (C-05). Without it none are offered in this run,
     # so the control message says so from the first turn and no question is drafted that can't be answered.
     questions: dict[str, Any] = {}
     if ctx.settings.agent_max_questions > 0:

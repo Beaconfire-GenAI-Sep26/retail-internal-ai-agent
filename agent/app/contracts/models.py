@@ -75,7 +75,7 @@ class Proposal(Tolerant):
 
 
 class MerchantReply(Tolerant):
-    """C-04's record of a merchant's answer to a dispatched question. It is evidence (EV-RPL-)."""
+    """C-05's record of a merchant's answer to a dispatched question. It is evidence (EV-RPL-)."""
 
     evidence_id: str
     proposal_id: str
@@ -290,6 +290,11 @@ class InvestigationView(BaseModel):
     pending_proposal_id: str | None
     result: InvestigationResult | None
     error: ErrorInfo | None
+    # What produced the run (model, effort, prompt and schema hashes), its summed token usage and one entry per
+    # model call, so the Golden Dataset runner (B-05) can record and price it. No secrets and no model text.
+    run_config: dict[str, Any] = Field(default_factory=dict)
+    usage: dict[str, int] = Field(default_factory=dict)
+    model_calls: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # --- Proposals and status --------------------------------------------------------------------

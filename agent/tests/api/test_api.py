@@ -436,7 +436,7 @@ def test_a_resume_while_a_segment_runs_starts_nothing():
     assert reports(domain).count("running") == 2  # the start, and one resume after the reply
 
 
-def test_a_reopened_case_starts_from_the_earlier_runs_rulings():
+def test_a_reopened_case_starts_from_the_earlier_runs_rulings_once():
     seen = []
 
     def look(state):  # the reopened run's first turn: keep what the model was shown, then stop
@@ -448,11 +448,18 @@ def test_a_reopened_case_starts_from_the_earlier_runs_rulings():
         first = client.post("/investigations", json={"case_id": "CASE-0001"}, headers=auth(analyst)).json()
         done = wait_for(client, first["investigation_id"], analyst)
         domain.decide(done["result"]["proposal_id"], "approve")  # the fix went out, and its recheck failed:
-        domain.stores["STORE-A"].case.status = "reopened"  # Domain reopened the case (C-04)
+        domain.stores["STORE-A"].case.status = "reopened"  # Domain reopened the case (C-05)
         second = client.post("/investigations", json={"case_id": "CASE-0001", "reopen_of": first["investigation_id"]},
                              headers=auth(analyst))
         assert second.status_code == 202
         wait_for(client, second.json()["investigation_id"], analyst)
+        # Once per case (W-02): another reopen_of is refused, naming either earlier run (the UI sends the latest),
+        # even while the case still shows reopened.
+        assert domain.stores["STORE-A"].case.status == "reopened"
+        again = [client.post("/investigations", json={"case_id": "CASE-0001", "reopen_of": earlier},
+                             headers=auth(analyst))
+                 for earlier in (first["investigation_id"], second.json()["investigation_id"])]
+    assert all(r.status_code == 409 and r.json()["error"]["code"] == "REOPEN_NOT_ALLOWED" for r in again)
     ruled_out = [h["hypothesis_id"] for h in done["hypotheses"] if h["status"] == "ruled_out"]
     assert ruled_out and "The case was reopened" in seen[0]
     assert all(f"{hid} |" in seen[0] for hid in ruled_out)

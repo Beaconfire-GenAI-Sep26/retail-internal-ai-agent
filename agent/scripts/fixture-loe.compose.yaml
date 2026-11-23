@@ -1,0 +1,9 @@
+# B-05 benchmark only: mounts this checkout's LOE playbook over the copy in the agent's image, so changing the
+# playbook needs no image build. agent/scripts/fixture_eval.py adds this file for the benchmark's round.
+services:
+  agent:
+    volumes:
+      - type: bind
+        source: ./agent/scripts/loe
+        target: /app/agent/scripts/loe
+        read_only: true

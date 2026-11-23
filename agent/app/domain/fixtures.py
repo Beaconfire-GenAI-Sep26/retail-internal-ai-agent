@@ -123,7 +123,7 @@ class FixtureDomainClient:
         replies: bool = False,
     ):
         self.root = Path(root)
-        # Like today's Domain, no merchant-replies route unless asked: then a fixtures-mode service never drafts a
+        # Like a Domain before C-05, no merchant-replies route unless asked: then a fixtures-mode service never drafts a
         # question nobody could decide. Tests that exercise questions pass replies=True.
         self.replies_route = replies
         self.catalog = list(catalog) if catalog is not None else load_bundled_catalog()
@@ -319,7 +319,8 @@ class FixtureDomainClient:
         self._record("report_investigation_status", case_id=case_id, body=body.model_dump(mode="json"))
         self.status_updates.append({"case_id": case_id, **body.model_dump(mode="json")})
 
-    # Test helpers: what an analyst does in Domain (C-03 decisions, C-04 replies), with Domain's rules.
+    # Test helpers: what an analyst does in Domain (C-03 decisions, C-05 replies), with Domain's rules.
+    # decide() doesn't play C-05's mock merchant, so tests record any reply themselves.
     def decide(self, proposal_id: str, decision: str, note: str | None = None) -> Proposal:
         proposal = self.proposals[proposal_id]
         if proposal.status != "pending":

@@ -51,6 +51,24 @@ async def test_internal_routes_add_the_service_token(port):
 
 
 @respx.mock
+async def test_merchant_replies_parse_c05_records_without_the_service_token(port):
+    route = respx.get(f"{BASE}/cases/CASE-0001/merchant-replies").mock(return_value=httpx.Response(200, json=[
+        {"evidence_id": "EV-RPL-000001", "proposal_id": "PROP-0002", "outcome": "replied",
+         "text": "Large orders go out in two bags.", "recorded_by": "svc_mock_merchant",
+         "recorded_at": "2026-11-20T15:00:00Z"},
+        {"evidence_id": "EV-RPL-000002", "proposal_id": "PROP-0003", "outcome": "no_reply", "text": None,
+         "recorded_by": "USR-001", "recorded_at": "2026-11-20T16:00:00Z"},
+    ]))
+    replied, silent = await port.list_merchant_replies("CASE-0001")
+    assert (replied.evidence_id, replied.outcome, replied.text) == (
+        "EV-RPL-000001", "replied", "Large orders go out in two bags.")
+    assert (silent.proposal_id, silent.outcome, silent.text) == ("PROP-0003", "no_reply", None)
+    sent = route.calls.last.request
+    assert sent.headers["X-Store-ID"] == "STORE-A" and sent.headers["X-Investigation-ID"] == "INV-1"
+    assert "X-Service-Token" not in sent.headers
+
+
+@respx.mock
 async def test_event_types_are_repeated_query_params(port):
     route = respx.get(f"{BASE}/stores/STORE-A/diagnostics/events").mock(
         return_value=httpx.Response(200, json={**TOOL_RESULT, "tool": "event_log"}))

@@ -20,9 +20,12 @@ B-02 acceptance criteria:
 - The Agent Service is in `agent/` at the repo root, next to `auth/`, `domain/` (C-01, C-02), `frontend/`, `shared/` and `platform/`. It uses **uv**: `agent/pyproject.toml` plus a committed `agent/uv.lock`, and its image builds from the repo root so it can include `shared/`.
 - The root `compose.yaml` launches Auth, the agent, Domain and the frontend. The gateway and the database setup live in `platform/`.
 - Imports are namespaced (`agent.app`, `domain.app`) and run from the repo root. The agent's API sits behind the shared JWT boundary in `shared/security.py`, and it calls Domain through the scoped client in `agent/app/domain_client.py`.
-- The Domain Service (C-02) serves cases, store data, the diagnostic tools, evidence resolve and the monitor. The catalog, proposal and status routes are C-03; until they exist, the agent uses the fallbacks in [agent-graph.md](agent-graph.md#routes-domain-doesnt-have).
+- The Domain Service (C-02) serves cases, store data, the diagnostic tools, evidence resolve and the monitor. The catalog, proposal and status routes are C-03, and the merchant-replies route is C-05. A Domain build without them gets the fallbacks in [agent-graph.md](agent-graph.md#routes-domain-doesnt-have).
 
-**Status:** M1 is built. The agent runs against the real Domain (`AGENT_DOMAIN_MODE=http`): the offline suite
+**Status:** M1 to M3 are built. B-04 (PR #23) passed the two CASE-0002 checks below against C-05's Domain
+(PR #24) on Nov 21: a reopened run's question was answered by the mock merchant at approval and read on one
+resume, and the recheck, reopen and refused second `reopen_of` behaved as designed. On CASE-0003 the model
+concluded without asking, so the `no_reply` path is covered by the offline agent tests and Domain's W-01 test. The agent runs against the real Domain (`AGENT_DOMAIN_MODE=http`): the offline suite
 (`uv run pytest`) and the live Domain suite (`uv run pytest -m live_domain`, see [agent/README.md](../agent/README.md))
 pass. With the cause patterns in the prompt ([agent-graph.md](agent-graph.md#cause-patterns)), live Claude runs end
 `pos_modifier_mapping` on CASE-0001 and `packing` on CASE-0002, with different check sequences. In the latest runs,
@@ -45,7 +48,7 @@ which can only end inconclusive.
 4. **State values are JSON-native**, written with `model_dump(mode="json")` and read through typed accessors. LangGraph's msgpack serializer warns on unregistered custom types and blocks them under `LANGGRAPH_STRICT_MSGPACK`.
 5. **`finalize` is deterministic.** The conclude action carries the narrative and the chosen catalog action. `unsure` results are built from templates. This leaves one model call per turn, one schema and one refusal point, and the confidence caps can't be argued past.
 6. **`guard` sees every `ReasonOutput`**: check, ask_merchant and conclude.
-7. **Every terminal path reports to Domain**, through the idempotent `report_status` node or, when a run times out, crashes or is stopped by a shutdown, from the runner. An analyst's next read or list of the run resends a failed report, so a case doesn't stay stuck in `investigating` once an analyst opens it, unless the agent restarted in between.
+7. **Every terminal path reports to Domain**, through the idempotent `report_status` node or, when a run times out, crashes or is stopped by a shutdown, from the runner. An analyst's next read or list of the run resends a failed report, so a case doesn't stay stuck in `investigating` once an analyst opens it. In memory mode, a restart in between loses that report; Postgres checkpoints keep it due.
 8. **The fixture Domain client implements the HTTP client's interface.** It is used for M1, the graph tests and the frontend. The live distinct-route evidence for the POC comes from the real Domain once C-02 lands.
 
 ## Milestones (build order)
@@ -447,7 +450,7 @@ from `fraud_signals`.
 |---|---|
 | G1 | Cited IDs are in `retrieved_evidence_ids` |
 | G2 | Update IDs exist. New hypotheses come only from `new_hypotheses`, each with a `ref` the same output can use. `other` needs a specific statement. To narrow a hypothesis, update its statement rather than open a new one. |
-| G3 | `supported` needs a sufficient test or challenge check with `matched[h] == if_true`, from a tool that returns rates. `event_log` and `sample_evidence` always report enough data, so they never count. |
+| G3 | `supported` needs a sufficient test or challenge check with `matched[h] == if_true`, from a tool that returns rates, and at least one supporting evidence ID that isn't a merchant reply. `event_log` and `sample_evidence` always report enough data, so they never count. |
 | G4 | `ruled_out` needs a sufficient check listing h in `discriminates`, with `matched[h] == if_false`, plus a rationale. As in G3, the check must come from a tool that returns rates. |
 | G4b | `inconclusive` needs a discriminating check that was insufficient or matched "neither", or a data-limit cause such as `dasher_handoff` |
 | G5 | `dasher_handoff` is never `supported` or `ruled_out` |
@@ -706,12 +709,10 @@ has the settings, the privacy rules and the probe commands.
 1. Confirm the breakdown rows of "When a result has enough data" in contracts.md.
 2. Clip dates to the store's data range rather than returning 422, and report the clipped window.
 3. A 409 `PROPOSAL_PENDING` should return the existing `proposal_id` and the `investigation_id` that created it, so the agent recovers only its own proposal.
-4. Catalog contents: include an analyst handoff that applies to every cause. The seed's golden labels (`pos`, `diagnosed`, `merchant`, `ask_merchant_fix_pos_modifier_mapping`) don't match the contracts' enums or the catalog IDs. B-05 needs them aligned.
 
 **Platform (A-01, A-02, A-03):**
-1. The agent's compose service should wait for Domain to be healthy and default `AGENT_EFFORT` to `medium`, and the root `.env.example` should list `ANTHROPIC_API_KEY`.
-2. DB init: the `agent` schema and the `agent_svc` role with `CREATE`, for Postgres checkpoints.
-3. Approval of the contract changes and the finalize truth table's reading of acceptance criterion 3.
+1. The agent's compose service should wait for Domain to be healthy and default `AGENT_EFFORT` to `medium`.
+2. Approval of the contract changes and the finalize truth table's reading of acceptance criterion 3.
 
 **Frontend (D-02, D-03):**
 - The investigation error codes and the `pending_proposal_id` semantics.
@@ -745,3 +746,12 @@ has the settings, the privacy rules and the probe commands.
 - A Viewer `POST` returns 403. Another store's case returns 404.
 - Killing the container mid-run, in Postgres mode, gives `failed AGENT_RESTARTED` after reconcile.
 - A Langfuse trace shows each step's purpose.
+
+**M3, through the gateway against C-05's Domain** (reseeded, with a `make_demo_token` token for STORE-A to P):
+- A question on CASE-0002 (STORE-B): approving it writes the mock merchant's reply, and one resume finishes the run
+  with no stop at `awaiting_merchant`. The reply's `EV-RPL` ID is in `unverified_reply_claims`.
+- Approving CASE-0002's recommendation, then running its recheck, gives `not_improved` and a `reopened` case. Start
+  without `reopen_of` returns 409 `CASE_NOT_STARTABLE`, and with it 202. The second recheck gives `improved` and a
+  `closed` case, and a further `reopen_of` returns 409 `REOPEN_NOT_ALLOWED`.
+- On CASE-0003 (STORE-K), a question waits at `awaiting_merchant` until the analyst records `no_reply`. The live
+  model often concludes there without asking, since its inventory pattern can be tested from platform data.

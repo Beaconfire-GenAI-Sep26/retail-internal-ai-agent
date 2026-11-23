@@ -5,9 +5,8 @@ decision: sign in, open cases, run the agent's investigation, approve or reject 
 the audit trail. Sections 9 and 10 add the checks for frontend work (Yibin) and Langfuse tracing (Quang).
 
 Commands are given for **PowerShell** (Windows) and **bash** (macOS, or Git Bash on Windows). Run them from the
-repo root unless a step says otherwise. The guide was written against `main` (with Domain C-03) plus PR #18
-(agent B-03) and PR #19 (frontend D-03) on Nov 20, 2026. If a step doesn't work for you, tell Jinfan so we can
-fix the guide.
+repo root unless a step says otherwise. The guide was last checked against `main` at `f8a7a3f` (agent B-04 and
+Domain C-05) on Nov 21, 2026. If a step doesn't work for you, tell Jinfan so we can fix the guide.
 
 Questions by area: Quang (stack, auth, tracing), Summer (Domain), Jinfan (agent), Yibin (frontend).
 
@@ -40,6 +39,11 @@ sequenceDiagram
     U->>A: Start investigation
     A->>D: Read the case and run diagnostic checks
     A->>C: Reasoning turns
+    opt The agent asks the merchant a question
+        U->>D: Approve the question
+        Note over D: The mock merchant answers within about 15 s (C-05)
+        U->>A: Resume
+    end
     A->>D: Save the recommendation as a proposal and report the status
     U->>A: Poll every 2 s until the run ends
     U->>D: Approve or reject the proposal
@@ -57,6 +61,9 @@ cause and the action should match:
 | CASE-0001 | STORE-A | `pos_modifier_mapping` on the `Extra sauce` modifier, from about Oct 30 | `fix_modifier_mapping`, for the POS team | Approve. The case moves to `action_dispatched`, with a mock dispatch and a scheduled recheck |
 | CASE-0002 | STORE-B | `packing` on large orders (5+ items), from about Nov 3 | `add_large_order_bag_check`, for the merchant | Reject. The case moves to `analyst_review` |
 
+Either run may first ask the merchant a question, which you approve before the run goes on. To try a recheck and
+a reopened case, approve CASE-0002's action instead of rejecting it ([section 8](#8-the-same-flow-through-the-api)).
+
 ## 2. Before you start
 
 - **Docker Desktop**, running Linux containers. Check with `docker version` and `docker compose version`.
@@ -69,24 +76,12 @@ cause and the action should match:
 
 ## 3. Get the code
 
-If PR #18 and PR #19 have merged, use `main`:
+Use `main`, which has everything this guide needs:
 
 ```bash
 git switch main
 git pull
 ```
-
-Until then, build a local test branch. Keep it local; don't push it.
-
-```bash
-git fetch origin
-git switch -c e2e-local origin/main
-git merge --no-edit origin/SCRUM-20-B-03-Connect-evidence-grounded-diagnostic-tools
-git merge --no-edit origin/SCRUM-22-D-03-Show-diagnosis-and-analyst-decisions
-```
-
-Both merges are clean as of Nov 20. `main`'s agent alone doesn't match the real Domain, so don't skip PR #18.
-Quang: see [section 10](#10-for-quang-langfuse-tracing) for PR #20.
 
 ## 4. Configure `.env`
 
@@ -113,8 +108,9 @@ read `agent/.env` or `frontend/.env`.
    | `INTERNAL_SERVICE_TOKEN` | A random value | Required. Domain and the agent share it for the agent's internal writes |
    | `SEED_AUTH_ACCOUNTS`, `SEED_ANALYST_PASSWORD`, `SEED_VIEWER_PASSWORD` | Keep the example values: `true` and `Password123!` | Creates the demo logins `analyst` and `viewer` on first start. Passwords need 12+ characters |
    | `COOKIE_SECURE`, `PUBLIC_ORIGIN` | `false`, and empty | Lets login work over plain HTTP on localhost |
-   | `ANTHROPIC_API_KEY` | Your key | Fill in the `ANTHROPIC_API_KEY=` line, or add one if there isn't any (`main`'s `.env.example` doesn't have it; PR #20's has a blank one). Keep only one such line. Without the key, Start returns 503 |
+   | `ANTHROPIC_API_KEY` | Your key | Fill in the `ANTHROPIC_API_KEY=` line. Without the key, Start returns 503 |
    | `AGENT_EFFORT` | `medium` (optional) | The agent's own default. Compose otherwise uses `high`, which is slower and costs more |
+   | `AGENT_MAX_QUESTIONS` | Leave it unset (optional) | Compose defaults to 2 merchant questions per run. Set `0` for runs without the question step |
 
    To generate a random value:
 
@@ -174,8 +170,9 @@ Each one answers with a short JSON body with `"status":"ok"`. `/agent/ready` sho
 ## 6. Seed Domain data
 
 Compose doesn't migrate or seed Domain, and `/domain/ready` passes even on an empty database. The seed is
-deterministic: 10 stores with data from Oct 5 to Nov 15, 2026. It contains no cases; the monitor opens them in
-section 7.
+deterministic: 13 stores (STORE-A to M) with data from Oct 5 to Nov 15, 2026, a Nov 16 to Dec 13 snapshot that
+only rechecks read, and the mock merchant's answers for STORE-A, B, L and M. It contains no cases; the monitor
+opens them in section 7.
 
 Run the seed as the Postgres admin from your `.env` (`POSTGRES_USER`, default `retail_app`, and
 `POSTGRES_PASSWORD`). Then run the role script, which gives the Domain service its access back after the reset
@@ -201,8 +198,10 @@ docker compose exec postgres sh /docker-entrypoint-initdb.d/001-service-roles.sh
 unset POSTGRES_USER POSTGRES_PASSWORD
 ```
 
-The seed ends with `Done: 10 stores, ...`, and `check_seed` prints row counts and each store's M&I rate. The
-seed runs from the built image, so after changing Domain code, rebuild first with `docker compose build domain`.
+The seed ends with `Done: 13 stores, ...` and `Future snapshot: ... 4 mock merchant answers.`, and `check_seed`
+prints row counts, integrity checks and each store's M&I rate. The seed runs from the built image, so after
+pulling or changing Domain code, rebuild first with `docker compose build domain`, then seed and run the role
+script again.
 
 ## 7. Run the scenario in the UI
 
@@ -212,9 +211,14 @@ host.
 **As the analyst**
 
 1. Open http://localhost:18080 and sign in as `analyst`, with the `SEED_ANALYST_PASSWORD` from your `.env`.
-2. On the case queue, click **Run monitor**. It opens CASE-0001 (STORE-A) and CASE-0002 (STORE-B).
+2. On the case queue, click **Run monitor**. It opens CASE-0001 (STORE-A) and CASE-0002 (STORE-B), the two
+   stores the demo analyst can see.
 3. Open **CASE-0001** and click **Start investigation**. The page shows the step count and polls every 2 seconds.
-   A run takes about 1 to 2 minutes.
+   A run takes about 1 to 2 minutes. If the agent asks the merchant a question, the page shows "Investigation
+   paused" and "The agent wants to ask the merchant": click **Approve and send** (you can edit the wording first),
+   and the page resumes the run itself. STORE-A's and STORE-B's merchants answer within about 15 seconds of the
+   question being sent: if the page shows "Waiting for the merchant", wait that long, then confirm that the
+   merchant replied.
 4. When it finishes, read the result: the cause, the evidence (click an evidence ID to open the record), the
    causes ruled out, the gaps and the recommendation.
 5. Click **Approve and send**. The case moves to `action_dispatched`, and the Activity log shows the approval,
@@ -258,10 +262,27 @@ $H = @{ Authorization = "Bearer $($login.access_token)" }
 Invoke-RestMethod -Method Post -Uri "$Base/domain/monitor/run" -ContentType 'application/json' `
   -Headers ($H + @{ 'Idempotency-Key' = [guid]::NewGuid().ToString() }) -Body '{"as_of":"2026-11-15"}'
 
+# Wait for a run to finish. If the agent asks the merchant a question, approve it and resume.
+function Wait-Run($Id) {
+  while ($true) {
+    Start-Sleep 5
+    $v = Invoke-RestMethod -Uri "$Base/agent/investigations/$Id" -Headers $H
+    if ($v.status -eq 'running') { continue }
+    if ($v.status -ne 'awaiting_approval') { return $v }
+    $q = Invoke-RestMethod -Uri "$Base/domain/proposals/$($v.pending_proposal_id)" -Headers $H
+    Invoke-RestMethod -Method Post -Uri "$Base/domain/proposals/$($q.proposal_id)/decision" `
+      -Headers ($H + @{ 'Idempotency-Key' = [guid]::NewGuid().ToString() }) -ContentType 'application/json' `
+      -Body (@{ version = $q.version; decision = 'approve'; note = 'E2E test' } | ConvertTo-Json) | Out-Null
+    Start-Sleep 20  # the mock merchant answers within about 15 s of the approval (C-05)
+    Invoke-RestMethod -Method Post -Uri "$Base/agent/investigations/$Id/resume" `
+      -Headers ($H + @{ 'Idempotency-Key' = [guid]::NewGuid().ToString() }) | Out-Null
+  }
+}
+
 # Start an investigation and wait for it to finish
 $inv = Invoke-RestMethod -Method Post -Uri "$Base/agent/investigations" -Headers $H `
   -ContentType 'application/json' -Body '{"case_id":"CASE-0001"}'
-do { Start-Sleep 5; $v = Invoke-RestMethod -Uri "$Base/agent/investigations/$($inv.investigation_id)" -Headers $H } while ($v.status -eq 'running')
+$v = Wait-Run $inv.investigation_id
 $v.status
 $v.result | ConvertTo-Json -Depth 6
 
@@ -293,12 +314,30 @@ AUTH="Authorization: Bearer $TOKEN"
 curl -s -X POST "$BASE/domain/monitor/run" -H "$AUTH" -H "Idempotency-Key: monitor-$(date +%s)" \
   -H 'Content-Type: application/json' -d '{"as_of":"2026-11-15"}'; echo
 
+# Wait for a run to finish. If the agent asks the merchant a question, approve it and resume.
+wait_run() {
+  while :; do
+    sleep 5
+    VIEW=$(curl -s "$BASE/agent/investigations/$1" -H "$AUTH")
+    case "$VIEW" in
+      *'"status":"running"'*) continue ;;
+      *'"status":"awaiting_approval"'*)
+        Q=$(echo "$VIEW" | json_field pending_proposal_id)
+        QV=$(curl -s "$BASE/domain/proposals/$Q" -H "$AUTH" | grep -o '"version":[0-9]*' | head -1 | cut -d: -f2)
+        curl -s -X POST "$BASE/domain/proposals/$Q/decision" -H "$AUTH" -H "Idempotency-Key: q-$Q-$(date +%s)" \
+          -H 'Content-Type: application/json' -d "{\"version\":$QV,\"decision\":\"approve\",\"note\":\"E2E test\"}" >/dev/null
+        sleep 20  # the mock merchant answers within about 15 s of the approval (C-05)
+        curl -s -X POST "$BASE/agent/investigations/$1/resume" -H "$AUTH" -H "Idempotency-Key: r-$Q-$(date +%s)" >/dev/null ;;
+      *) echo "$VIEW"; return ;;
+    esac
+  done
+}
+
 # Start an investigation and wait for it to finish (an error here prints the reason and leaves INV empty)
 START=$(curl -s -X POST "$BASE/agent/investigations" -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"case_id":"CASE-0001"}'); echo "$START"
 INV=$(echo "$START" | json_field investigation_id)
-while curl -s "$BASE/agent/investigations/$INV" -H "$AUTH" | grep -q '"status":"running"'; do sleep 5; done
-VIEW=$(curl -s "$BASE/agent/investigations/$INV" -H "$AUTH"); echo "$VIEW"
+wait_run "$INV"
 PROP=$(echo "$VIEW" | json_field proposal_id)
 
 # Approve the recommendation (send "reject" for the reject path)
@@ -316,6 +355,45 @@ Other responses worth checking:
   `CASE_NOT_STARTABLE`.
 - The viewer's Start returns 403 `FORBIDDEN`.
 - `GET /agent/investigations?case_id=CASE-0001` lists the case's runs, newest first.
+- Within about 15 seconds of a question's approval, `GET /domain/cases/{id}/merchant-replies` shows the mock
+  merchant's answer, with `recorded_by` `svc_mock_merchant` and an `EV-RPL` evidence ID. The wait loop resumes 20
+  seconds after the approval, so the run reads it on that resume and doesn't stop at `awaiting_merchant`, and the
+  result lists it in `unverified_reply_claims`.
+
+**Recheck and reopen (C-05).** On a fresh seed, run CASE-0002 the same way, but approve its recommendation. Then
+run its recheck. STORE-B's first recheck doesn't improve, so Domain reopens the case, and one more investigation
+can start with `reopen_of`:
+
+```powershell
+# PowerShell, after approving CASE-0002's recommendation; $first is that run's investigation ID
+$first = $inv.investigation_id
+$rk = ((Invoke-RestMethod -Uri "$Base/domain/cases/CASE-0002/rechecks" -Headers $H) | Where-Object { $_.status -eq 'scheduled' }).recheck_id
+Invoke-RestMethod -Method Post -Uri "$Base/domain/rechecks/$rk/run" -Headers ($H + @{ 'Idempotency-Key' = [guid]::NewGuid().ToString() })
+$inv2 = Invoke-RestMethod -Method Post -Uri "$Base/agent/investigations" -Headers $H -ContentType 'application/json' `
+  -Body (@{ case_id = 'CASE-0002'; reopen_of = $first } | ConvertTo-Json)
+$v2 = Wait-Run $inv2.investigation_id
+```
+
+```bash
+# bash, after approving CASE-0002's recommendation; INV is that run's investigation ID
+FIRST=$INV
+RK=$(curl -s "$BASE/domain/cases/CASE-0002/rechecks" -H "$AUTH" | grep -o '"recheck_id":"[^"]*"' | tail -1 | cut -d'"' -f4)
+curl -s -X POST "$BASE/domain/rechecks/$RK/run" -H "$AUTH" -H "Idempotency-Key: rck-$(date +%s)"; echo
+START=$(curl -s -X POST "$BASE/agent/investigations" -H "$AUTH" -H 'Content-Type: application/json' \
+  -d "{\"case_id\":\"CASE-0002\",\"reopen_of\":\"$FIRST\"}"); echo "$START"
+wait_run "$(echo "$START" | json_field investigation_id)"
+```
+
+- The recheck returns `not_improved` with `data_sufficient: true`, and the case is `reopened` with
+  `reopen_count: 1`. Start without `reopen_of` returns 409 `CASE_NOT_STARTABLE`.
+- Approve the second run's recommendation and run its recheck the same way: it returns `improved`, and the case
+  closes. A further `reopen_of` returns 409 `REOPEN_NOT_ALLOWED`.
+- STORE-K's merchant never answers, and the demo analyst can't see that store. To try it, get a token for all
+  stores (12 hours) with `docker compose run --rm --no-deps -T domain python -m domain.scripts.make_demo_token`,
+  use it as the bearer token, run the monitor again, and find STORE-K's case in `GET /domain/cases`. A question
+  there waits at `awaiting_merchant`. Record no reply with `POST /domain/proposals/{id}/merchant-reply`, body
+  `{"outcome":"no_reply","text":null}` and an `Idempotency-Key`, then resume. The live model often concludes on
+  STORE-K without asking, since it can test that store's pattern from platform data.
 
 ## 9. For Yibin: frontend integration
 
@@ -355,37 +433,21 @@ Checks against the real agent, with DevTools' Network tab open:
 - [ ] **Approve and send** or **Reject** sends `POST /domain/proposals/{id}/decision` with the version on screen
       and a new `Idempotency-Key`, and the case and Activity log refresh.
 - [ ] Start on a case with a pending proposal returns 409 `PROPOSAL_PENDING`, and on a decided case, 409
-      `CASE_NOT_STARTABLE`. **Open PR #19 item:** today the first shows "This case already has a proposal waiting
-      for a decision." under Start, and the second shows the agent's error message with Start still visible. The
-      goal is to show the pending proposal for the first and hide Start for the second.
+      `CASE_NOT_STARTABLE`. On a fresh load the page shows the pending proposal and no Start. After a 409 from a
+      stale page, it still shows the error under Start until you reload; the goal is the fresh-load view.
 - [ ] Restart the agent with `docker compose restart agent`. Runs are kept in Postgres: a finished or paused run
       comes back as it was, and a run cut off mid-step comes back `failed` with `AGENT_RESTARTED`, which the
       page shows with Start again.
+- [ ] A merchant question shows as "The agent wants to ask the merchant". **Approve and send** sends
+      `POST /domain/proposals/{id}/decision`, then `POST /agent/investigations/{id}/resume`, and polling picks up
+      again. STORE-A's and STORE-B's merchants answer within about 15 seconds; until then the run waits at "Waiting
+      for the merchant", and confirming that the merchant replied resumes it.
+- [ ] After a recheck run through the API ([section 8](#8-the-same-flow-through-the-api)) and a reload, the case
+      shows the recheck result, and a `reopened` case offers **Start new investigation**, which sends `reopen_of`.
+      **Run recheck now (demo)** still appears only in mock mode.
 - [ ] The viewer checks from [section 7](#7-run-the-scenario-in-the-ui).
 
-Merchant questions, merchant replies and rechecks can't be tested against the real backend yet; they arrive with
-B-04 and C-04. Keep using mock mode for those screens. Section 8 of the B-03 Agent Integration Report has the API
-details and the open PR #19 items.
-
 ## 10. For Quang: Langfuse tracing
-
-**Code.** PR #20 already contains B-03 up to `33093cd` and all of D-03, so you can test your branch as it is.
-To also pick up the last B-03 fix (`3e4934c`: `GET /agent/investigations?case_id=`, the run list the case page
-loads, now resends a failed status report), merge PR #18 into a local branch:
-
-```bash
-git fetch origin
-git switch -c e2e-tracing origin/SCRUM-19-A-03-Integrate-Langfuse-and-application-logs
-git merge origin/SCRUM-20-B-03-Connect-evidence-grounded-diagnostic-tools
-```
-
-The merge stops on one conflict, in `docs/architecture.md`:
-
-- In the environment variable table, keep B-03's `AGENT_CHECKPOINTER` row and your three `LANGFUSE_*` rows, and
-  drop the two old Langfuse rows.
-- The diagram merges without a marker, but to B-03's version, which is wrong once tracing lands. Make the Langfuse
-  arrow solid again (`AG -->|"redacted traces"| L["Langfuse Cloud"]`), keep the checkpoint arrow dashed, and
-  change the sentence under the diagram to: "The dashed link isn't built yet: checkpoints stay in memory."
 
 **Configure.** Add these to the root `.env`, not `agent/.env`:
 
@@ -416,13 +478,14 @@ the `domain.*` observations.
 
 **Check in Langfuse:**
 
-- [ ] One trace named `investigation` per run. Its session is the investigation ID, and its metadata has
-      `request_id`, `case_id` and `investigation_id`.
+- [ ] One trace named `investigation` per start or resume, all in one session: the investigation ID. Each trace's
+      metadata has `request_id`, `case_id` and `investigation_id`.
 - [ ] Node spans: `load_case`, `reason`, `guard`, `run_check`, `finalize`, `submit_recommendation` and
-      `report_status`, plus `conclude_gate` when the model concludes.
+      `report_status`, plus `conclude_gate` when the model concludes, and `draft_question`,
+      `wait_question_decision` and `wait_merchant_reply` when it asks the merchant a question.
 - [ ] A `reason.model` generation for each model call, with token usage, including cache reads.
 - [ ] A `domain.*` tool observation for each Domain call, such as `domain.overview`, `domain.claim-breakdown`,
-      `domain.resolve` and `domain.proposals`.
+      `domain.resolve`, `domain.proposals` and `domain.merchant-replies`.
 - [ ] Separate single-observation traces for the Start `running` report, failure reports and status resends. These
       run outside the investigation, so they're expected.
 - [ ] Privacy: free text (headlines, rationales, customer comments, merchant text and prompts) shows `[REDACTED]`,
@@ -449,7 +512,9 @@ checklist in `docs/observability.md`.
 |---|---|
 | `required variable ... is missing a value` | A required key is missing from the root `.env`. Add it ([section 4](#4-configure-env)) |
 | `/agent/ready` returns 503 naming `ANTHROPIC_API_KEY`, or Start returns 503 | The key isn't in the root `.env`. Add it, then run `docker compose up -d agent`. A plain restart keeps the old settings |
-| Domain routes return 503 after seeding | The role script didn't run after `reset_and_seed`. Run it ([section 6](#6-seed-domain-data)) |
+| Domain routes return 503 after seeding, or after pulling new Domain code | The role script didn't run after `reset_and_seed`, or new tables lack its grants. Rebuild Domain, seed and run it ([section 6](#6-seed-domain-data)) |
+| Right after restarting Domain or the agent, `/domain/ready` answers with the agent's body, or `/agent/ready` returns 502 | The containers got new addresses, and the gateway looks them up again every 10 seconds. Wait a few seconds and retry, or run `docker compose restart gateway` |
+| The agent never asks a merchant question | Questions are off while `AGENT_MAX_QUESTIONS=0`, or when Domain has no merchant-replies route (an image built before C-05: rebuild Domain). The model also asks only when an answer would separate causes that platform data can't |
 | The queue is empty | The seed has no cases. Click **Run monitor**. If the monitor opens nothing, the cases are already open or Domain isn't seeded |
 | The seed hangs at "Resetting schemas" | Stop Domain first with `docker compose stop domain`, seed, then `docker compose up -d --wait domain` |
 | Login fails with `INVALID_CREDENTIALS` | The demo accounts keep the password they were first created with. Use that one, or start over with `docker compose down -v` |
@@ -457,7 +522,7 @@ checklist in `docs/observability.md`.
 | Start returns 401 | The token has less than 20 minutes left. Sign in again |
 | Start returns 409 `PROPOSAL_PENDING` | Decide the case's pending proposal first |
 | Start returns 409 `CASE_NOT_STARTABLE` | The case was already decided. Reset to run it again ([section 12](#12-reset-and-clean-up)) |
-| Polling returns 404 | The agent restarted, and runs live in memory. Start a new run |
+| Polling returns 404 | The agent restarted with `AGENT_CHECKPOINTER=memory`, which drops its runs. Compose's default, `postgres`, keeps them. Start a new run |
 | The sign-in page shows "Mock mode" | Set `VITE_USE_MOCKS=false` in `frontend/.env` and restart `npm run dev` |
 | Postgres exits right after its first start on a new volume (macOS or Linux) | Run `docker compose up --build -d --wait` again; the second start skips first-time setup. Then run the role script once |
 | Git Bash mangles `/docker-entrypoint-initdb.d/...` or says the input isn't a TTY | Prefix the command with `MSYS_NO_PATHCONV=1` and add `-T` after `exec`, or use PowerShell |
@@ -467,8 +532,9 @@ checklist in `docs/observability.md`.
 
 - **Run the scenario again:** reseed Domain ([section 6](#6-seed-domain-data)), then clear the agent's runs,
   which Postgres keeps across restarts and which would point at the old cases:
-  `docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "TRUNCATE agent.checkpoints, agent.checkpoint_blobs, agent.checkpoint_writes"'`
-  and `docker compose restart agent`. Then click **Run monitor** again.
+  `echo "TRUNCATE agent.checkpoints, agent.checkpoint_blobs, agent.checkpoint_writes;" | docker compose exec -T postgres sh -c 'psql -U $POSTGRES_USER -d $POSTGRES_DB'`
+  (the same in bash and Windows PowerShell) and `docker compose restart agent`. Then click **Run monitor** again. Clear the runs only together with a
+  reseed: clearing them partway through a scenario makes a later `reopen_of` return 409 `REOPEN_NOT_ALLOWED`.
 - **Stop:** `docker compose down` keeps the database.
 - **Start over completely:** `docker compose down -v` deletes the database volume. The next `up` recreates the
   roles and the demo logins; then seed Domain again.

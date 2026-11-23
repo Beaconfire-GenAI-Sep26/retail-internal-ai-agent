@@ -113,6 +113,20 @@ describe('getNextAction', () => {
     expect(next(inv('completed'), caseIn('awaiting_decision'))).toMatchObject({ cta: 'Review action', target: 'decide' });
   });
 
+  it('step 4: confirm the reply that shows up live (D-05)', () => {
+    expect(next(inv('awaiting_merchant'), caseIn('awaiting_merchant'))).toMatchObject({ cta: 'Go to reply' });
+  });
+
+  it('step 7: jumps to the recheck, where Start new investigation sits (D-05)', () => {
+    expect(next(inv('completed'), caseIn('reopened'))).toMatchObject({ cta: 'Start again', target: 'recheck' });
+  });
+
+  it('analyst review: close the case with Mark as resolved (D-05)', () => {
+    expect(next(inv('completed'), caseIn('analyst_review'))).toMatchObject({ cta: 'Mark as resolved', target: 'followup' });
+    expect(next(inv('unsure'), caseIn('analyst_review'))).toMatchObject({ target: 'followup' });
+    expect(next(null, caseIn('analyst_review'))).toMatchObject({ target: 'followup' });
+  });
+
   it('nothing while the agent works or after the action is sent', () => {
     expect(next(inv('running'), caseIn('investigating'))).toBeNull();
     expect(next(inv('completed'), caseIn('action_dispatched'))).toBeNull();

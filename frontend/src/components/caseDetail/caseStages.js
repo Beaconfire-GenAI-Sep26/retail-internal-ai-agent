@@ -137,7 +137,8 @@ export const getCaseStages = ({ view, investigation, caseDetail }) => {
 // The one thing the analyst should do now, for the banner at the top of the
 // page, or null (nothing to do, the agent is working, or a viewer is signed in).
 // → { title, text, cta, target? } — target: the anchor to jump to when it isn't
-//   the investigation chapter ('decide' = the recommended action, chapter 3)
+//   the investigation chapter ('decide' = the recommended action, 'recheck' =
+//   the recheck chapter, 'followup' = Start again / Mark as resolved under it)
 const NEXT_ACTIONS = {
   1: {
     title: 'Start the investigation',
@@ -150,9 +151,9 @@ const NEXT_ACTIONS = {
     cta: 'Review question',
   },
   4: {
-    title: "Record the merchant's reply",
-    text: 'The question was sent. Enter the reply, or "no reply", so the agent can continue.',
-    cta: 'Record reply',
+    title: "Confirm the merchant's reply",
+    text: 'The question was sent. The reply shows up here when it arrives — confirm it, or record "no reply".',
+    cta: 'Go to reply',
   },
   5: {
     title: 'Your decision is needed',
@@ -164,6 +165,14 @@ const NEXT_ACTIONS = {
     title: "The fix didn't work",
     text: 'The recheck found no improvement. Start a new investigation.',
     cta: 'Start again',
+    target: 'recheck',
+  },
+  // Case in analyst_review (rejected action, unsure, second fix failed): D-05's "Mark as resolved"
+  close: {
+    title: 'Close the case',
+    text: 'This case is in analyst review. Mark it as resolved once the problem is handled.',
+    cta: 'Mark as resolved',
+    target: 'followup',
   },
   failed: {
     title: 'The investigation stopped',
@@ -175,5 +184,6 @@ const NEXT_ACTIONS = {
 export const getNextAction = ({ view, caseDetail, isAnalyst }) => {
   if (!isAnalyst || !view) return null;
   if (view.step === 'no_run' && pendingAction(caseDetail)) return NEXT_ACTIONS[5];
+  if (view.showClose) return NEXT_ACTIONS.close;
   return NEXT_ACTIONS[view.step] ?? null;
 };

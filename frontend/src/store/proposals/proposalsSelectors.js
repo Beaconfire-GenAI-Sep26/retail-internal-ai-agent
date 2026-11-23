@@ -22,3 +22,5 @@ export const selectProposalWrite = (state, proposalId) => state.proposals.writeB
 // ═══════════════════════════════════════════════════════════════════
 // The reply recorded for a question, or null = none yet
 export const selectReply = (state, proposalId) => state.proposals.repliesByProposal[proposalId] ?? null;
+// The case's replies read: 'loading' | 'succeeded' | 'failed' | undefined = not read yet
+export const selectRepliesStatus = (state, caseId) => state.proposals.repliesStatusByCase[caseId];

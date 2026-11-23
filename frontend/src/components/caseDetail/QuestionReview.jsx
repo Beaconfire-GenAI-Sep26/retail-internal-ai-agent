@@ -229,6 +229,12 @@ const QuestionHistory = ({ investigation, timeZone }) => {
     if (askedAny) dispatch(fetchMerchantReplies(investigation.case_id));
   }, [dispatch, askedAny, investigation.case_id, investigation.status]);
 
+  // Step 4: the open question's reply shows in MerchantReplyCard (with its
+  // confirm button), not here too. Same question the card picks.
+  const openId = investigation.status === 'awaiting_merchant'
+    ? (investigation.pending_proposal_id ?? [...questions].reverse().find((q) => q.status === 'approved')?.proposal_id)
+    : null;
+
   // Only if this run asked one (ui-workflow.md v0.3 notes)
   if (questions.length === 0) return null;
 
@@ -242,7 +248,7 @@ const QuestionHistory = ({ investigation, timeZone }) => {
           </div>
           <QuestionText proposal={q} />
           <DecisionLine proposal={q} timeZone={timeZone} />
-          <ReplyLine reply={replies[q.proposal_id]} timeZone={timeZone} />
+          {q.proposal_id !== openId && <ReplyLine reply={replies[q.proposal_id]} timeZone={timeZone} />}
         </div>
       ))}
     </div>

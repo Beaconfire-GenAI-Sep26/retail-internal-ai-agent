@@ -226,8 +226,8 @@ host.
 6. Open **CASE-0002**, start an investigation, and when it finishes click **Reject**. The case moves to
    `analyst_review`.
 
-The UI shows **Run recheck now (demo)** only in mock mode for now. To run a recheck on the real backend, use the
-API ([section 8](#8-the-same-flow-through-the-api)), then reload the case.
+On **CASE-0001**, click **Run recheck now**. The recheck reads the seeded future snapshot (C-05) and, for
+STORE-A, comes back improved, so the case moves to `closed`.
 
 **As the viewer**
 
@@ -527,7 +527,6 @@ checklist in `docs/observability.md`.
 | Postgres exits right after its first start on a new volume (macOS or Linux) | Run `docker compose up --build -d --wait` again; the second start skips first-time setup. Then run the role script once |
 | Git Bash mangles `/docker-entrypoint-initdb.d/...` or says the input isn't a TTY | Prefix the command with `MSYS_NO_PATHCONV=1` and add `-T` after `exec`, or use PowerShell |
 | `curl` in PowerShell behaves oddly | It's an alias for `Invoke-WebRequest`. Type `curl.exe` |
-| There's no **Run recheck now (demo)** button | It shows only in mock mode for now. Run the recheck through the API ([section 8](#8-the-same-flow-through-the-api)) |
 
 ## 12. Reset and clean up
 

@@ -11,6 +11,10 @@ from sqlalchemy import (JSON, Boolean, Column, ForeignKey, Integer, MetaData, St
 
 from shared.security import APIError, User, unauthenticated
 
+# Demo stores only (A-M and Q/R). Holdout stores N-P are evaluation-only.
+# Keep grants explicit in JWTs; Auth does not read Domain's store/evaluation tables.
+DEMO_ANALYST_STORE_IDS = [f"STORE-{letter}" for letter in "ABCDEFGHIJKLMQR"]
+
 metadata = MetaData(schema="auth")
 users = Table("users", metadata,
               Column("user_id", String(20), primary_key=True),
@@ -62,13 +66,20 @@ class AuthRepository:
             metadata.create_all(conn)
 
     def seed(self, analyst_password: str, viewer_password: str):
-        accounts = [("USR-001", "analyst", "Demo LOE Analyst", "loe_analyst", ["STORE-A", "STORE-B"], analyst_password),
+        accounts = [("USR-001", "analyst", "Demo LOE Analyst", "loe_analyst", DEMO_ANALYST_STORE_IDS, analyst_password),
                     ("USR-002", "viewer", "Demo Viewer", "viewer", ["STORE-A"], viewer_password)]
         with self.engine.begin() as conn:
             for user_id, username, name, role, stores, password in accounts:
                 if len(password) < 12:
                     raise ValueError("Seed account passwords must contain at least 12 characters")
-                if conn.execute(select(users.c.user_id).where(users.c.username == username)).first():
+                existing = conn.execute(select(users.c.user_id).where(users.c.username == username)).first()
+                if existing:
+                    if username == "analyst" and existing.user_id == user_id:
+                        # Reconcile demo-only grants on existing volumes. Preserve
+                        # passwords, sessions, profile, active flag, and any role change.
+                        conn.execute(update(users).where(
+                            users.c.user_id == user_id, users.c.username == username, users.c.role == role,
+                        ).values(store_ids=stores))
                     continue
                 conn.execute(insert(users).values(user_id=user_id, username=username, display_name=name,
                              password_hash=password_hash(password), role=role, store_ids=stores, active=True))

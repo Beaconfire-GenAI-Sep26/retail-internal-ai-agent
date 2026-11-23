@@ -1,5 +1,5 @@
 // startInvestigation against the real-API branch (axios faked): reopen_of,
-// the token refresh before Start, and the two 409s the UI recovers from.
+// the token refresh before Start and resume, and the two 409s the UI recovers from.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { configureStore } from '@reduxjs/toolkit';
 
@@ -16,7 +16,7 @@ vi.mock('../cases/casesThunks', () => ({
 
 const { default: api, refreshSession } = await import('../../api/axios');
 const { default: investigations } = await import('./investigationsSlice');
-const { startInvestigation, fetchInvestigation, fetchLatestInvestigation } = await import('./investigationsThunks');
+const { startInvestigation, fetchInvestigation, fetchLatestInvestigation, resumeInvestigation } = await import('./investigationsThunks');
 
 const inMinutes = (n) => new Date(Date.now() + n * 60 * 1000).toISOString();
 let seen;
@@ -73,6 +73,33 @@ describe('startInvestigation — fresh token', () => {
     expect(api.post).not.toHaveBeenCalled();
     expect(seen).toContain('auth/credentialsCleared');
     expect(result.payload).toMatch(/sign in again/);
+  });
+});
+
+describe('resumeInvestigation — fresh token', () => {
+  const resume = (store) => store.dispatch(resumeInvestigation({ id: 'INV-1', idempotencyKey: 'k1' }));
+
+  it('less than 25 min left → refresh, then resume (the agent refuses a token that ends before the segment could)', async () => {
+    const order = [];
+    refreshSession.mockImplementation(async () => { order.push('refresh'); });
+    api.post.mockImplementation(async () => { order.push('resume'); return { data: { investigation_id: 'INV-1', case_id: 'CASE-0002', status: 'running' } }; });
+    await resume(makeStore(inMinutes(10)));
+    expect(order).toEqual(['refresh', 'resume']);
+    expect(api.post).toHaveBeenCalledWith('/agent/investigations/INV-1/resume', null, { headers: { 'Idempotency-Key': 'k1' } });
+  });
+
+  it('more than 25 min left → no refresh', async () => {
+    api.post.mockResolvedValue({ data: { investigation_id: 'INV-1', case_id: 'CASE-0002', status: 'running' } });
+    await resume(makeStore(inMinutes(40)));
+    expect(refreshSession).not.toHaveBeenCalled();
+  });
+
+  it('refresh fails → signed out, no resume sent', async () => {
+    refreshSession.mockRejectedValue(new Error('401'));
+    const result = await resume(makeStore(inMinutes(5)));
+    expect(api.post).not.toHaveBeenCalled();
+    expect(seen).toContain('auth/credentialsCleared');
+    expect(result.payload).toMatchObject({ code: 'UNAUTHENTICATED' });
   });
 });
 

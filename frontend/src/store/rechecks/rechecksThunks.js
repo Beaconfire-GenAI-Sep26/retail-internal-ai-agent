@@ -1,6 +1,6 @@
 // [14a] Recheck thunks — POST /domain/rechecks/{id}/run (Domain Service, C-04)
 // Normally Domain runs a recheck by itself on scheduled_for. For the demo the
-// analyst runs it now ("Run recheck now (demo)").
+// analyst runs it now ("Run recheck now").
 // Mock branch when USE_MOCKS: C-04 hasn't built the route yet.
 //
 // The recheck itself is read from CaseDetail.rechecks; this slice only tracks

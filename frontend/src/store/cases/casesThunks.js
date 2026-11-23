@@ -10,9 +10,9 @@
 // ═══════════════════════════════════════════════════════════════════
 import { createAsyncThunk } from '@reduxjs/toolkit';
 import api from '../../api/axios';
-import { getErrorMessage } from '../../api/errors';
+import { getErrorCode, getErrorMessage } from '../../api/errors';
 import { USE_MOCKS } from '../../api/mockAuth';
-import { applyMockCase, applyMockCaseList } from '../../api/mocks/mockInvestigations';
+import { applyMockCase, applyMockCaseList, mockCloseCase } from '../../api/mocks/mockInvestigations';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -93,6 +93,39 @@ export const runMonitor = createAsyncThunk(
       return data;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err, 'Could not run the monitor'));
+    }
+  },
+);
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 5. closeCase — POST /domain/cases/{case_id}/close (analyst only)
+// ═══════════════════════════════════════════════════════════════════
+// Empty body, Idempotency-Key. → 200 CaseSummary with status `closed`.
+// Only from analyst_review: the action was rejected, the result was unsure, or
+// the second fix didn't work, and the analyst has handled it.
+// The case is reloaded either way: on 409 CASE_NOT_CLOSABLE it has moved on.
+// Rejects with { message, code, noResponse }.
+export const closeCase = createAsyncThunk(
+  'cases/closeCase',
+  async ({ caseId, idempotencyKey }, { getState, dispatch, rejectWithValue }) => {
+    try {
+      const summary = USE_MOCKS
+        ? await mockCloseCase(caseId, { user: getState().auth.user, idempotencyKey })
+        : (await api.post(`/domain/cases/${encodeURIComponent(caseId)}/close`, null, {
+          headers: { 'Idempotency-Key': idempotencyKey },
+        })).data;
+
+      dispatch(fetchCase(caseId));
+      return summary;
+    } catch (err) {
+      const code = getErrorCode(err);
+      if (code === 'CASE_NOT_CLOSABLE') dispatch(fetchCase(caseId));
+      return rejectWithValue({
+        code,
+        message: getErrorMessage(err, 'Could not close the case'),
+        noResponse: !err?.response,
+      });
     }
   },
 );

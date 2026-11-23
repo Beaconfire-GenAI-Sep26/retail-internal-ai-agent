@@ -1,5 +1,7 @@
 // [12b] Case detail page — /cases/:caseId — any logged-in user
 // D-02: header (rate vs baseline and goal) · daily history · start + track the investigation
+// D-06: next-action banner and 5-stage stepper under the header; the page is
+// split into numbered chapters (1 What happened · 2 the agent's run · …).
 // D-03 adds the diagnosis and approve/reject inside InvestigationPanel, and the
 // evidence drawer (box 14) that any evidence ID on the page opens.
 // caseId is a string like "CASE-0001" (C-01 convention) — never parse it as a number
@@ -15,17 +17,27 @@ import { fetchCase } from '../store/cases/casesThunks';
 import { fetchLatestInvestigation } from '../store/investigations/investigationsThunks';
 import { closeEvidence } from '../store/evidence/evidenceSlice';
 import {
+  selectInvestigation,
+  selectInvestigationLoadStatus,
+} from '../store/investigations/investigationsSelectors';
+import {
   selectCaseDetail,
   selectCaseDetailStatus,
   selectCaseDetailError,
   selectCaseDetailNotFound,
 } from '../store/cases/casesSelectors';
 import { toStoreDate } from '../api/format';
+import { getCaseView } from '../components/caseDetail/caseSteps';
+import Chapter from '../components/common/Chapter';
 import CaseHeader from '../components/caseDetail/CaseHeader';
+import NextActionBanner from '../components/caseDetail/NextActionBanner';
+import CaseStepper from '../components/caseDetail/CaseStepper';
+import CaseKpis from '../components/caseDetail/CaseKpis';
 import DailyRateChart from '../components/caseDetail/DailyRateChart';
 import InvestigationPanel from '../components/caseDetail/InvestigationPanel';
 import EvidenceDrawer from '../components/caseDetail/EvidenceDrawer';
 import AuditLog from '../components/caseDetail/AuditLog';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -40,6 +52,11 @@ const CaseDetail = () => {
   const status = useSelector(selectCaseDetailStatus);
   const error = useSelector(selectCaseDetailError);
   const notFound = useSelector(selectCaseDetailNotFound);
+  // For the stepper, the banner and the chart's cause line. InvestigationPanel
+  // reads (and polls) the same state, so this adds no API call.
+  const investigation = useSelector((state) => selectInvestigation(state, caseId));
+  const investigationStatus = useSelector(selectInvestigationLoadStatus);
+  useDocumentTitle(caseId);
 
   // ── 2b. Load the case and its latest investigation ──────────────
   // Two services, two independent calls: if the Agent is down, the case still shows.
@@ -51,7 +68,7 @@ const CaseDetail = () => {
   }, [dispatch, caseId]);
 
   // ── 2c. Render ──────────────────────────────────────────────────
-  const backLink = <Link to='/cases'>← Back to cases</Link>;
+  const backLink = <Link className='crumb' to='/cases'>← All cases</Link>;
 
   // Step 1: 404 / 403 — doesn't exist, or another store's case. No Retry: it won't change.
   if (notFound) {
@@ -88,22 +105,44 @@ const CaseDetail = () => {
   }
 
   // Step 4: the case
+  // Which step the case is at (caseSteps.js). Only once the investigation has
+  // loaded: before that, "no run yet" would look like step 1. Without it the
+  // stepper falls back to the case status and the banner stays hidden.
+  const view = investigationStatus === 'succeeded' ? getCaseView({ investigation, caseDetail }) : null;
+  const causeStartedAt = investigation?.result?.outcome === 'diagnosis' ? investigation.result.cause_started_at : null;
+
   return (
     <section className='case-detail'>
       {backLink}
-      {/* Main column + activity sidebar (box 16); under 860px the sidebar drops below */}
-      <div className='case-layout'>
-        <div className='case-main'>
-          <CaseHeader caseDetail={caseDetail} />
-          <DailyRateChart
-            dailyRates={caseDetail.daily_rates}
-            windowStartDate={toStoreDate(caseDetail.window_start, caseDetail.store.timezone)}
-            goalRate={caseDetail.goal_rate}
-            rechecks={caseDetail.rechecks}
-          />
-          <InvestigationPanel caseId={caseId} />
+      <CaseHeader caseDetail={caseDetail} />
+      <NextActionBanner view={view} caseDetail={caseDetail} target='investigation' />
+      <CaseStepper view={view} investigation={investigation} caseDetail={caseDetail} />
+
+      {/* Main column + activity sidebar (box 16). The wrapper is the size container:
+          the sidebar drops below when the PAGE COLUMN is narrow, not the window
+          (the side nav takes 216px). The drawer stays outside it — a container
+          would become the drawer's position:fixed reference. */}
+      <div className='case-layout-wrap'>
+        <div className='case-layout'>
+          <div className='case-main'>
+            {/* Chapter 1: store facts — the numbers and the 42-day history */}
+            <Chapter title='What happened' meta='Store and order data' />
+            <section className='case-card' aria-label='What happened'>
+              <CaseKpis caseDetail={caseDetail} />
+              <DailyRateChart
+                dailyRates={caseDetail.daily_rates}
+                windowStartDate={toStoreDate(caseDetail.window_start, caseDetail.store.timezone)}
+                goalRate={caseDetail.goal_rate}
+                causeStartedAt={causeStartedAt}
+                rechecks={caseDetail.rechecks}
+              />
+            </section>
+            {/* Chapters 2 onwards: the run, the action, the recheck, the merchant
+                conversation, the checks (InvestigationPanel lays them out) */}
+            <InvestigationPanel caseId={caseId} />
+          </div>
+          <AuditLog caseId={caseId} timeZone={caseDetail.store.timezone} />
         </div>
-        <AuditLog caseId={caseId} timeZone={caseDetail.store.timezone} />
       </div>
       <EvidenceDrawer timeZone={caseDetail.store.timezone} />
     </section>

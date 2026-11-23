@@ -8,6 +8,7 @@
 //   proposals       (D-03) proposals by ID + their edit / decision  store/proposals/
 //   rechecks        (D-05) "run recheck" requests                   store/rechecks/
 //   audit           (D-05) the open case's activity log             store/audit/
+//   monitor         (D-06) store data for the Monitor dashboard     store/monitor/
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -21,6 +22,7 @@ import evidenceReducer from './evidence/evidenceSlice';
 import proposalsReducer from './proposals/proposalsSlice';
 import rechecksReducer from './rechecks/rechecksSlice';
 import auditReducer from './audit/auditSlice';
+import monitorReducer from './monitor/monitorSlice';
 import { injectStore } from '../api/axios';
 
 
@@ -38,6 +40,7 @@ const store = configureStore({
     proposals: proposalsReducer,
     rechecks: rechecksReducer,
     audit: auditReducer,
+    monitor: monitorReducer,
   },
 });
 

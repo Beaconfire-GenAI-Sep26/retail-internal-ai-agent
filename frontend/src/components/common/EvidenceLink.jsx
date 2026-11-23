@@ -17,13 +17,14 @@ import { openEvidence } from '../../store/evidence/evidenceSlice';
 // 2. EvidenceLink component
 // ═══════════════════════════════════════════════════════════════════
 // id: the evidence ID · children: optional text instead of the ID
-const EvidenceLink = ({ id, children }) => {
+// tone: 'support' (green dot) · 'against' (red dot) · none (grey dot)
+const EvidenceLink = ({ id, tone, children }) => {
   const dispatch = useDispatch();
 
   return (
     <button
       type='button'
-      className='evidence-link'
+      className={`evidence-link${tone ? ` evidence-${tone}` : ''}`}
       onClick={() => dispatch(openEvidence(id))}
       aria-haspopup='dialog'
       title={`Open evidence ${id}`}
@@ -42,7 +43,8 @@ const EvidenceLink = ({ id, children }) => {
 // limit (optional): show the first `limit` IDs, fold the rest behind "+N more"
 //   <EvidenceLinks label='Evidence' ids={check.evidence_ids} limit={3} />
 //   → Evidence: EV-CLM-1 · EV-CLM-2 · EV-CLM-3  +9 more
-export const EvidenceLinks = ({ label, ids, limit }) => {
+// tone (optional): passed to each chip — 'support' or 'against'
+export const EvidenceLinks = ({ label, ids, limit, tone }) => {
   const [expanded, setExpanded] = useState(false);
   if (!ids?.length) return null;
 
@@ -53,7 +55,7 @@ export const EvidenceLinks = ({ label, ids, limit }) => {
   return (
     <p className='evidence-links'>
       {label && <span className='muted'>{label}: </span>}
-      {shown.map((id) => <EvidenceLink key={id} id={id} />)}
+      {shown.map((id) => <EvidenceLink key={id} id={id} tone={tone} />)}
       {foldable && (
         <button type='button' className='evidence-more' onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
           {expanded ? 'Show less' : `+${ids.length - limit} more`}

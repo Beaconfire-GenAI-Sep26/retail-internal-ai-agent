@@ -37,7 +37,10 @@ const CaseTable = ({ cases }) => {
         </thead>
         <tbody>
           {cases.map((c) => (
-            <tr key={c.case_id} onClick={() => navigate(`/cases/${c.case_id}`)}>
+            // The whole row opens the case; a click on the case link is left to the
+            // link (else it navigates twice — Back needs two presses — and ⌘-click
+            // opens a new tab AND moves this one)
+            <tr key={c.case_id} onClick={(e) => { if (!e.target.closest('a')) navigate(`/cases/${c.case_id}`); }}>
               <td>
                 <Link to={`/cases/${c.case_id}`}>{c.case_id}</Link>
               </td>

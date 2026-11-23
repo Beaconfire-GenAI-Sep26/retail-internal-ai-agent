@@ -32,6 +32,10 @@ const SHOWN_AT_FIRST = 7;
 // AuditEntry.actor_id → who, in words. Services get a name; people keep their ID.
 const SERVICE_NAMES = { svc_agent: 'Agent', svc_monitor: 'Monitor' };
 const actorName = (entry) => SERVICE_NAMES[entry.actor_id] ?? entry.actor_id;
+// The dot in front of each row, same colors as the page: purple = the agent,
+// grey = the system (monitor), black = a person
+const ACTOR_KINDS = { svc_agent: 'agent', svc_monitor: 'system' };
+const actorKind = (entry) => ACTOR_KINDS[entry.actor_id] ?? 'person';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -72,7 +76,7 @@ const AuditLog = ({ caseId, timeZone }) => {
       {entries.length > 0 && (
         <ol>
           {shown.map((e) => (
-            <li key={e.audit_id} title={`${formatDateTime(e.at, timeZone)} · request ${e.request_id}`}>
+            <li key={e.audit_id} className={`audit-${actorKind(e)}`} title={`${formatDateTime(e.at, timeZone)} · request ${e.request_id}`}>
               <span className='audit-time'>{formatDateTimeShort(e.at, timeZone)}</span>
               <span className='audit-what'>{labelOf(AUDIT_ACTION_LABELS, e.action)}</span>
               <span className='audit-who'>

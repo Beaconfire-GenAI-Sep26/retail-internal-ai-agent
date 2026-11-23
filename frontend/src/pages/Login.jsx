@@ -10,6 +10,7 @@ import { Navigate, useLocation } from 'react-router';
 import { useDispatch, useSelector } from 'react-redux';
 import { login } from '../store/auth/authThunks';
 import { USE_MOCKS } from '../api/mockAuth';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import {
   selectLoginError,
   selectAuthStatus,
@@ -31,6 +32,7 @@ const Login = () => {
   const error = useSelector(selectLoginError);
   const status = useSelector(selectAuthStatus);
   const isLoggedIn = useSelector(selectIsAuthenticated);
+  useDocumentTitle('Sign in');
 
   // ── 2c. Submit handler ──────────────────────────────────────────
   // No navigate() here: on success the slice stores the token → isLoggedIn turns
@@ -43,7 +45,7 @@ const Login = () => {
   // ── 2d. Render ──────────────────────────────────────────────────
   // Logged in — just now, or already (typed /login, back button)
   // → back to the page AuthGuard bounced them from, else the case queue
-  if (isLoggedIn) return <Navigate to={location.state?.from ?? '/cases'} replace />;
+  if (isLoggedIn) return <Navigate to={location.state?.from ?? '/monitor'} replace />;
 
   const loading = status === 'loading';
 

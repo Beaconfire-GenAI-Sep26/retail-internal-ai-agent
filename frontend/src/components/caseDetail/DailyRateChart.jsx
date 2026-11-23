@@ -1,6 +1,9 @@
 // [10g] DailyRateChart — the case "history": one bar per day for 42 days
-// Plain SVG, no chart library. Bars inside the trigger window are highlighted,
-// and a dashed line marks the goal, so the analyst sees when the rate jumped.
+// Plain SVG, no chart library. Bars inside the trigger window are red on a
+// tinted band, and a dashed line marks the goal, so the analyst sees when the
+// rate jumped. Once the agent has a diagnosis, a purple line marks the day it
+// says the cause started (InvestigationResult.cause_started_at) — data the page
+// already has, so no events call.
 //
 // After a recheck has run (D-05), the x-axis extends to the end of its `after`
 // window. Domain has no daily rates past the last day of data, so that part has
@@ -15,7 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════
 // 1. Imports + chart size
 // ═══════════════════════════════════════════════════════════════════
-import { formatRate, formatTarget } from '../../api/format';
+import { formatDay, formatRate, formatTarget } from '../../api/format';
 import { chartDays, latestRanRecheck } from './chartDays';
 
 // The SVG is drawn in these units and scales to the container's width (CSS)
@@ -51,8 +54,10 @@ const buildTicks = (top, step) =>
 //                    dates are already store-local, oldest first
 //   windowStartDate  first day of the trigger window, 'YYYY-MM-DD' (format.toStoreDate)
 //   goalRate         CaseDetail.goal_rate — drawn as the dashed line
+//   causeStartedAt   InvestigationResult.cause_started_at, 'YYYY-MM-DD' (store-local), or null.
+//                    No line when it is null or outside the chart's days.
 //   rechecks         CaseDetail.rechecks — the latest one that ran extends the chart
-const DailyRateChart = ({ dailyRates, windowStartDate, goalRate, rechecks }) => {
+const DailyRateChart = ({ dailyRates, windowStartDate, goalRate, causeStartedAt = null, rechecks }) => {
   const recheck = latestRanRecheck(rechecks);
   const days = chartDays(dailyRates, recheck);
   const lines = recheck ? recheckLines(recheck) : [];
@@ -72,15 +77,25 @@ const DailyRateChart = ({ dailyRates, windowStartDate, goalRate, rechecks }) => 
   const xTo = (date) => PAD.left + ((indexOf[date] ?? days.length - 1) + 1) * barSlot;
   const futureFrom = dailyRates.length < days.length ? PAD.left + dailyRates.length * barSlot : null;
 
+  // Trigger window: from its first day to the last day of data ('YYYY-MM-DD' compares as text)
+  const windowIndex = dailyRates.findIndex((d) => d.date >= windowStartDate);
+  // Cause line: the left edge of that day's bar. Label on the left side when the
+  // line is in the right part of the chart, so it never runs off the edge.
+  const causeIndex = causeStartedAt ? dailyRates.findIndex((d) => d.date === causeStartedAt) : -1;
+  const causeX = PAD.left + causeIndex * barSlot;
+  const causeLabel = `Likely cause started · ${formatDay(causeStartedAt).replace(/, \d{4}$/, '')}`;
+  const labelOnLeft = causeIndex > days.length * 0.6;
+
   // ── 3b. Render ──────────────────────────────────────────────────
   return (
-    <section className='daily-chart'>
+    <div className='daily-chart'>
       <div className='daily-chart-head'>
-        <h2>Daily M&amp;I rate · last {dailyRates.length} days{recheck && ' + recheck'}</h2>
+        <h3>Daily M&amp;I rate · last {dailyRates.length} days{recheck && ' + recheck'}</h3>
         <div className='chart-legend'>
           <span className='legend-day'>Daily rate</span>
           <span className='legend-window'>Trigger window</span>
           <span className='legend-goal'>Goal {formatRate(goalRate)}</span>
+          {causeIndex >= 0 && <span className='legend-cause'>Likely cause started</span>}
           {recheck && <span className='legend-target'>Targeted orders (recheck)</span>}
           {lines.some((l) => l.kind === 'control') && <span className='legend-control'>Other orders</span>}
         </div>
@@ -92,6 +107,18 @@ const DailyRateChart = ({ dailyRates, windowStartDate, goalRate, rechecks }) => 
         aria-label={`Daily M&I rate from ${dailyRates[0]?.date} to ${dailyRates.at(-1)?.date}`
           + (recheck ? `, then the recheck through ${recheck.after.end}` : '')}
       >
+        {/* ── Trigger window band, behind everything ── */}
+        {windowIndex >= 0 && (
+          <rect
+            className='chart-window-band'
+            x={PAD.left + windowIndex * barSlot}
+            y={PAD.top}
+            width={(dailyRates.length - windowIndex) * barSlot}
+            height={PLOT_H}
+            rx='4'
+          />
+        )}
+
         {/* ── After the last day of data: shaded, labelled ── */}
         {futureFrom != null && (
           <g>
@@ -155,6 +182,21 @@ const DailyRateChart = ({ dailyRates, windowStartDate, goalRate, rechecks }) => 
         {/* ── Goal line, drawn last so it sits on top of the bars ── */}
         <line className='chart-goal' x1={PAD.left} x2={WIDTH - PAD.right} y1={y(goalRate)} y2={y(goalRate)} />
 
+        {/* ── When the agent says the cause started ── */}
+        {causeIndex >= 0 && (
+          <g>
+            <line className='chart-cause' x1={causeX} x2={causeX} y1={PAD.top} y2={PAD.top + PLOT_H} />
+            <text
+              className='chart-cause-label'
+              x={labelOnLeft ? causeX - 5 : causeX + 5}
+              y={PAD.top + 9}
+              textAnchor={labelOnLeft ? 'end' : 'start'}
+            >
+              {causeLabel}
+            </text>
+          </g>
+        )}
+
         {/* ── Recheck averages: one flat line per window, with its rate ── */}
         {lines.map((l) => {
           const x1 = xFrom(l.start);
@@ -174,7 +216,7 @@ const DailyRateChart = ({ dailyRates, windowStartDate, goalRate, rechecks }) => 
         })}
       </svg>
 
-      <p className='muted'>
+      <p className='chart-note'>
         Hover a bar for that day's numbers. Dashed outlines are days with too few orders to rate.
         {recheck && (
           <>
@@ -184,7 +226,7 @@ const DailyRateChart = ({ dailyRates, windowStartDate, goalRate, rechecks }) => 
           </>
         )}
       </p>
-    </section>
+    </div>
   );
 };
 

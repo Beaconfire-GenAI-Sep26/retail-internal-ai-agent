@@ -56,8 +56,9 @@ The image is a two-stage build: Node runs `npm ci` and `npm run build`, then `ng
 | Path | Access | Page |
 | --- | --- | --- |
 | `/login` | public | Sign in |
-| `/` | logged in | Redirects to `/cases` |
-| `/cases` | logged in | Case queue (placeholder until D-02) |
+| `/` | logged in | Redirects to `/monitor` |
+| `/monitor` | logged in | Store dashboard (D-06), one store at a time (store dropdown): M&I rate trend with operational events, KPIs vs the previous period, error categories, dayparts, top items, cancellations, review status. Store and order data only. With `VITE_USE_MOCKS=true` the data comes from `src/api/mocks/mockStores.js` |
+| `/cases` | logged in | Case queue; `?store_id=STORE-A` preselects the store filter (used by the Monitor's "View cases" links) |
 | `/cases/:caseId` | logged in | Case detail, for example `/cases/CASE-0001` (placeholder until D-02/D-03) |
 
 Anonymous visitors are sent to `/login` and returned to the page they asked for after signing in. Both roles can open every page. The role only controls which actions appear (D-03), and the backend checks role and store grant on every request.

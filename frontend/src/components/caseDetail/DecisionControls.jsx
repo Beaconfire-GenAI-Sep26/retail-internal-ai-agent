@@ -2,7 +2,9 @@
 // Used by RecommendationReview (box 9) and, in D-05, QuestionReview (box 6).
 //
 //   Note (optional) [______________]
-//   [Reject]  [Approve and send]
+//   [Approve and send] [Edit]                    [Reject]
+//   Approve leads (primary); Reject is quiet, on the far right, so the two are
+//   never side by side. Edit (or any extra button) comes from the caller.
 //   Send failed. The proposal is still pending — approve again.
 //
 // Sends the version the analyst is looking at (proposal.version). One
@@ -28,7 +30,8 @@ import useIdempotencyKey from '../../hooks/useIdempotencyKey';
 // approveLabel:  e.g. "Approve and send"
 // afterDecided:  optional, called with the decided Proposal (D-05: resume the run)
 // disabled:      e.g. while the proposal is being edited
-const DecisionControls = ({ proposal, approveLabel = 'Approve', rejectLabel = 'Reject', afterDecided, disabled = false }) => {
+// extra:         optional buttons after Approve, e.g. Edit (RecommendationReview)
+const DecisionControls = ({ proposal, approveLabel = 'Approve', rejectLabel = 'Reject', afterDecided, disabled = false, extra = null }) => {
   const dispatch = useDispatch();
   const isAnalyst = useSelector(selectIsAnalyst);
   const write = useSelector((state) => selectProposalWrite(state, proposal.proposal_id));
@@ -75,11 +78,12 @@ const DecisionControls = ({ proposal, approveLabel = 'Approve', rejectLabel = 'R
         placeholder='Why you approve or reject — saved with the decision'
       />
       <div className='decision-buttons'>
-        <button type='button' className='button-secondary' onClick={() => decide('reject')} disabled={deciding || disabled}>
-          {rejectLabel}
-        </button>
         <button type='button' onClick={() => decide('approve')} disabled={deciding || disabled}>
           {deciding ? 'Saving…' : approveLabel}
+        </button>
+        {extra}
+        <button type='button' className='button-secondary decision-reject' onClick={() => decide('reject')} disabled={deciding || disabled}>
+          {rejectLabel}
         </button>
       </div>
       {error && (

@@ -31,6 +31,7 @@ import { selectCaseDetail } from '../../store/cases/casesSelectors';
 import { selectIsAnalyst } from '../../store/auth/authSelectors';
 import useResume from '../../hooks/useResume';
 import Pill from '../common/Pill';
+import Chapter from '../common/Chapter';
 import EvidenceLink, { EvidenceLinks } from '../common/EvidenceLink';
 import DecisionControls from './DecisionControls';
 import ContinueBox from './ContinueBox';
@@ -113,30 +114,6 @@ const DecisionLine = ({ proposal, timeZone }) => {
 };
 
 
-// The merchant's answer (commit 6). Plain text: untrusted merchant words.
-// The reply is also evidence (EV-RPL-…), so it links to the drawer.
-const ReplyLine = ({ reply, timeZone }) => {
-  if (!reply) return null;
-  const when = `${reply.recorded_by} · ${formatDateTime(reply.recorded_at, timeZone)}`;
-  if (reply.outcome === 'no_reply') {
-    return (
-      <div className='reply-line'>
-        <p><strong>No reply</strong> from the merchant <span className='muted'>· recorded by {when}</span></p>
-      </div>
-    );
-  }
-  return (
-    <div className='reply-line'>
-      <p>
-        <strong>Merchant replied</strong> <span className='muted'>· recorded by {when} · </span>
-        <EvidenceLink id={reply.evidence_id} />
-      </p>
-      <blockquote className='reply-text'>{reply.text}</blockquote>
-    </div>
-  );
-};
-
-
 // ═══════════════════════════════════════════════════════════════════
 // 3. Review mode — step 3, in the shared spot
 // ═══════════════════════════════════════════════════════════════════
@@ -171,51 +148,101 @@ const QuestionDecide = ({ investigation, timeZone }) => {
 
   const pending = proposal.status === 'pending';
 
+  // Same frame as the recommended action: red band while it waits for the analyst
   return (
-    <div className='question-review'>
-      <div className='recommendation-head'>
-        <h3>The agent wants to ask the merchant</h3>
-        {STATUS_PILLS[proposal.status]}
-        <span className='muted'>version {proposal.version}</span>
+    <div className={`recommendation-review question-review recommendation-${proposal.status}`}>
+      <div className='recommendation-band'>
+        <h3>
+          <svg viewBox='0 0 24 24' aria-hidden='true' fill='none' stroke='currentColor' strokeWidth='2.4'
+            strokeLinecap='round' strokeLinejoin='round'>
+            <path d='M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z' />
+          </svg>
+          The agent wants to ask the merchant
+          {pending && <span className='recommendation-band-note'> · nothing is sent until you approve</span>}
+        </h3>
+        <span className='recommendation-band-meta'>
+          {!pending && STATUS_PILLS[proposal.status]} version {proposal.version}
+        </span>
       </div>
 
-      {editing && pending ? <QuestionEdit proposal={proposal} onDone={() => setEditing(false)} /> : <QuestionText proposal={proposal} />}
+      <div className='recommendation-body'>
+        {editing && pending ? <QuestionEdit proposal={proposal} onDone={() => setEditing(false)} /> : <QuestionText proposal={proposal} />}
 
-      {pending && (
-        <>
-          {isAnalyst && !editing && (
-            <button type='button' className='button-secondary recommendation-edit' onClick={() => setEditing(true)}>
-              Edit
-            </button>
-          )}
+        {pending && (
           <DecisionControls
             proposal={proposal}
             approveLabel='Approve and send'
             rejectLabel='Reject — continue without asking'
             afterDecided={resume}
             disabled={editing}
+            extra={isAnalyst && !editing && (
+              <button type='button' className='button-secondary' onClick={() => setEditing(true)}>Edit</button>
+            )}
           />
-        </>
-      )}
+        )}
 
-      {/* Decided, but the run is still waiting: only the resume is left */}
-      {!pending && (
-        <>
-          <DecisionLine proposal={proposal} timeZone={timeZone} />
-          {needsResume(investigation, proposal) && (
-            <ContinueBox investigationId={investigation.investigation_id} saved={`Your decision (${proposal.status})`} />
-          )}
-        </>
-      )}
+        {/* Decided, but the run is still waiting: only the resume is left */}
+        {!pending && (
+          <>
+            <DecisionLine proposal={proposal} timeZone={timeZone} />
+            {needsResume(investigation, proposal) && (
+              <ContinueBox investigationId={investigation.investigation_id} saved={`Your decision (${proposal.status})`} />
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 };
 
 
 // ═══════════════════════════════════════════════════════════════════
-// 4. History mode — read-only, until the run ends
+// 4. History mode — read-only: the questions and replies as a conversation
 // ═══════════════════════════════════════════════════════════════════
-const QuestionHistory = ({ investigation, timeZone }) => {
+//   Agent → Merchant · approved by USR-001 · Nov 16, 9:20 AM   ← purple bubble (the agent's words)
+//   Did anything change in your menu setup around Oct 30?
+//   Why the agent asked: …  Evidence: EV-…
+//                  Merchant · recorded by USR-001 · EV-RPL-…   ← grey bubble, right (merchant's words)
+//                  We added an Extra sauce option…
+// asChapter: its own chapter, folded to one line (after the run ends);
+// otherwise just the thread, inside the run's card (while the run goes on).
+
+// One question and what came back
+// open: the question waiting for its reply (step 4) — MerchantReplyCard shows that
+const Exchange = ({ q, reply, open = false, timeZone }) => {
+  const sent = q.status === 'approved';
+  const who = q.status === 'pending'
+    ? 'Agent · draft'
+    : `Agent → Merchant · ${sent ? 'approved' : 'rejected'} by ${q.decided_by} · ${formatDateTime(q.decided_at, timeZone)}`;
+  return (
+    <div className='exchange'>
+      <div className={`bubble bubble-agent${sent ? '' : ' bubble-unsent'}`}>
+        <span className='bubble-meta'>{who} {!sent && STATUS_PILLS[q.status]}</span>
+        <blockquote>{q.content.question_text}</blockquote>
+      </div>
+      <div className='bubble-aside'>
+        <p>Why the agent asked: {q.content.why_asked}</p>
+        <EvidenceLinks label='Evidence' ids={q.evidence_ids} />
+        {q.decision_note && <p className='decision-note'>Note: “{q.decision_note}”</p>}
+      </div>
+      {/* The merchant's answer. Plain text: untrusted merchant words. */}
+      {reply && reply.outcome === 'no_reply' && (
+        <p className='bubble-none'>No reply from the merchant · recorded by {reply.recorded_by} · {formatDateTime(reply.recorded_at, timeZone)}</p>
+      )}
+      {reply && reply.outcome === 'replied' && (
+        <div className='bubble bubble-merchant'>
+          <span className='bubble-meta'>
+            Merchant · recorded by {reply.recorded_by} · {formatDateTime(reply.recorded_at, timeZone)} · <EvidenceLink id={reply.evidence_id} />
+          </span>
+          <blockquote>{reply.text}</blockquote>
+        </div>
+      )}
+      {sent && !reply && !open && <p className='bubble-none'>Waiting for the merchant's answer.</p>}
+    </div>
+  );
+};
+
+const QuestionHistory = ({ investigation, timeZone, asChapter = false }) => {
   const dispatch = useDispatch();
   const caseDetail = useSelector((state) => selectCaseDetail(state, investigation.case_id));
   const latest = useSelector((state) => state.proposals.byId);
@@ -238,20 +265,42 @@ const QuestionHistory = ({ investigation, timeZone }) => {
   // Only if this run asked one (ui-workflow.md v0.3 notes)
   if (questions.length === 0) return null;
 
-  return (
+  const thread = (
     <div className='question-history'>
       {questions.map((q) => (
-        <div key={q.proposal_id} className='question-review question-past'>
-          <div className='recommendation-head'>
-            <h3>Question to the merchant</h3>
-            {STATUS_PILLS[q.status]}
-          </div>
-          <QuestionText proposal={q} />
-          <DecisionLine proposal={q} timeZone={timeZone} />
-          {q.proposal_id !== openId && <ReplyLine reply={replies[q.proposal_id]} timeZone={timeZone} />}
-        </div>
+        <Exchange
+          key={q.proposal_id}
+          q={q}
+          // Step 4: the open question's reply shows in MerchantReplyCard below
+          reply={q.proposal_id === openId ? null : replies[q.proposal_id]}
+          open={q.proposal_id === openId}
+          timeZone={timeZone}
+        />
       ))}
     </div>
+  );
+  if (!asChapter) return thread;
+
+  // Folded summary: how many questions, and how the last one ended
+  const last = questions.at(-1);
+  const lastReply = replies[last.proposal_id];
+  let outcome = <Pill tone='bad'>Not sent</Pill>;
+  if (last.status === 'approved') {
+    outcome = lastReply?.outcome === 'replied' ? <Pill tone='ok'>Merchant replied</Pill> : <Pill tone='warn'>No reply</Pill>;
+  }
+  const count = `${questions.length} ${questions.length === 1 ? 'question' : 'questions'}`;
+  return (
+    <>
+      <Chapter title='Merchant conversation' meta={count} />
+      <details className='conversation-card'>
+        <summary>
+          <span>The agent asked the merchant {questions.length === 1 ? 'a question' : count}</span>
+          {outcome}
+          <span className='conversation-toggle' aria-hidden='true' />
+        </summary>
+        {thread}
+      </details>
+    </>
   );
 };
 
@@ -260,10 +309,11 @@ const QuestionHistory = ({ investigation, timeZone }) => {
 // 5. QuestionReview component
 // ═══════════════════════════════════════════════════════════════════
 // mode: 'review' (step 3) | 'history' (read-only)
-const QuestionReview = ({ mode, investigation, timeZone }) =>
+// asChapter (history only): its own folded chapter instead of a thread in the run's card
+const QuestionReview = ({ mode, investigation, timeZone, asChapter = false }) =>
   mode === 'review'
     ? <QuestionDecide investigation={investigation} timeZone={timeZone} />
-    : <QuestionHistory investigation={investigation} timeZone={timeZone} />;
+    : <QuestionHistory investigation={investigation} timeZone={timeZone} asChapter={asChapter} />;
 
 
 // ═══════════════════════════════════════════════════════════════════

@@ -10,7 +10,8 @@
 //      to this case after.
 // A 401 on Start itself is still retried once by the axios interceptor (api/axios.js).
 //
-// Resume may need the same check — open question for Member 2 (d03 plan, "需要确认").
+// Resume runs the same check: each resumed segment runs on the resume token, and
+// the agent refuses one that expires within AGENT_RUN_TIMEOUT_SECONDS (resumeInvestigation).
 
 
 // ═══════════════════════════════════════════════════════════════════

@@ -208,7 +208,8 @@ const QuestionDecide = ({ investigation, timeZone }) => {
 // otherwise just the thread, inside the run's card (while the run goes on).
 
 // One question and what came back
-const Exchange = ({ q, reply, timeZone }) => {
+// open: the question waiting for its reply (step 4) — MerchantReplyCard shows that
+const Exchange = ({ q, reply, open = false, timeZone }) => {
   const sent = q.status === 'approved';
   const who = q.status === 'pending'
     ? 'Agent · draft'
@@ -236,7 +237,7 @@ const Exchange = ({ q, reply, timeZone }) => {
           <blockquote>{reply.text}</blockquote>
         </div>
       )}
-      {sent && !reply && <p className='bubble-none'>Waiting for the merchant's answer.</p>}
+      {sent && !reply && !open && <p className='bubble-none'>Waiting for the merchant's answer.</p>}
     </div>
   );
 };
@@ -255,13 +256,26 @@ const QuestionHistory = ({ investigation, timeZone, asChapter = false }) => {
     if (askedAny) dispatch(fetchMerchantReplies(investigation.case_id));
   }, [dispatch, askedAny, investigation.case_id, investigation.status]);
 
+  // Step 4: the open question's reply shows in MerchantReplyCard (with its
+  // confirm button), not here too. Same question the card picks.
+  const openId = investigation.status === 'awaiting_merchant'
+    ? (investigation.pending_proposal_id ?? [...questions].reverse().find((q) => q.status === 'approved')?.proposal_id)
+    : null;
+
   // Only if this run asked one (ui-workflow.md v0.3 notes)
   if (questions.length === 0) return null;
 
   const thread = (
     <div className='question-history'>
       {questions.map((q) => (
-        <Exchange key={q.proposal_id} q={q} reply={replies[q.proposal_id]} timeZone={timeZone} />
+        <Exchange
+          key={q.proposal_id}
+          q={q}
+          // Step 4: the open question's reply shows in MerchantReplyCard below
+          reply={q.proposal_id === openId ? null : replies[q.proposal_id]}
+          open={q.proposal_id === openId}
+          timeZone={timeZone}
+        />
       ))}
     </div>
   );

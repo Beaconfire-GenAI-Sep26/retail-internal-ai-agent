@@ -4,12 +4,22 @@
 // rate jumped. Once the agent has a diagnosis, a purple line marks the day it
 // says the cause started (InvestigationResult.cause_started_at) — data the page
 // already has, so no events call.
+//
+// After a recheck has run (D-05), the x-axis extends to the end of its `after`
+// window. Domain has no daily rates past the last day of data, so that part has
+// no bars, only the recheck's averages as flat lines:
+//   before   the targeted orders' rate over the recheck's `before` window
+//   after    the same orders over the `after` window
+//   control  the store's other orders over the `after` window (if any)
+// Bars are the whole store; the lines are the orders the action targeted, which
+// the legend and the note under the chart say.
 
 
 // ═══════════════════════════════════════════════════════════════════
 // 1. Imports + chart size
 // ═══════════════════════════════════════════════════════════════════
-import { formatDay, formatRate } from '../../api/format';
+import { formatDay, formatRate, formatTarget } from '../../api/format';
+import { chartDays, latestRanRecheck } from './chartDays';
 
 // The SVG is drawn in these units and scales to the container's width (CSS)
 const WIDTH = 640;
@@ -46,43 +56,56 @@ const buildTicks = (top, step) =>
 //   goalRate         CaseDetail.goal_rate — drawn as the dashed line
 //   causeStartedAt   InvestigationResult.cause_started_at, 'YYYY-MM-DD' (store-local), or null.
 //                    No line when it is null or outside the chart's days.
-const DailyRateChart = ({ dailyRates, windowStartDate, goalRate, causeStartedAt = null }) => {
+//   rechecks         CaseDetail.rechecks — the latest one that ran extends the chart
+const DailyRateChart = ({ dailyRates, windowStartDate, goalRate, causeStartedAt = null, rechecks }) => {
+  const recheck = latestRanRecheck(rechecks);
+  const days = chartDays(dailyRates, recheck);
+  const lines = recheck ? recheckLines(recheck) : [];
+
   // ── 3a. Scale ───────────────────────────────────────────────────
   // rate: null (too few orders that day) counts as 0 for the scale
-  const highest = Math.max(goalRate, ...dailyRates.map((d) => d.rate ?? 0));
+  const highest = Math.max(goalRate, ...dailyRates.map((d) => d.rate ?? 0), ...lines.map((l) => l.rate));
   const step = tickStep(highest);
   const top = Math.ceil(highest / step) * step;
   const ticks = buildTicks(top, step);
 
-  const barSlot = PLOT_W / dailyRates.length; // width each day gets
+  const barSlot = PLOT_W / days.length; // width each day gets
   const y = (rate) => PAD.top + PLOT_H - (rate / top) * PLOT_H; // rate → SVG y
+  const indexOf = Object.fromEntries(days.map((d, i) => [d.date, i]));
+  // A window's left and right edge in SVG x; dates outside the axis are clamped
+  const xFrom = (date) => PAD.left + (indexOf[date] ?? 0) * barSlot;
+  const xTo = (date) => PAD.left + ((indexOf[date] ?? days.length - 1) + 1) * barSlot;
+  const futureFrom = dailyRates.length < days.length ? PAD.left + dailyRates.length * barSlot : null;
 
-  // Trigger window: from its first day to the end of the chart ('YYYY-MM-DD' compares as text)
+  // Trigger window: from its first day to the last day of data ('YYYY-MM-DD' compares as text)
   const windowIndex = dailyRates.findIndex((d) => d.date >= windowStartDate);
   // Cause line: the left edge of that day's bar. Label on the left side when the
   // line is in the right part of the chart, so it never runs off the edge.
   const causeIndex = causeStartedAt ? dailyRates.findIndex((d) => d.date === causeStartedAt) : -1;
   const causeX = PAD.left + causeIndex * barSlot;
   const causeLabel = `Likely cause started · ${formatDay(causeStartedAt).replace(/, \d{4}$/, '')}`;
-  const labelOnLeft = causeIndex > dailyRates.length * 0.6;
+  const labelOnLeft = causeIndex > days.length * 0.6;
 
   // ── 3b. Render ──────────────────────────────────────────────────
   return (
     <div className='daily-chart'>
       <div className='daily-chart-head'>
-        <h3>Daily M&amp;I rate · last {dailyRates.length} days</h3>
+        <h3>Daily M&amp;I rate · last {dailyRates.length} days{recheck && ' + recheck'}</h3>
         <div className='chart-legend'>
           <span className='legend-day'>Daily rate</span>
           <span className='legend-window'>Trigger window</span>
           <span className='legend-goal'>Goal {formatRate(goalRate)}</span>
           {causeIndex >= 0 && <span className='legend-cause'>Likely cause started</span>}
+          {recheck && <span className='legend-target'>Targeted orders (recheck)</span>}
+          {lines.some((l) => l.kind === 'control') && <span className='legend-control'>Other orders</span>}
         </div>
       </div>
 
       <svg
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         role='img'
-        aria-label={`Daily M&I rate from ${dailyRates[0]?.date} to ${dailyRates.at(-1)?.date}`}
+        aria-label={`Daily M&I rate from ${dailyRates[0]?.date} to ${dailyRates.at(-1)?.date}`
+          + (recheck ? `, then the recheck through ${recheck.after.end}` : '')}
       >
         {/* ── Trigger window band, behind everything ── */}
         {windowIndex >= 0 && (
@@ -96,6 +119,15 @@ const DailyRateChart = ({ dailyRates, windowStartDate, goalRate, causeStartedAt 
           />
         )}
 
+        {/* ── After the last day of data: shaded, labelled ── */}
+        {futureFrom != null && (
+          <g>
+            <rect className='chart-future' x={futureFrom} y={PAD.top} width={WIDTH - PAD.right - futureFrom} height={PLOT_H} />
+            <line className='chart-divider' x1={futureFrom} x2={futureFrom} y1={PAD.top} y2={PAD.top + PLOT_H} />
+            <text className='chart-label' x={futureFrom + 4} y={PAD.top + 10}>After the fix</text>
+          </g>
+        )}
+
         {/* ── Grid lines + y-axis labels ── */}
         {ticks.map((t) => (
           <g key={t}>
@@ -107,8 +139,16 @@ const DailyRateChart = ({ dailyRates, windowStartDate, goalRate, causeStartedAt 
         ))}
 
         {/* ── One bar per day — hover shows the numbers (<title>) ── */}
-        {dailyRates.map((d, i) => {
+        {days.map((d, i) => {
           const x = PAD.left + i * barSlot;
+          const dateLabel = (i % 7 === 0 || i === days.length - 1) && (
+            <text className='chart-label' x={x + barSlot / 2} y={HEIGHT - 6} textAnchor='middle'>
+              {d.date.slice(5)}
+            </text>
+          );
+          // Past the last day of data: no daily numbers, just the date
+          if (d.future) return <g key={d.date}>{dateLabel}</g>;
+
           const inWindow = d.date >= windowStartDate; // 'YYYY-MM-DD' compares as text
 
           // rate: null → a faint full-height outline, so "not enough data"
@@ -134,11 +174,7 @@ const DailyRateChart = ({ dailyRates, windowStartDate, goalRate, causeStartedAt 
               </rect>
 
               {/* A date label every 7 days, plus the last day */}
-              {(i % 7 === 0 || i === dailyRates.length - 1) && (
-                <text className='chart-label' x={x + barSlot / 2} y={HEIGHT - 6} textAnchor='middle'>
-                  {d.date.slice(5)}
-                </text>
-              )}
+              {dateLabel}
             </g>
           );
         })}
@@ -160,12 +196,55 @@ const DailyRateChart = ({ dailyRates, windowStartDate, goalRate, causeStartedAt 
             </text>
           </g>
         )}
+
+        {/* ── Recheck averages: one flat line per window, with its rate ── */}
+        {lines.map((l) => {
+          const x1 = xFrom(l.start);
+          const x2 = xTo(l.end);
+          return (
+            <g key={l.kind}>
+              <line className={`chart-recheck chart-recheck-${l.kind}`} x1={x1} x2={x2} y1={y(l.rate)} y2={y(l.rate)}>
+                <title>{l.title}</title>
+              </line>
+              {l.kind !== 'control' && (
+                <text className='chart-recheck-label' x={(x1 + x2) / 2} y={y(l.rate) - 4} textAnchor='middle'>
+                  {formatRate(l.rate)}
+                </text>
+              )}
+            </g>
+          );
+        })}
       </svg>
 
-      <p className='chart-note'>Hover a bar for that day's numbers. Dashed outlines are days with too few orders to rate.</p>
+      <p className='chart-note'>
+        Hover a bar for that day's numbers. Dashed outlines are days with too few orders to rate.
+        {recheck && (
+          <>
+            {' '}Bars are the whole store. The blue lines are the orders the action targeted
+            ({formatTarget(recheck.target)}), averaged over each recheck window; there are no daily
+            numbers after the last day of data.
+          </>
+        )}
+      </p>
     </div>
   );
 };
+
+
+// The recheck's windows as lines to draw; a window with no rate is left out
+const recheckLines = (recheck) => [
+  ['before', recheck.before, 'Targeted orders before the fix'],
+  ['after', recheck.after, 'Targeted orders after the fix'],
+  ['control', recheck.control, 'Other orders after the fix'],
+]
+  .filter(([, w]) => w && w.rate != null)
+  .map(([kind, w, label]) => ({
+    kind,
+    start: w.start,
+    end: w.end,
+    rate: w.rate,
+    title: `${label}, ${w.start} – ${w.end}: ${formatRate(w.rate)} (${w.claims} claims / ${w.eligible_orders} orders)`,
+  }));
 
 
 // ═══════════════════════════════════════════════════════════════════

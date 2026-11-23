@@ -9,11 +9,12 @@
 //   Before the fix  29 / 204 (14.2%) · Nov 3 – Nov 15, 2026
 //   After the fix   26 / 193 (13.5%) · Nov 16 – Nov 30, 2026
 //   Other orders    17 / 1062 (1.6%) · same days
-//   The fix didn't work. Start a new investigation above.      ← next step
+//   The fix didn't work. Start a new investigation below.      ← next step
 //
-// Scheduled: the analyst can run it now for the demo ("Run recheck now (demo)").
+// Scheduled: the analyst can run it now ("Run recheck now").
 // Shown at steps 6 and 7 and the ends after them (getCaseView.showRecheck).
-// InvestigationPanel places it right after the action it rechecks (D-06).
+// Sits inside InvestigationPanel as its own chapter, right after the action it
+// rechecks; at step 7 the Start button for the new run sits under it (D-05/D-06).
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -79,7 +80,7 @@ const nextStep = (recheck, caseStatus) => {
       return 'Too few orders to tell whether the fix worked. The case is paused.';
     case 'not_improved':
       return caseStatus === 'reopened'
-        ? "The fix didn't work. Start a new investigation above."
+        ? "The fix didn't work. Start a new investigation below."
         : "The second fix didn't work either. The case goes to analyst review.";
     default:
       return null;
@@ -111,9 +112,7 @@ const RunRecheck = ({ recheck, caseId }) => {
     settle(runRecheck.fulfilled.match(result) ? null : result.payload);
   };
 
-  // No recheck route on the real backend until C-04: mock mode only
-  if (!USE_MOCKS) return null;
-
+  // Real backend: POST /domain/rechecks/{id}/run (C-05). Mock mode also gets a result picker.
   return (
     <div className='recheck-run'>
       {USE_MOCKS && (
@@ -125,7 +124,7 @@ const RunRecheck = ({ recheck, caseId }) => {
         </label>
       )}
       <button type='button' onClick={start} disabled={running}>
-        {running ? 'Running…' : 'Run recheck now (demo)'}
+        {running ? 'Running…' : 'Run recheck now'}
       </button>
       {run?.status === 'failed' && (
         <p className='error' role='alert'>
@@ -155,7 +154,7 @@ const RecheckPanel = ({ caseId }) => {
 
   return (
     <>
-    <Chapter title='Did the fix work?' meta={<span className='mono'>{recheck.recheck_id}</span>} />
+    <Chapter title='Did the fix work?' meta={<span className='mono'>{recheck.recheck_id}</span>} id='recheck' />
     <section className={`recheck-panel recheck-${recheck.status}`}>
       <div className='recheck-head'>
         <RecheckPill status={recheck.status} />

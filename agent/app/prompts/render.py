@@ -19,6 +19,7 @@ from agent.app.config import Settings
 from agent.app.graph.gate import checklist
 from agent.app.graph.rules import EXPLORE_CAP, can_rule_out, can_support
 from agent.app.llm.base import RenderedPrompt
+from shared.guardrails import scrub
 from agent.app.tools.registry import describe_request, render_tool_catalog
 
 TEXT_CAP = 300
@@ -57,7 +58,7 @@ def prompt_hash() -> str:
 
 def esc(value: Any, cap: int = TEXT_CAP) -> str:
     """Escape Domain text so it can't close a tag, and cap its length."""
-    text = "" if value is None else str(value)
+    text = scrub("" if value is None else str(value)) or ""
     text = " ".join(text.split())
     if len(text) > cap:
         text = text[: cap - 1] + "…"

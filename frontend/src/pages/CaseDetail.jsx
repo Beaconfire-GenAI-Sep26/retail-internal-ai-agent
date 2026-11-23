@@ -134,6 +134,7 @@ const CaseDetail = () => {
                 windowStartDate={toStoreDate(caseDetail.window_start, caseDetail.store.timezone)}
                 goalRate={caseDetail.goal_rate}
                 causeStartedAt={causeStartedAt}
+                rechecks={caseDetail.rechecks}
               />
             </section>
             {/* Chapters 2 onwards: the run, the action, the recheck, the merchant

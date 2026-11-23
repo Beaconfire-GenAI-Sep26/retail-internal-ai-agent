@@ -12,6 +12,7 @@
 //   ┌ the recommended action (9) — or, with no run from the agent,     ┐
 //   └ the case's saved action                                          ┘
 //   ④ DID THE FIX WORK? — the recheck (13), once one exists
+//      then, at step 7, Start new investigation; in analyst review, Mark as resolved
 //   ⑤ MERCHANT CONVERSATION — this run's questions and replies (6, read-only),
 //      folded. While the run is still going they stay inside the run's card
 //      instead, next to the reply form.
@@ -20,7 +21,7 @@
 //
 // Chapter numbers are a CSS counter, so ones that don't show leave no gap.
 // A second run also shows the first one, folded, under the title (box 15).
-// id='investigation' and id='decide' are where the next-action banner jumps.
+// id='investigation', 'decide', 'recheck' and 'followup' are where the next-action banner jumps.
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -46,11 +47,12 @@ import ResultPanel from './ResultPanel';
 import RecommendationReview from './RecommendationReview';
 import QuestionReview from './QuestionReview';
 import MerchantReplyCard from './MerchantReplyCard';
+import RecheckPanel from './RecheckPanel';
+import CloseCaseButton from './CloseCaseButton';
 import PreviousInvestigation from './PreviousInvestigation';
 import ErrorPanel from './ErrorPanel';
 import CheckTimeline from './CheckTimeline';
 import HypothesisList from './HypothesisList';
-import RecheckPanel from './RecheckPanel';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -61,9 +63,9 @@ const Slot = ({ view, caseId, investigation, timeZone }) => {
     // Step 3: review the agent's question (box 6)
     case 'question':
       return <QuestionReview mode='review' investigation={investigation} timeZone={timeZone} />;
-    // Step 4: record the merchant's reply, or "no reply" (box 7)
+    // Step 4: the merchant's reply shows up live → confirm it, or "no reply" (box 7)
     case 'reply':
-      return <MerchantReplyCard investigation={investigation} />;
+      return <MerchantReplyCard investigation={investigation} timeZone={timeZone} />;
     // Result (box 8). The recommended action (box 9) is its own chapter below.
     case 'result':
       return investigation.result ? (
@@ -133,6 +135,7 @@ const InvestigationPanel = ({ caseId }) => {
   const pending = !decision || decision.status === 'pending';
   const checkCount = investigation?.checks?.length ?? 0;
   const causeCount = investigation?.hypotheses?.length ?? 0;
+  const reopened = view.step === '7';
 
   return (
     <>
@@ -145,7 +148,7 @@ const InvestigationPanel = ({ caseId }) => {
       ))}
       <section className='investigation-panel' data-step={view.step ?? undefined}>
         {/* Second run: the first one, folded (box 15) */}
-        {view.showPrevious && <PreviousInvestigation investigation={investigation} />}
+        {view.showPrevious && <PreviousInvestigation investigation={investigation} timeZone={timeZone} />}
 
         {/* Start (box 4) and/or progress (box 5) */}
         {/* A poll got 404: the agent restarted while this page was open */}
@@ -163,14 +166,10 @@ const InvestigationPanel = ({ caseId }) => {
             {view.proposalId ? ' The recommended action is still saved below.' : ''}
           </p>
         )}
-        {/* On failure the Start again button sits inside the error box instead */}
-        {view.showStart && view.slot !== 'error' && (
-          <StartInvestigationButton
-            caseId={caseId}
-            label={view.startLabel}
-            // Step 7 (reopened): the new run points at the one whose fix didn't work
-            reopenOf={view.step === '7' ? investigation.investigation_id : null}
-          />
+        {/* On failure the Start again button sits inside the error box instead;
+            at step 7 it sits under the recheck that said the fix didn't work */}
+        {view.showStart && view.slot !== 'error' && !reopened && (
+          <StartInvestigationButton caseId={caseId} label={view.startLabel} />
         )}
         {view.showProgress && (
           <InvestigationProgress investigation={investigation} pausedFor={view.pausedFor} pollError={pollError} />
@@ -201,6 +200,18 @@ const InvestigationPanel = ({ caseId }) => {
 
       {/* ── Did the fix work? (box 13) — hides itself until a recheck exists ── */}
       <RecheckPanel caseId={caseId} />
+
+      {/* Step 7 (reopened): start the second run right under the recheck that said
+          the fix didn't work; the new run points at that one. Analyst review
+          (rejected action, unsure, second fix failed): close the case once handled. */}
+      {((view.showStart && reopened) || view.showClose) && (
+        <div className='case-followup' id='followup'>
+          {view.showStart && reopened && (
+            <StartInvestigationButton caseId={caseId} label={view.startLabel} reopenOf={investigation.investigation_id} />
+          )}
+          {view.showClose && <CloseCaseButton caseId={caseId} />}
+        </div>
+      )}
 
       {/* ── Merchant conversation, once the run has ended — nothing if it asked none ── */}
       {view.showQuestionHistory && !view.showProgress && (

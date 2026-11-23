@@ -91,6 +91,15 @@ describe('where a case ends after a diagnosis', () => {
       .toMatchObject({ step: 'analyst_review', showRecheck: true, showPrevious: true });
   });
 
+  it('analyst review offers Mark as resolved; other statuses do not', () => {
+    expect(view(inv('completed'), caseIn('analyst_review')).showClose).toBe(true);
+    expect(view(inv('unsure'), caseIn('analyst_review')).showClose).toBe(true);
+    expect(view(null, caseIn('analyst_review')).showClose).toBe(true); // agent lost the run
+    for (const status of ['awaiting_decision', 'action_dispatched', 'reopened', 'closed', 'paused']) {
+      expect(view(inv('completed'), caseIn(status)).showClose).toBe(false);
+    }
+  });
+
   it('a recheck for another run does not count', () => {
     const c = caseIn('analyst_review', { rechecks: [{ recheck_id: 'RCK-0001', proposal_id: 'PROP-0009' }] });
     expect(view(inv('completed'), c).showRecheck).toBe(false);

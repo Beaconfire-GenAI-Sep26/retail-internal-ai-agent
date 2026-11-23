@@ -111,6 +111,18 @@ services:
       <<: *api-healthcheck
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"]
 
+  # Explicit CLI maintenance job for reset or migrations; APIs retain service roles.
+  demo-reset:
+    profiles: ["maintenance"]
+    build:
+      context: .
+      dockerfile: domain/Dockerfile
+    environment:
+      <<: *database
+      POSTGRES_USER: ${POSTGRES_USER:-retail_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your local .env file}
+    command: ["python", "-m", "domain.scripts.reset_demo"]
+
   frontend:
     build: ./frontend
     healthcheck:

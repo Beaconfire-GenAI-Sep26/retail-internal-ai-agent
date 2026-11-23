@@ -22,7 +22,8 @@ data (Nov 16 - Dec 13) into separate tables (`future_orders`, `future_order_item
   other row and ID is the same as before C-05.
 
 `MERCHANT_INBOX` is what each store's mock merchant answers when a question is dispatched to it.
-STORE-K has no entry: it never answers, so an analyst records no_reply (workflow scenario W-01).
+STORE-K and STORE-R have no entry: they never answer, so an analyst records no_reply (STORE-R is
+workflow scenario W-01).
 """
 import random
 from dataclasses import dataclass, field
@@ -41,7 +42,7 @@ from domain.app.models import (
 )
 from domain.scripts.scenario_stores import daypart_for, open_hours
 
-FUTURE_SEED = 24 + 4  # SEED + 4; +2 and +3 are the C-04 dev and holdout stores
+FUTURE_SEED = 24 + 4  # SEED + 4; +2 and +3 are the C-04 dev and holdout stores, +5 STORE-Q/R
 FUTURE_START = date(2026, 11, 16)  # the day after the last day of data
 FUTURE_DAYS = 28
 BLOCK_DAYS = 14  # weeks 1-2 = block 0 (first recheck), weeks 3-4 = block 1 (second recheck)
@@ -53,6 +54,8 @@ MERCHANT_INBOX = {
                "bag sometimes stays on the pickup shelf.",
     "STORE-L": "We moved the pickup shelf next to the dine-in counter on Nov 2. Dashers sometimes take a "
                "bag from the wrong shelf.",
+    "STORE-Q": "Yes, chili crisp prints on the kitchen ticket. Our evening line cooks are new since early "
+               "November and the chili crisp sits at a separate station, so at night they often miss it.",
     "STORE-M": "Nothing changed on our side. Every order is handed to the Dasher and our photos show the "
                "bags being picked up.",
 }

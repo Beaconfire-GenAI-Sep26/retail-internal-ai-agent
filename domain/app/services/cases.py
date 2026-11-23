@@ -1,6 +1,6 @@
-"""Case list and detail (contracts.md CaseSummary / CaseDetail)."""
+"""Case list and detail (contracts.md CaseSummary / CaseDetail), and closing a case after analyst review."""
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,6 +9,7 @@ from domain.app.errors import ApiError
 from domain.app.models import Case, CaseStatus, Store
 from domain.app.schemas import CaseDetail, CaseSummary, DailyRate, StoreSummary
 from domain.app.security import CurrentUser
+from domain.app.services.audit import write_audit
 from domain.app.services.store_data import INVESTIGATION_DAYS, load_context, load_window
 from domain.app.services.proposals import case_proposals, case_rechecks
 from domain.app.settings import settings
@@ -88,3 +89,21 @@ def get_case(session: Session, user: CurrentUser, case_id: str) -> CaseDetail:
         proposals=case_proposals(session, case.case_id),
         rechecks=case_rechecks(session, case.case_id),
     )
+
+
+def close_case(session: Session, user: CurrentUser, case: Case, rid: str) -> CaseSummary:
+    """The analyst marks a case resolved: analyst_review -> closed. `case` must be locked. The caller commits.
+
+    analyst_review is where a case lands when nothing else will move it: a rejected action, an unsure
+    result, or a second failed recheck. Every other status has its own way forward, so it gets 409.
+    """
+    if case.status != CaseStatus.ANALYST_REVIEW:
+        raise ApiError(409, "CASE_NOT_CLOSABLE",
+                       f"Case {case.case_id} is {case.status.value}; only a case in analyst_review can be closed.",
+                       {"status": case.status.value})
+    case.status = CaseStatus.CLOSED
+    case.updated_at = datetime.now(timezone.utc)
+    write_audit(session, case_id=case.case_id, action="case.closed", request_id=rid, user=user,
+                details={"from_status": "analyst_review"})
+    session.flush()
+    return case_summary(case, session.get(Store, case.store_id))

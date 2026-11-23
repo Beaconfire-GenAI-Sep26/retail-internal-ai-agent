@@ -684,7 +684,7 @@ interface ProposalCreate {
   investigation_id: string;
   kind: proposal_kind;
   content: MerchantQuestionContent | ActionContent;
-  evidence_ids: string[];
+  evidence_ids: string[]; // up to 200 resolvable IDs in this store; nonempty for actions, may be empty for questions
 }
 
 interface ProposalEdit {
@@ -979,6 +979,7 @@ Every error uses one envelope, including FastAPI's validation errors:
 | 409  | `RECHECK_ALREADY_RUN`                | The recheck already has a result                                                                                        |
 | 422  | `VALIDATION_ERROR`                   | Body or query fails validation, including an unknown `item_id`, modifier, `daypart`, or a date outside the store's data. `details` names the problem: `unknown_item_ids`, `unknown_modifiers`, or `data_start` and `data_end`. |
 | 422  | `INVALID_EVIDENCE`, `UNKNOWN_ACTION` | Proposal cites unresolvable evidence or an action outside the catalog                                                   |
+| 422  | `POLICY_VIOLATION`                  | Proposal text contains a prohibited action, contact detail, URL, customer reference, or instruction override. Enforced on create, edit, and again at approval; nothing is dispatched. |
 | 502  | `DISPATCH_FAILED`                    | Mock dispatch failed. The proposal stays `pending`.                                                                     |
 | 503  | `UPSTREAM_UNAVAILABLE`               | A called service or the model is unreachable                                                                            |
 | 500  | `INTERNAL`                           | Anything else. Details are logged, not returned.                                                                        |

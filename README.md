@@ -18,7 +18,8 @@ compose.yaml   Integrated runtime, launched from this directory
 Each backend is an independent process and image. Shared code contains no
 business repositories. The Agent reaches Domain through HTTP; it has no access
 to Domain's database schema. See [architecture](docs/architecture.md),
-[contracts](docs/contracts.md) and [authentication](docs/authentication.md).
+[contracts](docs/contracts.md), [authentication](docs/authentication.md), and
+[guardrail verification](docs/guardrails.md).
 
 ## Run locally
 
@@ -78,8 +79,56 @@ docker compose up --build -d --wait
 Open [the workspace](http://localhost:18080). Only the gateway publishes a host
 port. API docs are at `/auth/docs`, `/agent/docs`, `/domain/docs`.
 
-Domain migrations and synthetic data seeding are separate administrative
-operations; see the [Domain instructions](domain/README.md). Runtime services
+### Make commands for the demo
+
+With GNU Make installed, run these from the repository root after configuring
+`.env`. All application commands execute through Docker Compose; host Python is
+not required. On Windows, use GNU Make from PowerShell, Git Bash, or WSL.
+
+```bash
+make reset   # First demo setup, or reset an existing demo and start all services
+make down    # Stop the entire stack; keep database data
+make up      # Build/start the entire stack; keep existing data
+make status  # Show service status
+make logs    # Follow logs; Ctrl+C stops following
+```
+
+`make start` and `make stop` are aliases for `up` and `down`. `make up` builds the
+maintenance image, stops gateway/Agent/Domain, applies pending Domain migrations
+with the administrative maintenance job, restores service grants, then starts the
+full stack. Existing business data, Auth accounts/sessions, and Agent checkpoints
+are preserved. `make up` creates/upgrades schema but does not seed demo data; use
+`make reset` for the initial demo dataset.
+
+This migration step also fixes existing volumes that are behind the application
+code, such as a missing `cases.reopen_count` column after updating to C-05. A
+healthy database connection alone does not establish that its schema is current.
+If a migration fails, Make stops before restarting gateway/Agent/Domain; inspect
+the error and rerun `make up` after correcting it.
+
+**`make reset` deletes Domain business data, evaluation data, and all Agent
+investigation/checkpoint history.** It preserves Auth accounts and sessions.
+It builds the maintenance image, stops the gateway/Agent/Domain, clears Agent
+checkpoints, reseeds the 13 demo stores, restores schema ownership and service
+permissions, then starts the complete stack and waits for health checks. Refresh
+the browser afterward to clear old case/investigation state from the UI.
+
+Reset is an operator command with Docker access. The `demo-reset` service is an
+explicit maintenance job using database administrator credentials from `.env`;
+it is excluded from normal startup. API services keep their restricted roles.
+If reseeding or permission restoration fails, the gateway/Agent/Domain are not
+restarted: fix the error and rerun `make reset` before resuming the demo.
+Concurrent commands from separate terminals
+should be avoided while reset runs.
+
+Compose options can be supplied without editing the Makefile, for example:
+
+```bash
+make reset COMPOSE="docker compose --env-file .env.demo -p retail-demo"
+```
+
+`make up` applies Domain migrations; `make reset` performs synthetic data seeding
+as well. Manual administrative commands are in the [Domain instructions](domain/README.md). Runtime services
 cannot access the evaluation schema. Investigation execution and proposal,
 decision and dispatch workflows remain with their respective business tickets;
 the authentication and authorization boundaries are installed now.

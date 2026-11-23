@@ -405,7 +405,7 @@ class CaseDetail(CaseSummary):
 
 class SkippedStore(BaseModel):
     store_id: str
-    reason: Literal["open_case_exists", "low_volume", "below_threshold"]
+    reason: Literal["open_case_exists", "already_reviewed", "low_volume", "below_threshold"]
 
 
 class MonitorRunResponse(BaseModel):

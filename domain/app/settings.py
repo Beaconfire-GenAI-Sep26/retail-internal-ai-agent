@@ -43,7 +43,7 @@ def load_settings() -> Settings:
         fraud_min_pending_claims=int(env("FRAUD_MIN_PENDING_CLAIMS", "4")),
         mock_dispatch_fail=env("MOCK_DISPATCH_FAIL", "false").lower() == "true",
         recheck_min_drop=Decimal(env("RECHECK_MIN_DROP", "0.5")),
-        mock_reply_delay_seconds=max(0, int(env("MOCK_REPLY_DELAY_SECONDS", "15"))),
+        mock_reply_delay_seconds=max(0, int(env("MOCK_REPLY_DELAY_SECONDS", "5"))),
     )
 
 

@@ -21,6 +21,10 @@ to Domain's database schema. See [architecture](docs/architecture.md),
 [contracts](docs/contracts.md), [authentication](docs/authentication.md), and
 [guardrail verification](docs/guardrails.md).
 
+For one Docker Hub repository with five service tags and an EC2 deployment,
+follow the [deployment guide](docs/deployment.md). It includes PowerShell build
+and transfer commands, server setup, database initialization, and release updates.
+
 ## Run locally
 
 Requires Docker Desktop running with Linux containers on Windows or macOS, or

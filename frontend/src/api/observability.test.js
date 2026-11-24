@@ -1,9 +1,25 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { prepareRequest, recordResponse } from './observability';
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe('request correlation and private browser logs', () => {
+  it('prepares login requests on HTTP pages without crypto.randomUUID', () => {
+    const browserCrypto = globalThis.crypto;
+    vi.stubGlobal('crypto', {
+      getRandomValues: browserCrypto.getRandomValues.bind(browserCrypto),
+    });
+
+    const request = prepareRequest({ url: '/auth/login' });
+    const requestId = request.headers['X-Request-ID'];
+    expect(requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(prepareRequest(request).headers['X-Request-ID']).toBe(requestId);
+    expect(prepareRequest({ url: '/auth/refresh' }).headers['X-Request-ID']).not.toBe(requestId);
+  });
+
   it('creates an opaque ID, keeps it on retry, and captures case context', () => {
     const config = prepareRequest({ url: '/agent/investigations', data: { case_id: 'CASE-0001' } });
     const id = config.headers['X-Request-ID'];

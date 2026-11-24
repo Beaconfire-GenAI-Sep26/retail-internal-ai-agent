@@ -1,0 +1,7 @@
+# Optional HTTP demo at http://EC2_PUBLIC_IP. Restrict ingress to your IP.
+# Append after compose.yaml and compose.registry.yaml. Requires Compose >=2.24.4.
+# Also set PUBLIC_ORIGIN=http://EC2_PUBLIC_IP in the server's .env.
+services:
+  gateway:
+    ports: !override
+      - "0.0.0.0:${HTTP_PORT:-80}:80"

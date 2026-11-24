@@ -1,0 +1,43 @@
+# Published-image runtime. See docs/deployment.md.
+# docker compose -f compose.yaml -f compose.registry.yaml ...
+x-runtime: &runtime
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  postgres:
+    <<: *runtime
+
+  auth:
+    <<: *runtime
+    build: !reset null
+    image: ${DOCKERHUB_IMAGE:?Set DOCKERHUB_IMAGE to username/repository}:auth-${IMAGE_TAG:?Set IMAGE_TAG}
+
+  agent:
+    <<: *runtime
+    build: !reset null
+    image: ${DOCKERHUB_IMAGE:?Set DOCKERHUB_IMAGE to username/repository}:agent-${IMAGE_TAG:?Set IMAGE_TAG}
+
+  domain:
+    <<: *runtime
+    build: !reset null
+    image: ${DOCKERHUB_IMAGE:?Set DOCKERHUB_IMAGE to username/repository}:domain-${IMAGE_TAG:?Set IMAGE_TAG}
+
+  frontend:
+    <<: *runtime
+    build: !reset null
+    image: ${DOCKERHUB_IMAGE:?Set DOCKERHUB_IMAGE to username/repository}:frontend-${IMAGE_TAG:?Set IMAGE_TAG}
+
+  gateway:
+    <<: *runtime
+    build: !reset null
+    image: ${DOCKERHUB_IMAGE:?Set DOCKERHUB_IMAGE to username/repository}:gateway-${IMAGE_TAG:?Set IMAGE_TAG}
+
+  # One-off maintenance commands use the Domain image and do not auto-restart.
+  demo-reset:
+    build: !reset null
+    image: ${DOCKERHUB_IMAGE:?Set DOCKERHUB_IMAGE to username/repository}:domain-${IMAGE_TAG:?Set IMAGE_TAG}

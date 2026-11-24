@@ -1,5 +1,7 @@
 // Log only correlation and transport facts. Never serialize Axios errors/configs,
 // payloads, tokens, user identities or URLs (queries can contain private data).
+import { newUuid } from '../utils/uuid';
+
 const requestIdPattern = /^[A-Za-z0-9._-]{1,128}$/;
 const caseIdPattern = /^CASE-\d{4,}$/;
 const investigationIdPattern = /^INV-[A-Za-z0-9-]{1,64}$/;
@@ -8,7 +10,7 @@ export function prepareRequest(config) {
   config.headers ??= {};
   const existing = config.headers.get?.('X-Request-ID') ?? config.headers['X-Request-ID'];
   config.headers['X-Request-ID'] = requestIdPattern.test(existing ?? '')
-    ? existing : crypto.randomUUID();
+    ? existing : newUuid();
   const path = (config.url ?? '').split('?')[0];
   const caseId = path.match(/\/cases\/(CASE-\d{4,})(?:\/|$)/)?.[1]
     ?? (typeof config.data === 'object' ? config.data?.case_id : null)

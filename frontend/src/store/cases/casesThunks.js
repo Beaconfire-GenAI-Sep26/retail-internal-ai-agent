@@ -13,6 +13,7 @@ import api from '../../api/axios';
 import { getErrorCode, getErrorMessage } from '../../api/errors';
 import { USE_MOCKS } from '../../api/mockAuth';
 import { applyMockCase, applyMockCaseList, mockCloseCase } from '../../api/mocks/mockInvestigations';
+import { newUuid } from '../../utils/uuid';
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -88,7 +89,7 @@ export const runMonitor = createAsyncThunk(
   async (_, { rejectWithValue }) => {
     try {
       const { data } = await api.post('/domain/monitor/run', null, {
-        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        headers: { 'Idempotency-Key': newUuid() },
       });
       return data;
     } catch (err) {

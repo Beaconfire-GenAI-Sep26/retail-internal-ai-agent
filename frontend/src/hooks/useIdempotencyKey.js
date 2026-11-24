@@ -15,21 +15,13 @@
 // 1. Imports
 // ═══════════════════════════════════════════════════════════════════
 import { useCallback, useRef } from 'react';
+import { newUuid as newKey } from '../utils/uuid';
 
 
 // ═══════════════════════════════════════════════════════════════════
 // 2. Pure helpers (tested in useIdempotencyKey.test.js)
 // ═══════════════════════════════════════════════════════════════════
-// crypto.randomUUID needs a secure context (https or localhost). Opening the dev
-// server by LAN IP isn't one, so fall back to a v4 UUID from getRandomValues.
-export const newKey = () => {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-  const b = globalThis.crypto.getRandomValues(new Uint8Array(16));
-  b[6] = (b[6] & 0x0f) | 0x40;
-  b[8] = (b[8] & 0x3f) | 0x80;
-  const hex = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-};
+export { newKey };
 
 // last: { action, key, noResponse } from the previous attempt, or null
 // action: what the analyst clicks now, e.g. 'approve'
